@@ -1,0 +1,9 @@
+{
+  "name": "django-automation-agent",
+  "private": true,
+  "description": "Node dependencies for MCP bridge",
+  "dependencies": {
+    "@playwright/mcp": "latest",
+    "@playwright/test": "latest"
+  }
+}
