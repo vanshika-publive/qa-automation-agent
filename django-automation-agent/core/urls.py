@@ -11,6 +11,7 @@ urlpatterns = [
 
     # Environments
     path('environments', environments.EnvironmentListCreate.as_view()),
+    path('environments/active-publisher', environments.ActivePublisher.as_view()),
     path('environments/<str:id>', environments.EnvironmentUpdateDelete.as_view()),
 
     # Specs

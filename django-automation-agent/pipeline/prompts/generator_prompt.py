@@ -24,11 +24,11 @@ General:
 - Sidebar links need exact: true — get_by_role('link', name='Posts', exact=True)
 - NEVER use get_by_label() — labels are <div>, not <label>. Always times out.
 
-ARTICLE CREATION (/posts/article/create):
+ARTICLE CREATION (/posts/article/create) — articles PUBLISH DIRECTLY (NO save-as-draft -> edit -> publish detour):
 - Navigate directly — no "Create Article" button exists.
-- Required fields (ALL THREE or Save as Draft stays disabled):
+- Required to enable Publish (Credits auto-fills with the logged-in user — leave it alone):
     safe_sequential_fill(page, 'Title *', title, delay=50)
-    safe_fill(page, 'English Title ( Permalink ) *', f'qa-{ts}')
+    safe_fill(page, 'English Title ( Permalink ) *', f'qa-{ts}')   # UNIQUE every run — never reuse a permalink
     cb = page.get_by_role('combobox', name='Primary Category')
     cb.click()
     # The category list is VIRTUALIZED (only ~9 of 65+ options render) and categories vary per publisher.
@@ -39,7 +39,13 @@ ARTICLE CREATION (/posts/article/create):
     # If the plan names a specific category, type to filter the virtual list first, then click the first match:
     #   cb.fill('Cricket'); cat_option = page.locator('.ant-select-dropdown').last.locator('.ant-select-item-option').first
     #   cat_option.wait_for(state='visible'); cat_option.click()
-- Optional fields: safe_fill(page, 'Summary', ...), safe_fill(page, 'Meta Description', ...), etc.
+- PUBLISH (this IS the whole publish flow — never save-as-draft then edit):
+    publish = page.get_by_role('button', name='Publish')
+    expect(publish).to_be_enabled(timeout=15000)   # disabled for a beat after filling (async permalink check) — WAIT, never click immediately
+    publish.click()
+    expect(page).to_have_url(re.compile(r'/posts/published'), timeout=15000)
+- Optional/SEO fields (NOT required to publish): safe_fill(page, 'Summary', ...), safe_fill(page, 'Meta Description', ...)
+- SAVE AS DRAFT instead (only for explicit "save as draft" flows): get_by_role('button', name='Save as Draft') -> URL /posts/draft
 - Dropdown items (Ant Design portals): when clicking an option BY NAME, ALWAYS get_by_title('exact text', exact=True).last
   The portal renders last in the DOM — .last avoids matching sidebar links with the same title.
   NEVER get_by_title('X') without exact=True and .last — strict mode will throw.
@@ -49,10 +55,19 @@ ARTICLE CREATION (/posts/article/create):
   plan: either pick the first live .ant-select-item-option, or cb.fill('<name>') to filter then click the first match.
   Never substitute a remembered category title. Category format is always 'Name ( slug )'; tag format is plain name.
 - TinyMCE: page.frame_locator('iframe[title*="Rich Text Area"]').locator('body')
-- Save: get_by_role('button', name='Save as Draft')
-- After save: URL -> /posts/draft
 
-DRAFT LIST (/posts/draft):
+PUBLISHED LIST (/posts/published — articles: /posts/published?page_type=Article&ptype=Article&create=article):
+- Row actions: link "Edit", link "View", button "Copy url to clipboard", and a kebab (more-actions) icon button (NO accessible name).
+- DELETE an article (verified live — the row kebab is the documented exception to the no-CSS rule, it has no ARIA name):
+    row = page.get_by_role('row', name=re.compile(re.escape(title)))
+    row.first.locator('.published-action-dropdown').click()              # row kebab (icon-only)
+    menu = page.locator('.ant-dropdown:not(.ant-dropdown-hidden)').last  # the open Ant Design menu portal
+    menu.get_by_role('menuitem', name='Delete').click()
+    page.get_by_role('dialog', name='Delete Article').get_by_role('button', name='Delete').click()
+    expect(page.get_by_role('row', name=re.compile(re.escape(title)))).to_have_count(0, timeout=15000)
+  NOTE: the kebab also has "Unpublish" — that sends the article back to draft and is NOT the same as Delete.
+
+DRAFT LIST (/posts/draft) — only for "save as draft" / "discard" flows:
 - Row actions: link "Edit", link "Preview", button "Discard" — NO Delete button
 - Discard:
     page.get_by_role('row', name=re.compile(title)).get_by_role('button', name='Discard').click()
@@ -154,6 +169,9 @@ RULE 3 — LOCATORS:
   ONLY get_by_role(), get_by_text(), get_by_title() — never get_by_label(), CSS, XPath.
   EXCEPTION: page.locator('.ant-select-dropdown') and '.ant-select-item-option' are allowed ONLY for the Ant Design
   Value combobox pattern (see Geography articles filter example) where the dropdown options have no semantic role.
+  EXCEPTION: the Published-list row kebab is an icon-only button with NO accessible name, so
+  row.locator('.published-action-dropdown') and page.locator('.ant-dropdown:not(.ant-dropdown-hidden)') are allowed
+  ONLY for the published-list delete flow (see PUBLISHED LIST above). Everywhere else, semantic locators only.
   FORBIDDEN even though it looks tempting: page.locator('text=...') — Playwright's text engine substring-matches and
   blows up under strict mode (text=Content matched 6 elements in a real run). Use page.get_by_text('exact', exact=True)
   or page.get_by_role('heading', name='exact') instead.
@@ -212,7 +230,13 @@ RULE 7 — DO NOT INVENT FIELDS:
 ---------------------------------------------------"""
 
 
-def build_generator_system_prompt(heuristics, facts=''):
+def build_generator_system_prompt(heuristics, facts='', publisher=''):
+    publisher_section = (
+        f'\n\n## ACTIVE PUBLISHER: {publisher}\n'
+        f'The session is logged into "{publisher}" and the test runs against THIS publisher only. '
+        'Use only categories/options observed live for this publisher; never assume another publisher\'s data.'
+        if publisher else ''
+    )
     facts_section = (
         f'\n\n## Verified Page Facts — for EACH page you write code against, you MUST emit a fill step for '
         f'EVERY field in "Required for save/draft". Never collapse multiple required fields into one even if '
@@ -224,4 +248,4 @@ def build_generator_system_prompt(heuristics, facts=''):
         f'\n\n## Known Dashboard Quirks — you MUST follow these:\n{heuristics}'
         if heuristics else ''
     )
-    return f'{GENERATOR_SYSTEM_PROMPT}{facts_section}{heuristics_section}'
+    return f'{GENERATOR_SYSTEM_PROMPT}{publisher_section}{facts_section}{heuristics_section}'

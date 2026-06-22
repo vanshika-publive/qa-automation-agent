@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pipeline.mcp_bridge import MCPBridge
 from pipeline.ai_client import create_ai_client
-from pipeline.credential_manager import get_credentials
+from pipeline.credential_manager import get_credentials, get_publisher
 from pipeline.login_helper import ensure_mcp_authenticated
 from pipeline.agent_utils import (
     mcp_to_openai_tool,
@@ -168,7 +168,7 @@ def generate_scenario(openai_client, model, scenario, url, tests_dir, plan_snaps
             f'[heuristics] Injected dashboard heuristics ({len(heuristics)} chars) '
             f'+ {len(facts) if facts else 0} chars of page facts into generator prompt'
         )
-        generator_system_prompt = build_generator_system_prompt(heuristics, facts)
+        generator_system_prompt = build_generator_system_prompt(heuristics, facts, get_publisher())
 
         messages = [
             {'role': 'system', 'content': generator_system_prompt},

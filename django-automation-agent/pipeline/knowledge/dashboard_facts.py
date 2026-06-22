@@ -53,34 +53,38 @@ ARTICLE_CREATE = PageFacts(
     title='Article Create',
     required_for_draft=[
         FieldConstraint(field='Title *', react_controlled=True, note='React-controlled — MUST use safe_sequential_fill, not safe_fill'),
-        FieldConstraint(field='English Title ( Permalink ) *', note="fill() works; common slug format: f'qa-{ts}'"),
+        FieldConstraint(field='English Title ( Permalink ) *', note="fill() works; use a UNIQUE slug every run, e.g. f'qa-{ts}' — never reuse a permalink"),
     ],
-    required_for_publish=[
-        FieldConstraint(field='Summary', min=140, note='JS-enforced minimum 140 chars to enable Publish on the edit page'),
-        FieldConstraint(field='Meta Description', min=140, max=170, note='JS-enforced range 140–170 chars to enable Publish on the edit page'),
-    ],
+    # Nothing beyond the required fields is needed to publish. Summary/Meta Description are
+    # SEO-only (they only affect the SEO score), NOT gates on the Publish button.
+    required_for_publish=[],
     optional_fields=[
+        FieldConstraint(field='Summary', note='SEO only — NOT required to publish'),
+        FieldConstraint(field='Meta Description', note='SEO only — NOT required to publish'),
         FieldConstraint(field='Banner Description'),
         FieldConstraint(field='Focus Keyphrase', max=60),
     ],
     comboboxes=[
-        ComboboxFacts(aria_name='Primary Category', required=True, note='Options vary per publisher and change over time. Planner MUST click this combobox and snapshot to discover live options — never assume names.'),
+        ComboboxFacts(aria_name='Primary Category', required=True, note='REQUIRED. Virtualized + per-publisher — click and snapshot, pick the first live .ant-select-item-option; never hardcode a name.'),
+        ComboboxFacts(aria_name='Credits', required=True, note='REQUIRED but auto-filled with the logged-in user — no action needed.'),
         ComboboxFacts(aria_name='Tags'),
-        ComboboxFacts(aria_name='Credits'),
         ComboboxFacts(aria_name='Additional Category'),
     ],
-    save_button='Save as Draft',
-    after_save_url_pattern='/posts/draft',
+    save_button='Publish',
+    after_save_url_pattern='/posts/published',
     publish_flow=[
-        PublishStep(kind='click_button', button='Save as Draft'),
-        PublishStep(kind='expect_url', pattern='/posts/draft'),
-        PublishStep(kind='click_row_action', row_matcher='title', action='Edit'),
-        PublishStep(kind='expect_url', pattern=r'/posts/article/\d+'),
         PublishStep(kind='click_button', button='Publish'),
         PublishStep(kind='expect_url', pattern='/posts/published'),
     ],
     published_list_path='/posts/published',
     draft_list_path='/posts/draft',
+    note=('Articles PUBLISH DIRECTLY from this page. Fill Title + English Title (Permalink) + Primary Category '
+          '(Credits auto-fills with the logged-in user), then click "Publish" — the article goes straight to '
+          '/posts/published. The Publish button is briefly disabled right after the fields are filled (async '
+          'permalink validation), so wait for expect(get_by_role("button", name="Publish")).to_be_enabled(timeout=15000) '
+          'before clicking — never click immediately. There is NO "Save as Draft -> Edit -> Publish" detour. '
+          '"Save as Draft" is a SEPARATE optional action that sends the article to /posts/draft instead of publishing it. '
+          'To DELETE a published article, go to the Published list and use the row kebab menu (see Published List facts).'),
 )
 
 CUSTOM_PAGE_CREATE = PageFacts(
@@ -88,30 +92,29 @@ CUSTOM_PAGE_CREATE = PageFacts(
     title='Custom Content Template Page',
     required_for_draft=[
         FieldConstraint(field='Title *', react_controlled=True, note='React-controlled — MUST use safe_sequential_fill'),
-        FieldConstraint(field='English Title ( Permalink ) *', max=250),
+        FieldConstraint(field='English Title ( Permalink ) *', max=250, note="use a UNIQUE slug every run, e.g. f'qa-custom-{ts}'"),
     ],
-    required_for_publish=[
-        FieldConstraint(field='Summary', min=140, note='JS-enforced minimum 140 chars to enable Publish on the edit page'),
-        FieldConstraint(field='Meta Description', min=140, max=170, note='JS-enforced range 140–170 chars to enable Publish on the edit page'),
-    ],
+    required_for_publish=[],
     optional_fields=[
+        FieldConstraint(field='Summary', note='SEO only — NOT required to publish'),
+        FieldConstraint(field='Meta Description', note='SEO only — NOT required to publish'),
         FieldConstraint(field='Banner Description'),
     ],
     comboboxes=[
-        ComboboxFacts(aria_name='Primary Category', required=True, note='Options vary per publisher and change over time. Planner MUST click and snapshot to discover live options.'),
+        ComboboxFacts(aria_name='Primary Category', required=True, note='REQUIRED. Virtualized + per-publisher — click and snapshot, pick the first live option; never hardcode.'),
+        ComboboxFacts(aria_name='Credits', required=True, note='REQUIRED but auto-filled with the logged-in user — no action needed.'),
     ],
-    save_button='Save as Draft',
-    after_save_url_pattern='/posts/draft',
+    save_button='Publish',
+    after_save_url_pattern='/posts/published',
     publish_flow=[
-        PublishStep(kind='click_button', button='Save as Draft'),
-        PublishStep(kind='expect_url', pattern='/posts/draft'),
-        PublishStep(kind='click_row_action', row_matcher='title', action='Edit'),
-        PublishStep(kind='expect_url', pattern=r'/posts/custom-page/\d+'),
         PublishStep(kind='click_button', button='Publish'),
         PublishStep(kind='expect_url', pattern='/posts/published'),
     ],
     published_list_path='/posts/published',
     draft_list_path='/posts/draft',
+    note=('Same direct-publish flow as Article Create: fill Title + English Title (Permalink) + Primary Category '
+          '(Credits auto-fills), wait for the Publish button to be enabled, then click "Publish" -> /posts/published. '
+          'No Save-as-Draft -> Edit -> Publish detour. Delete a published item from the Published list row kebab.'),
 )
 
 DRAFT_LIST = PageFacts(
@@ -127,6 +130,16 @@ PUBLISHED_LIST = PageFacts(
     title='Published List',
     save_button='',
     after_save_url_pattern='/posts/published',
+    note=('List of published posts (verified live on OdishaTv - Khabar, 2026-06-22). To see only articles use '
+          '/posts/published?page_type=Article&ptype=Article&create=article. Columns: Title, Categories, Credits, '
+          'Page Views, Word Count, SEO Score, Timeline, Actions. Per-row Actions: link "Edit", link "View", '
+          'button "Copy url to clipboard", and a kebab (more-actions) icon button with NO accessible name — open it '
+          'by scoping to the row: page.get_by_role("row", name=re.compile(re.escape(title))).first.locator(".published-action-dropdown"). '
+          'Kebab menu items: Edit Permalink, Duplicate Page, Push Notification, Distribute Post, Unpublish, Delete. '
+          'DELETE flow: open the row kebab -> click the open menu\'s menuitem "Delete" '
+          '(scope to page.locator(".ant-dropdown:not(.ant-dropdown-hidden)").last) -> confirm dialog '
+          'get_by_role("dialog", name="Delete Article") -> click button "Delete" -> assert the row is gone '
+          '(to_have_count(0, timeout=15000)). NOTE: "Unpublish" is a DIFFERENT menu item (sends back to draft), NOT Delete.'),
 )
 
 TAG_CREATE = PageFacts(
@@ -306,10 +319,10 @@ def format_page_facts(facts):
         escaped = facts.after_save_url_pattern.replace('/', '\\/')
         lines.append(f'- After save: URL matches /{escaped}/ ')
     if facts.publish_flow:
-        lines.append('- PUBLISH flow (multi-stage — publish is NOT one click on the create page):')
+        lines.append('- PUBLISH flow:')
         for i, step in enumerate(facts.publish_flow, 1):
             if step.kind == 'click_button':
-                lines.append(f'    {i}. Click button "{step.button}"')
+                lines.append(f'    {i}. Click button "{step.button}" (wait for to_be_enabled first)')
             elif step.kind == 'expect_url':
                 escaped = step.pattern.replace('/', '\\/')
                 lines.append(f'    {i}. Expect URL /{escaped}/')
@@ -317,6 +330,8 @@ def format_page_facts(facts):
                 lines.append(f'    {i}. In the row matching the {step.row_matcher}, click "{step.action}"')
             elif step.kind == 'navigate':
                 lines.append(f'    {i}. Navigate to {step.path_pattern}')
+    if facts.note:
+        lines.append(f'- NOTE: {facts.note}')
     return '\n'.join(lines)
 
 
@@ -326,18 +341,17 @@ def facts_for_prompt(prompt):
 
     if intent:
         pages.append(intent['page'])
-        if intent['verb'] in ('publish', 'draft'):
+        verb = intent['verb']
+        # "save as draft" and "discard" act on the Draft list; "publish" and "delete"
+        # act on the Published list (articles publish directly, then delete from there).
+        if verb in ('draft', 'discard'):
             draft_path = intent['page'].draft_list_path
             if draft_path and draft_path in PAGE_FACTS:
                 pages.append(PAGE_FACTS[draft_path])
-        if intent['verb'] == 'publish':
+        if verb in ('publish', 'delete'):
             pub_path = intent['page'].published_list_path
             if pub_path and pub_path in PAGE_FACTS:
                 pages.append(PAGE_FACTS[pub_path])
-        if intent['verb'] in ('discard', 'delete'):
-            draft_path = intent['page'].draft_list_path
-            if draft_path and draft_path in PAGE_FACTS:
-                pages.append(PAGE_FACTS[draft_path])
 
     if not pages:
         return ''
@@ -367,8 +381,15 @@ def facts_for_all_mentioned_pages(prompt):
     if re.search(r'geograph', lower):
         push(GEOGRAPHY_CREATE)
 
-    if not is_geography_filter_flow and re.search(r'draft|save.*as.*draft|publish', lower):
+    article_or_custom = any(
+        p.path in ('/posts/article/create', '/posts/custom-page/create') for p in matched
+    )
+    # "save as draft" / "discard" surface the Draft list; article/custom-page "publish" and
+    # "delete" both go through the Published list (direct publish, then delete from there).
+    if not is_geography_filter_flow and re.search(r'\bdraft\b|save.*as.*draft|discard', lower):
         push(DRAFT_LIST)
+    if article_or_custom and re.search(r'publish|delet', lower):
+        push(PUBLISHED_LIST)
 
     if not matched:
         return ''

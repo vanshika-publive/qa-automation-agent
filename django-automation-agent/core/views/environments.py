@@ -1,11 +1,17 @@
+import os
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
 from core.models import Environment
+from pipeline.publisher import detect_active_publisher
+
+# <django-automation-agent>/.auth/session.json — the single stored dashboard session.
+_SESSION_PATH = str(Path(__file__).resolve().parents[2] / '.auth' / 'session.json')
 
 
 def _serialize_env(env):
@@ -17,6 +23,7 @@ def _serialize_env(env):
         'isActive': env.is_active,
         'createdAt': env.created_at,
         'loginEmail': env.login_email,
+        'publisher': env.publisher or '',
         'hasPassword': bool(env.login_password),
     }
 
@@ -53,6 +60,7 @@ class EnvironmentListCreate(APIView):
             created_at=now,
             login_email=login_email,
             login_password=login_password,
+            # publisher is NOT user-set — it's detected from the active session at run time.
         )
         return Response(_serialize_env(env), status=status.HTTP_201_CREATED)
 
@@ -71,6 +79,7 @@ class EnvironmentUpdateDelete(APIView):
         if 'isActive' in body:
             env.is_active = body['isActive']
         env.login_email = (body.get('loginEmail') or '').strip() or env.login_email
+        # publisher is detected from the session, not accepted from the client.
         new_password = (body.get('loginPassword') or '').strip()
         if new_password:
             env.login_password = new_password
@@ -84,3 +93,30 @@ class EnvironmentUpdateDelete(APIView):
         if updated == 0:
             return Response({'error': 'Environment not found'}, status=status.HTTP_404_NOT_FOUND)
         return Response({'id': id})
+
+
+class ActivePublisher(APIView):
+    """Report which publisher the stored session is currently logged into.
+
+    The publisher is a property of the SESSION, not something the user types — it's read
+    live from the dashboard's /api/user/. Tests always run against this publisher; the
+    agent never switches orgs. To target a different publisher, log in with / supply a
+    session for that publisher. Optionally caches the result on the environment for display.
+    """
+    def get(self, request):
+        base_url = (request.query_params.get('baseUrl') or os.environ.get('DASHBOARD_URL') or '').strip()
+        env_id = request.query_params.get('environmentId')
+        if not base_url:
+            return Response({'error': 'baseUrl is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        pub = detect_active_publisher(base_url, _SESSION_PATH)
+        if not pub:
+            return Response({
+                'publisher': None,
+                'detail': 'No valid stored session, or the publisher could not be detected. '
+                          'Log in to the dashboard for the publisher you want to test.',
+            })
+
+        if env_id:
+            Environment.objects.filter(id=env_id).update(publisher=pub['name'])
+        return Response({'publisher': pub})

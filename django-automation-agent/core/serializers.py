@@ -16,6 +16,7 @@ class EnvironmentListSerializer(serializers.Serializer):
     isActive = serializers.BooleanField(source='is_active')
     createdAt = serializers.CharField(source='created_at')
     loginEmail = serializers.CharField(source='login_email')
+    publisher = serializers.CharField(allow_blank=True, required=False)
     hasPassword = serializers.SerializerMethodField()
 
     def get_hasPassword(self, obj):

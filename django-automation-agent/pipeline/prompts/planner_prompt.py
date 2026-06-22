@@ -15,22 +15,32 @@ KNOWN FACTS ABOUT THIS DASHBOARD (verified against live ARIA — do not re-disco
 - There is NO <nav> element and NO role="navigation" — never reference either
 - NEVER use get_by_label() — form labels are custom <div> elements, not <label> tags. Always times out.
 
-ARTICLE CREATION (/posts/article/create):
-- Required textboxes: "Title *" (safe_sequential_fill only), "English Title ( Permalink ) *" (fill ok)
-- Optional textboxes: "Summary", "Meta Description", "Banner Description", "Focus Keyphrase"
-- Comboboxes (Ant Design — click combobox, then get_by_title() for the option):
+ARTICLE CREATION (/posts/article/create) — articles PUBLISH DIRECTLY from this page (no draft detour):
+- Required textboxes: "Title *" (safe_sequential_fill only), "English Title ( Permalink ) *" (fill ok; use a UNIQUE slug like f'qa-{ts}' every run — NEVER reuse a permalink)
+- Required comboboxes: "Primary Category" (REQUIRED), "Credits" (REQUIRED but auto-filled with the logged-in user — leave it alone)
+- Optional textboxes (SEO only, NOT required to publish): "Summary", "Meta Description", "Banner Description", "Focus Keyphrase"
+- Other comboboxes: get_by_role('combobox', name='Tags'), get_by_role('combobox', name='Additional Category')
     get_by_role('combobox', name='Primary Category')  <- actual ARIA: "Primary Category info-circle *"
-    get_by_role('combobox', name='Tags')
-    get_by_role('combobox', name='Credits')
-    get_by_role('combobox', name='Additional Category')
     MANDATORY: You MUST click the Primary Category combobox and call browser_snapshot BEFORE writing the plan.
-    Category option names change over time and are never hardcoded here. The only valid source is what you see
-    in the snapshot AFTER clicking. Format is always 'Name ( slug )'. Pick the first non-QA-looking option.
+    Category option names change per publisher and are never hardcoded here. The only valid source is what you see
+    in the snapshot AFTER clicking. Format is always 'Name ( slug )'. Pick the first live option.
 - TinyMCE body: frame_locator('iframe[title*="Rich Text Area"]').locator('body')
-- Save button: get_by_role('button', name='Save as Draft') — starts disabled until required fields filled
-- After save: URL changes to /posts/draft, title appears in draft list
+- TO PUBLISH: click get_by_role('button', name='Publish'). The button is briefly DISABLED right after the fields
+  are filled (async permalink validation), so the plan MUST wait for it:
+  expect(get_by_role('button', name='Publish')).to_be_enabled(timeout=15000) BEFORE clicking — never click immediately.
+  After clicking, URL changes to /posts/published. There is NO "Save as Draft -> Edit -> Publish" detour.
+- TO SAVE A DRAFT INSTEAD (only for explicit "save as draft" flows): click get_by_role('button', name='Save as Draft')
+  -> URL /posts/draft. This is a separate optional action — do NOT use it when the flow is to publish.
 
-DRAFT LIST (/posts/draft):
+PUBLISHED LIST (/posts/published — for articles: /posts/published?page_type=Article&ptype=Article&create=article):
+- Row actions: link "Edit", link "View", button "Copy url to clipboard", and a kebab (more-actions) icon button (NO accessible name).
+- Open the kebab scoped to the row: get_by_role('row', name=re.compile(re.escape(title))).first.locator('.published-action-dropdown')
+- Kebab menu items: "Edit Permalink", "Duplicate Page", "Push Notification", "Distribute Post", "Unpublish", "Delete"
+- TO DELETE an article: open the row kebab -> click menuitem "Delete" (scope to the open menu:
+  page.locator('.ant-dropdown:not(.ant-dropdown-hidden)').last) -> confirm dialog get_by_role('dialog', name='Delete Article')
+  -> click button "Delete" -> assert the row is gone. NOTE: "Unpublish" is a DIFFERENT item (back to draft), NOT Delete.
+
+DRAFT LIST (/posts/draft) — only for "save as draft" / "discard" flows:
 - Table header row: "Title Content Type Created By Updated By Timeline Actions"
 - Row actions: link "Edit", link "Preview", button "Discard"
 - Scoped discard: page.get_by_role('row', name=re.compile(r'title')).get_by_role('button', name='Discard')
@@ -205,7 +215,14 @@ Generated: [ISO timestamp]
 ..."""
 
 
-def build_planner_system_prompt(heuristics, facts=''):
+def build_planner_system_prompt(heuristics, facts='', publisher=''):
+    publisher_section = (
+        f'\n\n## ACTIVE PUBLISHER: {publisher}\n'
+        f'The session is logged into the "{publisher}" publisher and the test runs against THIS publisher only. '
+        'Categories, tags, reporters and other option lists are per-publisher — use ONLY what you observe live here. '
+        'Never switch publishers, and never assume another publisher\'s categories or routes.'
+        if publisher else ''
+    )
     facts_section = (
         f'\n\n## Verified Page Facts — your plan MUST include a fill step for EVERY field listed under '
         f'"Required for save/draft" for each page you visit. Do NOT collapse multiple required fields '
@@ -216,4 +233,4 @@ def build_planner_system_prompt(heuristics, facts=''):
         f'\n\n## Known Dashboard Quirks — you MUST follow these:\n{heuristics}'
         if heuristics else ''
     )
-    return f'{PLANNER_SYSTEM_PROMPT}{facts_section}{heuristics_section}'
+    return f'{PLANNER_SYSTEM_PROMPT}{publisher_section}{facts_section}{heuristics_section}'

@@ -12,6 +12,9 @@ class Environment(models.Model):
     created_at = models.TextField()
     login_email = models.TextField(default='')
     login_password = models.TextField(default='')
+    # The dashboard is multi-publisher; this names the org the tests should run against
+    # (e.g. "OdishaTv - Khabar"). Blank = use whatever publisher the stored session is on.
+    publisher = models.TextField(default='', null=True, blank=True)
     deleted_at = models.TextField(null=True, blank=True)
 
     objects = SoftDeleteManager()

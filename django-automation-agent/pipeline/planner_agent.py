@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 from pipeline.mcp_bridge import MCPBridge
 from pipeline.ai_client import create_ai_client
-from pipeline.credential_manager import get_credentials
+from pipeline.credential_manager import get_credentials, get_publisher
 from pipeline.login_helper import ensure_mcp_authenticated
 from pipeline.agent_utils import (
     mcp_to_openai_tool,
@@ -66,7 +66,7 @@ def run_planner_agent(test_plan, plan_path: str) -> None:
             f'[heuristics] Injected dashboard heuristics ({len(heuristics)} chars) '
             f'+ {len(facts) if facts else 0} chars of page facts into planner prompt'
         )
-        planner_system_prompt = build_planner_system_prompt(heuristics, facts)
+        planner_system_prompt = build_planner_system_prompt(heuristics, facts, get_publisher())
 
         messages = [
             {'role': 'system', 'content': planner_system_prompt},

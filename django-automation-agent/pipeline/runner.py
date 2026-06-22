@@ -127,12 +127,13 @@ def run_tests(reports_dir, test_target=None, credentials=None):
             args.append(test_target)
 
     env = dict(os.environ)
-    env['HEADED'] = 'false'
+    env['HEADED'] = 'true'
     env['PLAYWRIGHT_PROJECT_ROOT'] = PROJECT_ROOT
     if credentials:
         env['DASHBOARD_URL'] = credentials.get('dashboard_url', '')
         env['DASHBOARD_EMAIL'] = credentials.get('dashboard_email', '')
         env['DASHBOARD_PASSWORD'] = credentials.get('dashboard_password', '')
+        env['DASHBOARD_PUBLISHER'] = credentials.get('dashboard_publisher', '') or ''
 
     proc = subprocess.Popen(
         args,

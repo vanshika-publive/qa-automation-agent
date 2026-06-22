@@ -44,6 +44,40 @@ def browser_type_launch_args():
     return {'headless': not headed}
 
 
+@pytest.fixture(scope='session', autouse=True)
+def _report_active_publisher():
+    """Report which publisher the stored session is logged into — NEVER switch it.
+
+    The dashboard is multi-publisher and the active org is decided by the session
+    (the publisher_agency cookie), not the URL. Reusing a stale .auth/session.json can
+    silently run tests against the wrong publisher. We read the authoritative publisher
+    from the dashboard's /api/user/ and log it, so every run is unambiguously attributed.
+    Tests run against whatever publisher the session is on; to target a different one,
+    log in with / supply a session for that publisher — the agent does not switch orgs.
+    """
+    if not _session_is_valid():
+        print('[conftest] no valid stored session — tests will hit the login page')
+        return
+    base_url = os.environ.get('DASHBOARD_URL', 'https://betadashboard.thepublive.com/v2')
+    try:
+        import sys
+        sys.path.insert(0, PROJECT_ROOT)
+        from pipeline.publisher import detect_active_publisher
+        pub = detect_active_publisher(base_url, SESSION_PATH)
+    except Exception:
+        pub = None
+    if pub and pub.get('name'):
+        print(f"[conftest] active publisher (from session): {pub['name']} ({pub.get('slug')}) "
+              "— running against THIS publisher, no switching")
+        expected = (os.environ.get('DASHBOARD_PUBLISHER') or '').strip()
+        if expected and expected.lower() not in pub['name'].lower():
+            print(f"[conftest] NOTE: session is on '{pub['name']}' but '{expected}' was expected. "
+                  "Use a session/URL logged into the publisher you want — the agent will not switch.")
+    else:
+        print('[conftest] could not detect active publisher from /api/user/ — '
+              'running with whatever the session holds')
+
+
 @pytest.fixture(scope='session')
 def browser_context_args(browser_context_args):
     args = dict(browser_context_args)

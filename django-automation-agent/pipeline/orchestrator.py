@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 from pipeline.ai_client import create_ai_client
+from pipeline.credential_manager import get_publisher
 from pipeline.knowledge.dashboard_facts import detect_intent, expand_preconditions
 from utils.markdown import strip_markdown_fences
 from pipeline.prompts.orchestrator_prompt import (
@@ -86,7 +87,7 @@ def parse_user_intent(user_prompt: str, url: str) -> TestPlan:
         temperature=0.2,
         messages=[
             {'role': 'system', 'content': ORCHESTRATOR_SYSTEM_PROMPT},
-            {'role': 'user', 'content': build_orchestrator_user_message(user_prompt, url)},
+            {'role': 'user', 'content': build_orchestrator_user_message(user_prompt, url, get_publisher())},
         ],
         response_format={'type': 'json_object'},
     )

@@ -42,6 +42,7 @@ def get_credentials():
         'dashboard_email': _resolve('DASHBOARD_EMAIL', 'dashboard_email'),
         'dashboard_password': _resolve('DASHBOARD_PASSWORD', 'dashboard_password'),
         'dashboard_session': _resolve_optional('DASHBOARD_SESSION', 'dashboard_session'),
+        'dashboard_publisher': _resolve_optional('DASHBOARD_PUBLISHER', 'dashboard_publisher'),
     }
 
 
@@ -50,4 +51,10 @@ def get_dashboard_credentials():
         'dashboard_url': _resolve('DASHBOARD_URL', 'dashboard_url'),
         'dashboard_email': _resolve('DASHBOARD_EMAIL', 'dashboard_email'),
         'dashboard_password': _resolve('DASHBOARD_PASSWORD', 'dashboard_password'),
+        'dashboard_publisher': _resolve_optional('DASHBOARD_PUBLISHER', 'dashboard_publisher'),
     }
+
+
+def get_publisher():
+    """The detected active publisher name, or '' if unknown. Never raises."""
+    return _resolve_optional('DASHBOARD_PUBLISHER', 'dashboard_publisher') or ''

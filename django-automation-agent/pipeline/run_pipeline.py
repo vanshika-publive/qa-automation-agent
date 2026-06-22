@@ -111,6 +111,7 @@ def _fetch_run_context(test_id, environment_id, include_prompt=True):
             'base_url': env.base_url,
             'login_email': env.login_email,
             'login_password': env.login_password,
+            'publisher': env.publisher or '',
         } if env else None,
         'test_prompt': test.prompt if include_prompt else None,
     }
@@ -152,11 +153,32 @@ def run_pipeline(execution_id, test_id, environment_id, on_step=None):
             'dashboard_url': env_row['base_url'],
             'dashboard_email': env_row['login_email'],
             'dashboard_password': env_row['login_password'],
+            'dashboard_publisher': env_row.get('publisher', ''),
         })
 
         print('Refreshing browser session...')
         refresh_session(PROJECT_ROOT)
         print('Session refreshed')
+
+        # Detect which publisher the session is actually logged into. The dashboard is
+        # multi-publisher and a reused session can be on the wrong org; the agent runs
+        # against THIS publisher and never switches (switching = a different session/URL).
+        from .publisher import detect_active_publisher
+        active_pub = detect_active_publisher(
+            env_row['base_url'], os.path.join(PROJECT_ROOT, '.auth', 'session.json'))
+        env_row['publisher'] = (active_pub or {}).get('name') or ''
+        if env_row['publisher']:
+            print(f"Active publisher (from session): {env_row['publisher']}")
+            Environment.all_objects.filter(id=environment_id).update(publisher=env_row['publisher'])
+            set_runtime_credentials({
+                'dashboard_url': env_row['base_url'],
+                'dashboard_email': env_row['login_email'],
+                'dashboard_password': env_row['login_password'],
+                'dashboard_publisher': env_row['publisher'],
+            })
+        else:
+            print('WARNING: could not detect the active publisher from the session — '
+                  'proceeding with whatever publisher the session holds.')
 
         test_plan = None
         generated_specs = []
@@ -206,6 +228,7 @@ def run_pipeline(execution_id, test_id, environment_id, on_step=None):
                         'dashboard_url': env_row['base_url'],
                         'dashboard_email': env_row['login_email'],
                         'dashboard_password': env_row['login_password'],
+                        'dashboard_publisher': env_row.get('publisher', ''),
                     })
                     if (summary or {}).get('failed', 0) > 0:
                         overall_status = 'failed'
@@ -287,11 +310,32 @@ def run_spec_file(execution_id, test_id, spec_filename, environment_id, on_step=
             'dashboard_url': env_row['base_url'],
             'dashboard_email': env_row['login_email'],
             'dashboard_password': env_row['login_password'],
+            'dashboard_publisher': env_row.get('publisher', ''),
         })
 
         print('Refreshing browser session...')
         refresh_session(PROJECT_ROOT)
         print('Session refreshed')
+
+        # Detect which publisher the session is actually logged into. The dashboard is
+        # multi-publisher and a reused session can be on the wrong org; the agent runs
+        # against THIS publisher and never switches (switching = a different session/URL).
+        from .publisher import detect_active_publisher
+        active_pub = detect_active_publisher(
+            env_row['base_url'], os.path.join(PROJECT_ROOT, '.auth', 'session.json'))
+        env_row['publisher'] = (active_pub or {}).get('name') or ''
+        if env_row['publisher']:
+            print(f"Active publisher (from session): {env_row['publisher']}")
+            Environment.all_objects.filter(id=environment_id).update(publisher=env_row['publisher'])
+            set_runtime_credentials({
+                'dashboard_url': env_row['base_url'],
+                'dashboard_email': env_row['login_email'],
+                'dashboard_password': env_row['login_password'],
+                'dashboard_publisher': env_row['publisher'],
+            })
+        else:
+            print('WARNING: could not detect the active publisher from the session — '
+                  'proceeding with whatever publisher the session holds.')
 
         step_name = 'runner'
         step_id = str(uuid.uuid4())
@@ -307,6 +351,7 @@ def run_spec_file(execution_id, test_id, spec_filename, environment_id, on_step=
                 'dashboard_url': env_row['base_url'],
                 'dashboard_email': env_row['login_email'],
                 'dashboard_password': env_row['login_password'],
+                'dashboard_publisher': env_row.get('publisher', ''),
             })
             if summary.get('failed', 0) > 0:
                 overall_status = 'failed'

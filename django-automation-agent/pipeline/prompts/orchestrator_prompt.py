@@ -12,23 +12,31 @@ ORCHESTRATOR_SYSTEM_PROMPT = (
     '- NEVER use hardcoded names like "article 1007". Steps must say "generate a unique title using a millisecond timestamp (ts = int(time.time() * 1000))".\n'
     '- Each flow must be FULLY SELF-CONTAINED and independent.\n'
     '- If the user asks for multiple operations (e.g. "test create and delete"), make each flow self-contained.\n'
-    '- PUBLISH flows are multi-stage: save-as-draft -> navigate to draft list -> click row Edit -> click Publish. '
-    'Decompose "publish X" into these concrete steps. Do NOT write a single "publish the content" step.\n'
-    '- When a publish flow targets a page with character-minimum fields (Summary, Meta Description), '
-    'include explicit steps to fill each one with content of the required length. '
-    'The "Required for PUBLISH" section in DASHBOARD KNOWLEDGE lists exact minimums per page.'
+    '- Articles & custom pages PUBLISH DIRECTLY: fill the required fields (Title, English Title (Permalink), '
+    'Primary Category — Credits auto-fills with the logged-in user), then click Publish; the item lands in '
+    '/posts/published. There is NO save-as-draft -> edit -> publish detour. Summary and Meta Description are '
+    'SEO-only and are NOT required to publish. (Entity pages such as geography also publish in one click.)\n'
+    '- A flow that acts on an existing item (delete, edit, publish-from-list) MUST first create the item it needs — '
+    "tests start from a clean slate. So a vague prompt like \"test the article delete flow\" decomposes into: create "
+    'an article, publish it, delete it from the Published list (open the row kebab -> Delete -> confirm dialog), '
+    "and assert it is gone. A \"discard\"/\"save as draft\" flow instead uses Save as Draft -> the Draft list -> Discard. "
+    'Use the DASHBOARD KNOWLEDGE section for the exact buttons/dialogs; do NOT write a single "publish/delete the content" step.'
 )
 
 
-def build_orchestrator_user_message(user_prompt, url):
+def build_orchestrator_user_message(user_prompt, url, publisher=''):
     facts = facts_for_prompt(user_prompt)
     facts_section = (
         f'\n\nDASHBOARD KNOWLEDGE (verified live — use as ground truth, do not invent):\n{facts}\n'
         if facts else ''
     )
+    publisher_section = (
+        f'\nActive publisher (logged-in org the test runs against): {publisher}\n'
+        if publisher else ''
+    )
     return f"""URL: {url}
 Task: {user_prompt}
-{facts_section}
+{publisher_section}{facts_section}
 This is an authenticated CMS dashboard (the browser is already logged in — no login steps needed).
 
 Generate EXACTLY what the task describes — no more, no less.
