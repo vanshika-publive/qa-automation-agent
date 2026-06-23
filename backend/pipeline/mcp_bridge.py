@@ -20,14 +20,16 @@ class _PendingRequest:
     error: Optional[str] = None
 
 
-def _find_mcp_cli(project_root: str) -> str:
-    pkg_dir = os.path.join(project_root, 'node_modules', '@playwright', 'mcp')
+def _find_mcp_cli() -> str:
+    # node_modules live in backend/ (next to package.json), not in the data dir
+    backend_root = settings.BACKEND_ROOT
+    pkg_dir = os.path.join(backend_root, 'node_modules', '@playwright', 'mcp')
     pkg_json_path = os.path.join(pkg_dir, 'package.json')
 
     if not os.path.isfile(pkg_json_path):
         raise RuntimeError(
             '@playwright/mcp is not installed.\n'
-            f'Run: cd {project_root} && npm install'
+            f'Run: cd {backend_root} && npm install'
         )
 
     with open(pkg_json_path, encoding='utf-8') as f:
@@ -55,7 +57,7 @@ def _find_mcp_cli(project_root: str) -> str:
 class MCPBridge:
     def __init__(self, project_root: Optional[str] = None, extra_args: Optional[list] = None):
         self._project_root = project_root or settings.PLAYWRIGHT_PROJECT_ROOT
-        cli_path = _find_mcp_cli(self._project_root)
+        cli_path = _find_mcp_cli()
 
         session_path = os.path.join(self._project_root, '.auth', 'session.json')
         session_args = ['--storage-state', session_path] if os.path.isfile(session_path) else []

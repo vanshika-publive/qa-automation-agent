@@ -1,2 +1,36 @@
+# ── OS / editor ──────────────────────────────────────────────────────────────
+.DS_Store
+.vscode/
+.idea/
+*.log
+
+# ── Frontend ──────────────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+
+# ── Backend ───────────────────────────────────────────────────────────────────
+backend/env/
+backend/venv/
+backend/.venv/
+backend/.env
+backend/node_modules/
+backend/package-lock.json
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.py[cod]
+backend/*.egg-info/
+backend/db.sqlite3
+
+# ── Data — runtime artifacts (mount as a volume in production) ────────────────
+# Static test infrastructure (conftest.py, helpers.py, pytest.ini) IS committed.
+# Only the generated per-collection subdirs are excluded.
+data/tests/*/
+data/specs/
+data/reports/
+data/.auth/
+data/**/__pycache__/
+data/**/*.py[cod]
+
+# ── Playwright MCP session snapshots ─────────────────────────────────────────
 .playwright-mcp/
-automation-agent/

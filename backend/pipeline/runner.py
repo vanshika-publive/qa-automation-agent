@@ -129,6 +129,7 @@ def run_tests(reports_dir, test_target=None, credentials=None):
     env = dict(os.environ)
     env['HEADED'] = 'true'
     env['PLAYWRIGHT_PROJECT_ROOT'] = PROJECT_ROOT
+    env['BACKEND_ROOT'] = settings.BACKEND_ROOT
     if credentials:
         env['DASHBOARD_URL'] = credentials.get('dashboard_url', '')
         env['DASHBOARD_EMAIL'] = credentials.get('dashboard_email', '')

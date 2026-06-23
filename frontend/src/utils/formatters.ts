@@ -26,6 +26,13 @@ export function relTime(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+export function fmtTableDatetime(iso: string): { date: string; time: string } {
+  const d = new Date(iso);
+  const date = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+  return { date, time };
+}
+
 export function fmtMSS(ms: number | null | undefined): string {
   if (ms == null || ms < 0) return '—';
   const totalSec = Math.floor(ms / 1000);

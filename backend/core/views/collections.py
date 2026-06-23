@@ -50,7 +50,16 @@ class CollectionListCreate(APIView):
         return Response(data, status=status.HTTP_201_CREATED)
 
 
-class CollectionDelete(APIView):
+class CollectionDetail(APIView):
+    def patch(self, request, id):
+        name = (request.data.get('name') or '').strip()
+        if not name:
+            return Response({'error': 'name is required'}, status=status.HTTP_400_BAD_REQUEST)
+        updated = Collection.objects.filter(id=id, deleted_at__isnull=True).update(name=name)
+        if updated == 0:
+            return Response({'error': 'Collection not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'id': id, 'name': name})
+
     def delete(self, request, id):
         now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
         updated = Collection.objects.filter(id=id).update(deleted_at=now)

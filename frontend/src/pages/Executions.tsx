@@ -1,28 +1,18 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../api/client';
-import { ApiResponse, Collection, Test, Execution } from '../types';
+import { Execution } from '../types';
 import ComparePanel from '../components/ComparePanel';
 import ExpandedTestResults, { StatusPill } from '../components/ExpandedTestResults';
 import RunSuiteModal from '../components/RunSuiteModal';
-import FilterDrawer, { FilterState, DEFAULT_FILTERS, STATUS_OPTIONS } from '../components/FilterDrawer';
+import FilterDrawer, { STATUS_OPTIONS } from '../components/FilterDrawer';
 import PaginationBar from '../components/PaginationBar';
 import { formatDuration, fmtDatetime, fmtDate, fmtMSS, relTime } from '../utils/formatters';
 import { ACCENTS, STATUS_BG } from '../utils/status';
 import LogViewerModal from '../components/LogViewerModal';
+import { useExecutions } from '../hooks/useExecutions';
 
-// Page-local types
-
-interface Pagination { page: number; pageSize: number; total: number; totalPages: number }
-interface PaginatedExecs { data: Execution[]; pagination: Pagination; error: string | null }
-
-// Constants
-
-const RUN_LIST_PAGE_SIZE = 10;
-const TABLE_PAGE_SIZE    = 20;
-
-// FilterBar
+// ── Page-local components ────────────────────────────────────────────────────
 
 function FilterBar({
   applied,
@@ -32,12 +22,12 @@ function FilterBar({
   onRemove,
   collections,
 }: {
-  applied: FilterState;
+  applied: ReturnType<typeof useExecutions>['appliedFilters'];
   activeCount: number;
   onOpen: () => void;
   onClear: () => void;
-  onRemove: (key: keyof FilterState | 'dateRange') => void;
-  collections: Collection[];
+  onRemove: (key: keyof typeof applied | 'dateRange') => void;
+  collections: ReturnType<typeof useExecutions>['collections'];
 }) {
   const chipCls = 'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20';
 
@@ -51,7 +41,6 @@ function FilterBar({
 
   return (
     <div className="flex items-center gap-2 flex-wrap mb-5">
-      {/* Active filter chips */}
       {collectionName && (
         <span className={chipCls}>
           <span className="material-symbols-outlined" style={{ fontSize: 12 }}>folder</span>
@@ -80,36 +69,24 @@ function FilterBar({
       )}
 
       {activeCount > 0 && (
-        <button
-          onClick={onClear}
-          className="text-xs text-text-secondary hover:text-error transition-colors"
-        >
-          Clear all
-        </button>
+        <button onClick={onClear} className="text-xs text-text-secondary hover:text-error transition-colors">Clear all</button>
       )}
 
-      {/* Filter button — right-aligned */}
       <button
         onClick={onOpen}
         className={`ml-auto inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border transition-colors ${
-          activeCount > 0
-            ? 'border-primary bg-primary/10 text-primary'
-            : 'border-border-subtle text-text-secondary hover:bg-surface-muted'
+          activeCount > 0 ? 'border-primary bg-primary/10 text-primary' : 'border-border-subtle text-text-secondary hover:bg-surface-muted'
         }`}
       >
         <span className="material-symbols-outlined" style={{ fontSize: 16 }}>filter_list</span>
         Filters
         {activeCount > 0 && (
-          <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-primary text-white text-[10px] font-bold leading-none">
-            {activeCount}
-          </span>
+          <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-primary text-white text-[10px] font-bold leading-none">{activeCount}</span>
         )}
       </button>
     </div>
   );
 }
-
-// Skeleton
 
 function FolderCardSkeleton() {
   return (
@@ -120,172 +97,31 @@ function FolderCardSkeleton() {
   );
 }
 
-// Main
+// ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Executions() {
-  const [searchParams, setSearchParams] = useSearchParams();
   const qc = useQueryClient();
-
-  const [expandedId,     setExpandedId]     = useState<string | null>(null);
-  const [runModal,       setRunModal]        = useState(false);
-  const [runListPage,    setRunListPage]     = useState(0);          // level 3: client-side pagination
-  const [tablePage,      setTablePage]       = useState(1);          // level 1: server-side pagination
-  const [retryingId,     setRetryingId]      = useState<string | null>(null);
-  const [selectedIds,    setSelectedIds]     = useState<Set<string>>(new Set());
-  const [compareOpen,    setCompareOpen]     = useState(false);
-  const [filterOpen,     setFilterOpen]      = useState(false);
-  const [appliedFilters, setAppliedFilters]  = useState<FilterState>(DEFAULT_FILTERS);
-  const [now,            setNow]             = useState(Date.now());
-  const [logExec,        setLogExec]         = useState<Execution | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [runModal,     setRunModal]     = useState(false);
+  const [compareOpen,  setCompareOpen]  = useState(false);
+  const [filterOpen,   setFilterOpen]   = useState(false);
+  const [logExec,      setLogExec]      = useState<Execution | null>(null);
 
   const selectedColId  = searchParams.get('col');
   const selectedTestId = searchParams.get('test');
 
-  // Queries
+  const exec = useExecutions(selectedColId, selectedTestId);
 
-  const collectionsQ = useQuery({
-    queryKey: ['collections'],
-    queryFn: () => api.get<ApiResponse<Collection[]>>('/collections'),
-  });
-
-  // Level 1: filtered + paginated executions for the main table.
-  const tableExecsQ = useQuery({
-    queryKey: ['executions', 'table', appliedFilters, tablePage],
-    queryFn: () => {
-      const qs = new URLSearchParams();
-      if (appliedFilters.collectionId) qs.set('collection_id', appliedFilters.collectionId);
-      if (appliedFilters.status)       qs.set('status', appliedFilters.status);
-      if (appliedFilters.from)         qs.set('from', appliedFilters.from);
-      if (appliedFilters.to)           qs.set('to', appliedFilters.to);
-      qs.set('page', String(tablePage));
-      qs.set('pageSize', String(TABLE_PAGE_SIZE));
-      return api.get<PaginatedExecs>(`/executions?${qs}`);
-    },
-    enabled: !selectedColId && !selectedTestId,
-    refetchInterval: (q) => {
-      const data = q.state.data?.data ?? [];
-      return data.some((e) => e.status === 'running' || e.status === 'queued') ? 5000 : false;
-    },
-  });
-
-  // Level 2: collection-scoped executions for test-card status indicators.
-  const colExecsQ = useQuery({
-    queryKey: ['executions', 'col', selectedColId],
-    queryFn: () => api.get<PaginatedExecs>(`/executions?collection_id=${selectedColId}&pageSize=100`),
-    enabled: !!selectedColId && !selectedTestId,
-    refetchInterval: (q) => {
-      const data = q.state.data?.data ?? [];
-      return data.some((e) => e.status === 'running') ? 3000 : false;
-    },
-  });
-
-  // Level 2: tests within the selected collection.
-  const testsQ = useQuery({
-    queryKey: ['tests', selectedColId],
-    queryFn: () => api.get<ApiResponse<Test[]>>(`/collections/${selectedColId}/tests`),
-    enabled: !!selectedColId,
-  });
-
-  // Level 3: runs for a specific test.
-  const testExecsQ = useQuery({
-    queryKey: ['executions', 'test', selectedTestId],
-    queryFn: () => api.get<PaginatedExecs>(`/executions?testId=${selectedTestId}&pageSize=20`),
-    enabled: !!selectedTestId,
-    refetchInterval: (q) => {
-      const data = q.state.data?.data ?? [];
-      return data.some((e) => e.status === 'running') ? 3000 : false;
-    },
-  });
-
-  // Derived data
-
-  const collections    = collectionsQ.data?.data ?? [];
-  const tableExecs     = tableExecsQ.data?.data ?? [];
-  const tablePagination = tableExecsQ.data?.pagination;
-  const colExecs       = colExecsQ.data?.data ?? [];
-  const tests          = testsQ.data?.data ?? [];
-  const testExecs      = testExecsQ.data?.data ?? [];
-
-  const hasRunning = useMemo(
-    () => tableExecs.some((e) => e.status === 'running'),
-    [tableExecs],
-  );
-
-  useEffect(() => {
-    if (!hasRunning) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [hasRunning]);
-
-  const execsByTestId = useMemo(() => {
-    const map = new Map<string, Execution[]>();
-    for (const exec of colExecs) {
-      if (!map.has(exec.testId)) map.set(exec.testId, []);
-      map.get(exec.testId)!.push(exec);
-    }
-    return map;
-  }, [colExecs]);
-
-  const compareExecutions = useMemo(() => {
-    const ids = Array.from(selectedIds).slice(0, 2);
-    return ids.map((id) => tableExecs.find((e) => e.id === id)).filter(Boolean) as Execution[];
-  }, [selectedIds, tableExecs]);
-
-  const selectedCollection = collections.find((c) => c.id === selectedColId);
-
-  // Level 3: client-side pagination within the loaded test runs.
-  const runListTotalPages = Math.ceil(testExecs.length / RUN_LIST_PAGE_SIZE);
-  const runListSlice = testExecs.slice(runListPage * RUN_LIST_PAGE_SIZE, (runListPage + 1) * RUN_LIST_PAGE_SIZE);
-  if (runListPage > 0 && runListPage >= runListTotalPages) setRunListPage(0);
-
-  // Filter helpers.
-  const activeFilterCount = [
-    appliedFilters.collectionId,
-    appliedFilters.status,
-    appliedFilters.from || appliedFilters.to,
-  ].filter(Boolean).length;
-
-  function applyFilters(f: FilterState) {
-    setAppliedFilters(f);
-    setTablePage(1);
+  // Correct out-of-range page (happens when list shrinks)
+  if (exec.runListPage > 0 && exec.runListPage >= exec.runListTotalPages) {
+    exec.setRunListPage(0);
   }
 
-  function clearFilters() {
-    setAppliedFilters(DEFAULT_FILTERS);
-    setTablePage(1);
-  }
-
-  function removeFilter(key: keyof FilterState | 'dateRange') {
-    setAppliedFilters((f) => {
-      if (key === 'dateRange') return { ...f, from: '', to: '' };
-      return { ...f, [key]: '' };
-    });
-    setTablePage(1);
-  }
-
-  // Mutations
-
-  const deleteMut = useMutation({
-    mutationFn: (id: string) => api.del<ApiResponse<{ id: string }>>(`/executions/${id}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['executions'] });
-      setExpandedId(null);
-    },
-  });
-
-  const retryMut = useMutation({
-    mutationFn: (exec: Execution) =>
-      api.post<ApiResponse<{ executionId: string }>>(`/executions/tests/${exec.testId}/run`, { environmentId: exec.environmentId }),
-    onMutate: (exec) => setRetryingId(exec.id),
-    onSettled: () => setRetryingId(null),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['executions'] }),
-  });
-
-  // Navigation
+  const selectedCollection = exec.collections.find((c) => c.id === selectedColId);
 
   function goBack() {
-    setExpandedId(null);
-    setRunListPage(0);
+    exec.setExpandedId(null);
+    exec.setRunListPage(0);
     if (selectedTestId && selectedColId) {
       setSearchParams({ col: selectedColId });
     } else {
@@ -293,12 +129,7 @@ export default function Executions() {
     }
   }
 
-  // Header
-
-  const selectedTestName =
-    tests.find((t) => t.id === selectedTestId)?.name ??
-    testExecs.find((e) => e.testId === selectedTestId)?.testName ??
-    'Test';
+  // ── Header ────────────────────────────────────────────────────────────────
 
   function renderHeader() {
     const backBtn = (
@@ -322,9 +153,9 @@ export default function Executions() {
                     <span className="material-symbols-outlined" style={{ fontSize: 14 }}>chevron_right</span>
                   </>
                 )}
-                <span className="text-text-primary font-medium">{selectedTestName}</span>
+                <span className="text-text-primary font-medium">{exec.selectedTestName}</span>
               </nav>
-              <h1 className="text-xl font-bold text-text-primary">{selectedTestName}</h1>
+              <h1 className="text-xl font-bold text-text-primary">{exec.selectedTestName}</h1>
             </div>
           </div>
           <button onClick={() => setRunModal(true)} className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0">
@@ -357,13 +188,15 @@ export default function Executions() {
       );
     }
 
-    const total = tablePagination?.total ?? 0;
+    const total = exec.tablePagination?.total ?? 0;
     return (
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">Executions</h1>
           <p className="text-sm text-text-secondary mt-0.5">
-            {total > 0 ? `${total} run${total !== 1 ? 's' : ''}${activeFilterCount > 0 ? ' matching filters' : ' across all collections'}` : 'No executions yet'}
+            {total > 0
+              ? `${total} run${total !== 1 ? 's' : ''}${exec.activeFilterCount > 0 ? ' matching filters' : ' across all collections'}`
+              : 'No executions yet'}
           </p>
         </div>
         <button onClick={() => setRunModal(true)} className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0">
@@ -374,10 +207,10 @@ export default function Executions() {
     );
   }
 
-  // Level 3: run list
+  // ── Level 3: run list ────────────────────────────────────────────────────
 
   function renderRunList() {
-    if (testExecsQ.isLoading) {
+    if (exec.isLoadingTestExecs) {
       return (
         <div className="flex items-center justify-center py-20">
           <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
@@ -385,7 +218,7 @@ export default function Executions() {
       );
     }
 
-    if (testExecs.length === 0) {
+    if (exec.testExecs.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
@@ -418,56 +251,56 @@ export default function Executions() {
             </tr>
           </thead>
           <tbody className="divide-y divide-border-subtle">
-            {runListSlice.flatMap((exec, pageIdx) => {
-              const globalIdx = runListPage * RUN_LIST_PAGE_SIZE + pageIdx;
-              const runNumber = testExecs.length - globalIdx;
-              const isExpanded = expandedId === exec.id;
+            {exec.runListSlice.flatMap((e, pageIdx) => {
+              const globalIdx = exec.runListPage * 10 + pageIdx;
+              const runNumber = exec.testExecs.length - globalIdx;
+              const isExpanded = exec.expandedId === e.id;
               return [
                 <tr
-                  key={exec.id}
-                  onClick={() => setExpandedId(isExpanded ? null : exec.id)}
+                  key={e.id}
+                  onClick={() => exec.setExpandedId(isExpanded ? null : e.id)}
                   className={`cursor-pointer transition-colors ${isExpanded ? 'bg-primary/5' : 'hover:bg-surface-muted'}`}
                 >
                   <td className="py-4 pl-5 pr-4">
                     <span className="font-mono-code text-sm font-semibold text-primary">#{runNumber}</span>
                   </td>
-                  <td className="py-4 pr-4"><StatusPill status={exec.status} /></td>
+                  <td className="py-4 pr-4"><StatusPill status={e.status} /></td>
                   <td className="py-4 pr-4">
-                    {exec.totalCount > 0 ? (
+                    {e.totalCount > 0 ? (
                       <span className="text-sm text-text-primary font-medium">
-                        <span className="text-success">{exec.passCount}</span>
-                        <span className="text-text-secondary">/{exec.totalCount}</span>
+                        <span className="text-success">{e.passCount}</span>
+                        <span className="text-text-secondary">/{e.totalCount}</span>
                       </span>
                     ) : <span className="text-sm text-text-secondary">—</span>}
                   </td>
                   <td className="py-4 pr-4">
-                    <span className="text-sm font-mono-code text-text-secondary">{formatDuration(exec.durationMs)}</span>
+                    <span className="text-sm font-mono-code text-text-secondary">{formatDuration(e.durationMs)}</span>
                   </td>
                   <td className="py-4 pr-4">
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-container text-xs font-medium text-text-secondary border border-border-subtle">
                       <span className="material-symbols-outlined" style={{ fontSize: 11 }}>network_node</span>
-                      {exec.environmentName}
+                      {e.environmentName}
                     </span>
                   </td>
                   <td className="py-4 pr-4">
-                    <span className="text-sm text-text-secondary">{fmtDatetime(exec.startedAt)}</span>
+                    <span className="text-sm text-text-secondary">{fmtDatetime(e.startedAt)}</span>
                   </td>
                   <td className="py-4 pr-5">
                     <div className="flex items-center justify-end gap-1">
                       <button
-                        onClick={(e) => { e.stopPropagation(); if (exec.status !== 'running' && retryingId !== exec.id) retryMut.mutate(exec); }}
-                        disabled={exec.status === 'running' || retryingId === exec.id}
+                        onClick={(ev) => { ev.stopPropagation(); if (e.status !== 'running' && exec.retryingId !== e.id) exec.retryMutation.mutate(e); }}
+                        disabled={e.status === 'running' || exec.retryingId === e.id}
                         title="Retry"
                         className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                       >
-                        {retryingId === exec.id
+                        {exec.retryingId === e.id
                           ? <span className="w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin block" />
                           : <span className="material-symbols-outlined" style={{ fontSize: 16 }}>replay</span>
                         }
                       </button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); if (exec.status !== 'running') deleteMut.mutate(exec.id); }}
-                        disabled={exec.status === 'running' || deleteMut.isPending}
+                        onClick={(ev) => { ev.stopPropagation(); if (e.status !== 'running') exec.deleteMutation.mutate(e.id); }}
+                        disabled={e.status === 'running' || exec.deleteMutation.isPending}
                         title="Delete"
                         className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-error hover:bg-error/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                       >
@@ -479,24 +312,24 @@ export default function Executions() {
                     </div>
                   </td>
                 </tr>,
-                ...(isExpanded ? [<ExpandedTestResults key={`detail-${exec.id}`} execution={exec} colSpan={COL_COUNT} />] : []),
+                ...(isExpanded ? [<ExpandedTestResults key={`detail-${e.id}`} execution={e} colSpan={COL_COUNT} />] : []),
               ];
             })}
           </tbody>
         </table>
-        {runListTotalPages > 1 && (
+        {exec.runListTotalPages > 1 && (
           <div className="flex items-center justify-between px-5 py-3 border-t border-border-subtle bg-surface-muted">
-            <span className="text-xs text-text-secondary">Page {runListPage + 1} of {runListTotalPages} · {testExecs.length} runs</span>
+            <span className="text-xs text-text-secondary">Page {exec.runListPage + 1} of {exec.runListTotalPages} · {exec.testExecs.length} runs</span>
             <div className="flex items-center gap-2">
-              <button disabled={runListPage === 0} onClick={() => setRunListPage((p) => p - 1)} className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-border-subtle rounded-lg text-text-secondary hover:bg-surface-main disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+              <button disabled={exec.runListPage === 0} onClick={() => exec.setRunListPage((p) => p - 1)} className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-border-subtle rounded-lg text-text-secondary hover:bg-surface-main disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                 <span className="material-symbols-outlined" style={{ fontSize: 14 }}>chevron_left</span>Prev
               </button>
-              {Array.from({ length: runListTotalPages }).map((_, i) => (
-                <button key={i} onClick={() => setRunListPage(i)} className={`w-7 h-7 rounded-lg text-xs font-semibold transition-colors ${i === runListPage ? 'bg-primary text-white' : 'text-text-secondary hover:bg-surface-main border border-border-subtle'}`}>
+              {Array.from({ length: exec.runListTotalPages }).map((_, i) => (
+                <button key={i} onClick={() => exec.setRunListPage(i)} className={`w-7 h-7 rounded-lg text-xs font-semibold transition-colors ${i === exec.runListPage ? 'bg-primary text-white' : 'text-text-secondary hover:bg-surface-main border border-border-subtle'}`}>
                   {i + 1}
                 </button>
               ))}
-              <button disabled={runListPage >= runListTotalPages - 1} onClick={() => setRunListPage((p) => p + 1)} className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-border-subtle rounded-lg text-text-secondary hover:bg-surface-main disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+              <button disabled={exec.runListPage >= exec.runListTotalPages - 1} onClick={() => exec.setRunListPage((p) => p + 1)} className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-border-subtle rounded-lg text-text-secondary hover:bg-surface-main disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
                 Next<span className="material-symbols-outlined" style={{ fontSize: 14 }}>chevron_right</span>
               </button>
             </div>
@@ -506,10 +339,10 @@ export default function Executions() {
     );
   }
 
-  // Level 2: test folder cards
+  // ── Level 2: test folder cards ─────────────────────────────────────────────
 
   function renderTestFolders() {
-    if (testsQ.isLoading) {
+    if (exec.isLoadingTests) {
       return (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {Array.from({ length: 3 }).map((_, i) => <FolderCardSkeleton key={i} />)}
@@ -517,7 +350,7 @@ export default function Executions() {
       );
     }
 
-    if (tests.length === 0) {
+    if (exec.tests.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <span className="material-symbols-outlined text-border-subtle mb-3" style={{ fontSize: 48 }}>folder_open</span>
@@ -529,21 +362,20 @@ export default function Executions() {
 
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-        {tests.map((test, idx) => {
-          const accent = ACCENTS[idx % ACCENTS.length];
-          const execs = execsByTestId.get(test.id) ?? [];
+        {exec.tests.map((test, idx) => {
+          const accent  = ACCENTS[idx % ACCENTS.length];
+          const execs   = exec.execsByTestId.get(test.id) ?? [];
           const lastExec = execs[0] ?? null;
           const runCount = execs.length;
-
-          const colors = lastExec ? STATUS_BG[lastExec.status] : accent;
+          const colors  = lastExec ? STATUS_BG[lastExec.status] : accent;
 
           return (
             <div
               key={test.id}
               className="group relative pt-3 cursor-pointer"
               onClick={() => {
-                setRunListPage(0);
-                setExpandedId(null);
+                exec.setRunListPage(0);
+                exec.setExpandedId(null);
                 setSearchParams({ col: selectedColId!, test: test.id });
               }}
             >
@@ -572,63 +404,38 @@ export default function Executions() {
     );
   }
 
-  // Level 1: main executions table
+  // ── Level 1: main executions table ────────────────────────────────────────
 
   function renderCollectionFolders() {
-    const isLoading = tableExecsQ.isLoading || collectionsQ.isLoading;
+    const liveRows    = exec.tableExecs.filter((e) => e.status === 'running' || e.status === 'queued');
+    const historyRows = exec.tableExecs.filter((e) => e.status === 'passed'  || e.status === 'failed');
+    const allVisible  = [...liveRows, ...historyRows];
+    const allChecked  = allVisible.length > 0 && allVisible.every((e) => exec.selectedIds.has(e.id));
+    const someChecked = allVisible.some((e) => exec.selectedIds.has(e.id));
 
-    const liveRows    = tableExecs.filter((e) => e.status === 'running' || e.status === 'queued');
-    const historyRows = tableExecs.filter((e) => e.status === 'passed'  || e.status === 'failed');
-
-    const allVisible = [...liveRows, ...historyRows];
-    const allChecked = allVisible.length > 0 && allVisible.every((e) => selectedIds.has(e.id));
-    const someChecked = allVisible.some((e) => selectedIds.has(e.id));
-
-    function toggleAll() {
-      if (allChecked) {
-        setSelectedIds(new Set());
-      } else {
-        setSelectedIds(new Set(allVisible.map((e) => e.id)));
-      }
-    }
-
-    function toggleRow(id: string) {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        next.has(id) ? next.delete(id) : next.add(id);
-        return next;
-      });
-    }
-
-    function renderRow(exec: Execution) {
-      const isSelected = selectedIds.has(exec.id);
-      const isRunning  = exec.status === 'running';
-      const progressPct = exec.totalCount > 0 ? (exec.passCount / exec.totalCount) * 100 : 0;
-      const elapsedMs   = isRunning ? now - new Date(exec.startedAt).getTime() : exec.durationMs;
+    function renderRow(e: Execution) {
+      const isSelected  = exec.selectedIds.has(e.id);
+      const isRunning   = e.status === 'running';
+      const progressPct = e.totalCount > 0 ? (e.passCount / e.totalCount) * 100 : 0;
+      const elapsedMs   = isRunning ? exec.now - new Date(e.startedAt).getTime() : e.durationMs;
 
       return (
         <tr
-          key={exec.id}
+          key={e.id}
           className={`border-b border-border-subtle transition-colors last:border-b-0 ${
             isSelected ? 'bg-[#3525cd]/[0.08]' : 'hover:bg-surface-muted/40'
           }`}
         >
           <td className="px-[14px] py-[11px]" style={{ width: 36 }}>
-            <input type="checkbox" checked={isSelected} onChange={() => toggleRow(exec.id)} className="accent-primary" />
+            <input type="checkbox" checked={isSelected} onChange={() => exec.toggleRow(e.id)} className="accent-primary" />
           </td>
 
           <td className="px-[14px] py-[11px]">
             <div className="flex items-start gap-2">
-              {isRunning && (
-                <span className="mt-[3px] w-1.5 h-1.5 rounded-full bg-primary animate-pulse flex-shrink-0 inline-block" />
-              )}
+              {isRunning && <span className="mt-[3px] w-1.5 h-1.5 rounded-full bg-primary animate-pulse flex-shrink-0 inline-block" />}
               <div>
-                <div className="font-medium text-sm text-text-primary">
-                  {exec.collectionName} · #{exec.runNumber}
-                </div>
-                <div className="text-sm text-text-secondary mt-0.5">
-                  {relTime(exec.startedAt)} · {exec.environmentUrl}
-                </div>
+                <div className="font-medium text-sm text-text-primary">{e.collectionName} · #{e.runNumber}</div>
+                <div className="text-sm text-text-secondary mt-0.5">{relTime(e.startedAt)} · {e.environmentUrl}</div>
                 {isRunning && (
                   <div className="mt-1.5 w-32 h-1 rounded overflow-hidden bg-surface-muted" style={{ borderRadius: 2 }}>
                     <div className="h-full" style={{ width: `${progressPct}%`, backgroundColor: '#3525cd', borderRadius: 2 }} />
@@ -641,25 +448,23 @@ export default function Executions() {
           <td className="px-[14px] py-[11px]" style={{ width: 140 }}>
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-muted border border-border-subtle text-xs font-medium text-text-secondary max-w-[120px] truncate">
               <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 12 }}>folder</span>
-              <span className="truncate">{exec.collectionName}</span>
+              <span className="truncate">{e.collectionName}</span>
             </span>
           </td>
 
-          <td className="px-[14px] py-[11px]" style={{ width: 100 }}>
-            <StatusPill status={exec.status} />
-          </td>
+          <td className="px-[14px] py-[11px]" style={{ width: 100 }}><StatusPill status={e.status} /></td>
 
           <td className="px-[14px] py-[11px]" style={{ width: 110 }}>
-            {exec.status === 'queued' ? (
+            {e.status === 'queued' ? (
               <span className="text-sm text-text-secondary font-mono-code">—</span>
             ) : (
               <div>
                 <div className="flex w-[60px] overflow-hidden mb-1" style={{ height: 4, borderRadius: 2 }}>
-                  <div className="bg-success" style={{ width: `${exec.totalCount > 0 ? (exec.passCount / exec.totalCount) * 100 : 0}%` }} />
-                  <div className="bg-error"   style={{ width: `${exec.totalCount > 0 ? (exec.failCount  / exec.totalCount) * 100 : 0}%` }} />
+                  <div className="bg-success" style={{ width: `${e.totalCount > 0 ? (e.passCount / e.totalCount) * 100 : 0}%` }} />
+                  <div className="bg-error"   style={{ width: `${e.totalCount > 0 ? (e.failCount  / e.totalCount) * 100 : 0}%` }} />
                   <div className="flex-1 bg-surface-muted" />
                 </div>
-                <span className="text-sm font-mono-code text-text-secondary tabular-nums">{exec.passCount}/{exec.totalCount}</span>
+                <span className="text-sm font-mono-code text-text-secondary tabular-nums">{e.passCount}/{e.totalCount}</span>
               </div>
             )}
           </td>
@@ -670,40 +475,40 @@ export default function Executions() {
 
           <td className="px-[14px] py-[11px]" style={{ width: 96 }}>
             <div className="flex items-center justify-end gap-1">
-              {(exec.status === 'passed' || exec.status === 'failed') && (
+              {(e.status === 'passed' || e.status === 'failed') && (
                 <>
-                  {exec.reportDir && exec.totalCount > 0 && (
-                    <a href={`/reports/${exec.reportDir}/html/index.html`} target="_blank" rel="noopener noreferrer" title="View report"
+                  {e.reportDir && e.totalCount > 0 && (
+                    <a href={`/reports/${e.reportDir}/html/index.html`} target="_blank" rel="noopener noreferrer" title="View report"
                       className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-primary hover:bg-primary/10 border border-transparent hover:border-border-subtle transition-colors">
                       <span className="material-symbols-outlined" style={{ fontSize: 16 }}>assessment</span>
                     </a>
                   )}
-                  <button title="Re-run" onClick={() => retryMut.mutate(exec)} disabled={retryMut.isPending}
+                  <button title="Re-run" onClick={() => exec.retryMutation.mutate(e)} disabled={exec.retryMutation.isPending}
                     className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-primary hover:bg-primary/10 border border-transparent hover:border-border-subtle transition-colors disabled:opacity-40">
                     <span className="material-symbols-outlined" style={{ fontSize: 16 }}>replay</span>
                   </button>
                 </>
               )}
-              {exec.status === 'running' && (
+              {e.status === 'running' && (
                 <>
                   <button title="Stop"
                     className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-error hover:bg-error/10 border border-transparent hover:border-border-subtle transition-colors">
                     <span className="material-symbols-outlined" style={{ fontSize: 16 }}>stop</span>
                   </button>
-                  <button title="View log" onClick={() => setLogExec(exec)}
+                  <button title="View log" onClick={() => setLogExec(e)}
                     className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-primary hover:bg-primary/10 border border-transparent hover:border-border-subtle transition-colors">
                     <span className="material-symbols-outlined" style={{ fontSize: 16 }}>terminal</span>
                   </button>
                 </>
               )}
-              {exec.status === 'queued' && (
+              {e.status === 'queued' && (
                 <button title="Cancel"
                   className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-error hover:bg-error/10 border border-transparent hover:border-border-subtle transition-colors">
                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
                 </button>
               )}
-              {exec.status !== 'running' && (
-                <button title="Delete" onClick={() => deleteMut.mutate(exec.id)} disabled={deleteMut.isPending}
+              {e.status !== 'running' && (
+                <button title="Delete" onClick={() => exec.deleteMutation.mutate(e.id)} disabled={exec.deleteMutation.isPending}
                   className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-error hover:bg-error/10 border border-transparent hover:border-border-subtle transition-colors disabled:opacity-40">
                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
                 </button>
@@ -718,32 +523,29 @@ export default function Executions() {
 
     return (
       <>
-        {/* Filter bar */}
         <FilterBar
-          applied={appliedFilters}
-          activeCount={activeFilterCount}
+          applied={exec.appliedFilters}
+          activeCount={exec.activeFilterCount}
           onOpen={() => setFilterOpen(true)}
-          onClear={clearFilters}
-          onRemove={removeFilter}
-          collections={collections}
+          onClear={exec.clearFilters}
+          onRemove={exec.removeFilter}
+          collections={exec.collections}
         />
 
-        {/* Compare button */}
-        {selectedIds.size >= 2 && (
+        {exec.selectedIds.size >= 2 && (
           <div className="flex justify-end mb-3">
             <button
               onClick={() => setCompareOpen(true)}
               className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-primary/90 transition-colors"
             >
               <span className="material-symbols-outlined" style={{ fontSize: 16 }}>compare_arrows</span>
-              Compare ({selectedIds.size})
+              Compare ({exec.selectedIds.size})
             </button>
           </div>
         )}
 
-        {/* Main table */}
         <div className="border border-border-subtle rounded-xl overflow-hidden">
-          {isLoading ? (
+          {exec.isLoadingTable ? (
             <div className="animate-pulse">
               {Array.from({ length: 5 }).map((_, i) => (
                 <div key={i} className="h-14 border-b border-border-subtle bg-surface-muted/30 last:border-b-0" />
@@ -758,7 +560,7 @@ export default function Executions() {
                       type="checkbox"
                       checked={allChecked}
                       ref={(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
-                      onChange={toggleAll}
+                      onChange={() => exec.toggleAll(allVisible.map((e) => e.id))}
                       className="accent-primary"
                     />
                   </th>
@@ -771,20 +573,14 @@ export default function Executions() {
                 </tr>
               </thead>
               <tbody>
-                {liveRows.length > 0 && (
-                  <tr><td colSpan={7} className={sectionHeaderCls}>Live</td></tr>
-                )}
+                {liveRows.length > 0 && <tr><td colSpan={7} className={sectionHeaderCls}>Live</td></tr>}
                 {liveRows.map(renderRow)}
-
-                {historyRows.length > 0 && (
-                  <tr><td colSpan={7} className={sectionHeaderCls}>History</td></tr>
-                )}
+                {historyRows.length > 0 && <tr><td colSpan={7} className={sectionHeaderCls}>History</td></tr>}
                 {historyRows.map(renderRow)}
-
-                {tableExecs.length === 0 && (
+                {exec.tableExecs.length === 0 && (
                   <tr>
                     <td colSpan={7} className="px-[14px] py-12 text-center text-sm text-text-secondary">
-                      {activeFilterCount > 0
+                      {exec.activeFilterCount > 0
                         ? 'No executions match your filters.'
                         : 'No executions yet. Run a suite to see results here.'}
                     </td>
@@ -794,22 +590,21 @@ export default function Executions() {
             </table>
           )}
 
-          {/* Pagination */}
-          {tablePagination && (
+          {exec.tablePagination && (
             <PaginationBar
-              page={tablePagination.page}
-              totalPages={tablePagination.totalPages}
-              total={tablePagination.total}
-              pageSize={tablePagination.pageSize}
-              onPage={(p) => { setTablePage(p); setExpandedId(null); }}
+              page={exec.tablePagination.page}
+              totalPages={exec.tablePagination.totalPages}
+              total={exec.tablePagination.total}
+              pageSize={exec.tablePagination.pageSize}
+              onPage={(p) => { exec.setTablePage(p); exec.setExpandedId(null); }}
             />
           )}
         </div>
 
-        {compareOpen && compareExecutions.length >= 2 && (
+        {compareOpen && exec.compareExecutions.length >= 2 && (
           <ComparePanel
-            executionIds={compareExecutions.map((e) => e.id)}
-            executions={compareExecutions}
+            executionIds={exec.compareExecutions.map((e) => e.id)}
+            executions={exec.compareExecutions}
             onClose={() => setCompareOpen(false)}
           />
         )}
@@ -817,7 +612,7 @@ export default function Executions() {
     );
   }
 
-  // Render
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="p-8 max-w-7xl">
@@ -837,13 +632,12 @@ export default function Executions() {
         />
       )}
 
-      {/* Filter drawer — always mounted so the slide animation works */}
       <FilterDrawer
         open={filterOpen}
         onClose={() => setFilterOpen(false)}
-        value={appliedFilters}
-        onApply={applyFilters}
-        collections={collections}
+        value={exec.appliedFilters}
+        onApply={exec.applyFilters}
+        collections={exec.collections}
       />
 
       {logExec && (

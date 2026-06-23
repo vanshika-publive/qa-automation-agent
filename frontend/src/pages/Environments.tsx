@@ -1,33 +1,8 @@
 import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '../api/client';
-import { ApiResponse } from '../types';
+import { EnvironmentDetail, EnvironmentSaveBody } from '../services/environments';
+import { useEnvironments } from '../hooks/useEnvironments';
 
-// Page-local types (detailed fields from the environments API)
-
-interface EnvironmentDetail {
-  id: string;
-  name: string;
-  baseUrl: string;
-  description: string;
-  isActive: boolean;
-  createdAt: string;
-  loginEmail: string;
-  publisher: string;
-  publisherId: string;
-  hasPassword: boolean;
-}
-
-interface EnvironmentSaveBody {
-  name: string;
-  baseUrl: string;
-  description: string;
-  isActive: boolean;
-  loginEmail: string;
-  loginPassword?: string; // optional on edit (blank = keep existing)
-}
-
-// Helpers
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -44,7 +19,7 @@ function envDotColor(name: string): string {
   return 'bg-primary';
 }
 
-// EnvironmentModal
+// ── Inline page-local components ─────────────────────────────────────────────
 
 interface ModalProps {
   initial?: EnvironmentDetail;
@@ -57,17 +32,17 @@ interface ModalProps {
 function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: ModalProps) {
   const isEdit = !!initial;
 
-  const [name, setName] = useState(initial?.name ?? '');
-  const [baseUrl, setBaseUrl] = useState(initial?.baseUrl ?? '');
-  const [description, setDescription] = useState(initial?.description ?? '');
-  const [isActive, setIsActive] = useState(initial?.isActive ?? true);
-  const [loginEmail, setLoginEmail] = useState(initial?.loginEmail ?? '');
+  const [name,          setName]          = useState(initial?.name ?? '');
+  const [baseUrl,       setBaseUrl]       = useState(initial?.baseUrl ?? '');
+  const [description,   setDescription]   = useState(initial?.description ?? '');
+  const [isActive,      setIsActive]      = useState(initial?.isActive ?? true);
+  const [loginEmail,    setLoginEmail]    = useState(initial?.loginEmail ?? '');
   const [loginPassword, setLoginPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [showPassword,  setShowPassword]  = useState(false);
 
-  const [nameError, setNameError] = useState('');
-  const [urlError, setUrlError] = useState('');
-  const [emailError, setEmailError] = useState('');
+  const [nameError,     setNameError]     = useState('');
+  const [urlError,      setUrlError]      = useState('');
+  const [emailError,    setEmailError]    = useState('');
   const [passwordError, setPasswordError] = useState('');
 
   function validate(): boolean {
@@ -108,7 +83,6 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
         className="bg-surface-main rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[92vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border-subtle flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -128,19 +102,14 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
           </button>
         </div>
 
-        {/* Scrollable body */}
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
           <div className="px-6 py-5 space-y-5">
-
-            {/* Name */}
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1.5">
                 Name <span className="text-error">*</span>
               </label>
               <input
-                autoFocus
-                type="text"
-                value={name}
+                autoFocus type="text" value={name}
                 onChange={(e) => { setName(e.target.value); if (nameError) setNameError(''); }}
                 placeholder="Production"
                 className={`w-full border rounded-xl px-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-secondary bg-surface-main focus:outline-none focus:ring-2 transition-colors ${
@@ -149,13 +118,11 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
               />
               {nameError && (
                 <p className="mt-1.5 text-xs text-error flex items-center gap-1">
-                  <span className="material-symbols-outlined" style={{ fontSize: 12 }}>error</span>
-                  {nameError}
+                  <span className="material-symbols-outlined" style={{ fontSize: 12 }}>error</span>{nameError}
                 </p>
               )}
             </div>
 
-            {/* Base URL */}
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1.5">
                 Base URL <span className="text-error">*</span>
@@ -165,8 +132,7 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>link</span>
                 </span>
                 <input
-                  type="text"
-                  value={baseUrl}
+                  type="text" value={baseUrl}
                   onChange={(e) => { setBaseUrl(e.target.value); if (urlError) setUrlError(''); }}
                   placeholder="https://app.example.com"
                   className={`w-full border rounded-xl pl-9 pr-3.5 py-2.5 text-sm font-mono-code text-text-primary placeholder:text-text-secondary placeholder:font-sans bg-surface-main focus:outline-none focus:ring-2 transition-colors ${
@@ -176,13 +142,11 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
               </div>
               {urlError && (
                 <p className="mt-1.5 text-xs text-error flex items-center gap-1">
-                  <span className="material-symbols-outlined" style={{ fontSize: 12 }}>error</span>
-                  {urlError}
+                  <span className="material-symbols-outlined" style={{ fontSize: 12 }}>error</span>{urlError}
                 </p>
               )}
             </div>
 
-            {/* Description */}
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1.5">
                 Description
@@ -197,7 +161,6 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
               />
             </div>
 
-            {/* Divider + credentials section */}
             <div className="border-t border-border-subtle pt-1">
               <div className="flex items-center gap-2 mb-4">
                 <span className="material-symbols-outlined text-text-secondary" style={{ fontSize: 16 }}>lock</span>
@@ -207,7 +170,6 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
                 Used to log in to the dashboard when running tests. Stored in the database.
               </p>
 
-              {/* Login Email */}
               <div className="mb-4">
                 <label className="block text-sm font-medium text-text-primary mb-1.5">
                   Login email <span className="text-error">*</span>
@@ -217,8 +179,7 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
                     <span className="material-symbols-outlined" style={{ fontSize: 16 }}>mail</span>
                   </span>
                   <input
-                    type="email"
-                    value={loginEmail}
+                    type="email" value={loginEmail}
                     onChange={(e) => { setLoginEmail(e.target.value); if (emailError) setEmailError(''); }}
                     placeholder="you@example.com"
                     className={`w-full border rounded-xl pl-9 pr-3.5 py-2.5 text-sm text-text-primary placeholder:text-text-secondary bg-surface-main focus:outline-none focus:ring-2 transition-colors ${
@@ -228,13 +189,11 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
                 </div>
                 {emailError && (
                   <p className="mt-1.5 text-xs text-error flex items-center gap-1">
-                    <span className="material-symbols-outlined" style={{ fontSize: 12 }}>error</span>
-                    {emailError}
+                    <span className="material-symbols-outlined" style={{ fontSize: 12 }}>error</span>{emailError}
                   </p>
                 )}
               </div>
 
-              {/* Login Password */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="block text-sm font-medium text-text-primary">
@@ -252,8 +211,7 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
                     <span className="material-symbols-outlined" style={{ fontSize: 16 }}>key</span>
                   </span>
                   <input
-                    type={showPassword ? 'text' : 'password'}
-                    value={loginPassword}
+                    type={showPassword ? 'text' : 'password'} value={loginPassword}
                     onChange={(e) => { setLoginPassword(e.target.value); if (passwordError) setPasswordError(''); }}
                     placeholder={isEdit ? '••••••••' : 'Enter password'}
                     className={`w-full border rounded-xl pl-9 pr-10 py-2.5 text-sm text-text-primary placeholder:text-text-secondary bg-surface-main focus:outline-none focus:ring-2 transition-colors ${
@@ -273,13 +231,11 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
                 </div>
                 {passwordError && (
                   <p className="mt-1.5 text-xs text-error flex items-center gap-1">
-                    <span className="material-symbols-outlined" style={{ fontSize: 12 }}>error</span>
-                    {passwordError}
+                    <span className="material-symbols-outlined" style={{ fontSize: 12 }}>error</span>{passwordError}
                   </p>
                 )}
               </div>
 
-              {/* Publisher — set automatically on creation, read-only thereafter */}
               {isEdit && (
                 <div className="mt-4">
                   <label className="block text-sm font-medium text-text-primary mb-1.5">Publisher</label>
@@ -293,35 +249,24 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
               )}
             </div>
 
-            {/* Divider */}
             <div className="border-t border-border-subtle" />
 
-            {/* Active toggle */}
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-text-primary">Active</p>
-                <p className="text-xs text-text-secondary mt-0.5">
-                  Only active environments appear in run dialogs
-                </p>
+                <p className="text-xs text-text-secondary mt-0.5">Only active environments appear in run dialogs</p>
               </div>
               <button
-                type="button"
-                role="switch"
-                aria-checked={isActive}
+                type="button" role="switch" aria-checked={isActive}
                 onClick={() => setIsActive((v) => !v)}
                 className={`relative w-11 h-6 rounded-full transition-colors duration-200 flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-primary/30 ${
                   isActive ? 'bg-primary' : 'bg-border-subtle'
                 }`}
               >
-                <span
-                  className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${
-                    isActive ? 'translate-x-5' : 'translate-x-0'
-                  }`}
-                />
+                <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-200 ${isActive ? 'translate-x-5' : 'translate-x-0'}`} />
               </button>
             </div>
 
-            {/* Server error */}
             {serverError && (
               <div className="flex items-start gap-2 bg-error/5 border border-error/20 rounded-xl px-3.5 py-3">
                 <span className="material-symbols-outlined text-error flex-shrink-0 mt-0.5" style={{ fontSize: 16 }}>error</span>
@@ -330,13 +275,8 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
             )}
           </div>
 
-          {/* Footer */}
           <div className="flex gap-3 px-6 py-4 border-t border-border-subtle flex-shrink-0 bg-surface-muted/30">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 border border-border-subtle rounded-xl py-2.5 text-sm font-medium text-text-secondary hover:bg-surface-muted transition-colors"
-            >
+            <button type="button" onClick={onClose} className="flex-1 border border-border-subtle rounded-xl py-2.5 text-sm font-medium text-text-secondary hover:bg-surface-muted transition-colors">
               Cancel
             </button>
             <button
@@ -348,9 +288,7 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
                   : 'hover:bg-primary/90 hover:-translate-y-0.5 hover:shadow-md hover:shadow-primary/25 active:translate-y-0'
               }`}
             >
-              {isPending && (
-                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              )}
+              {isPending && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
               {isEdit ? 'Save Changes' : 'Create environment'}
             </button>
           </div>
@@ -360,13 +298,8 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
   );
 }
 
-// DeleteConfirmModal
-
 function DeleteConfirmModal({
-  env,
-  onClose,
-  onConfirm,
-  isPending,
+  env, onClose, onConfirm, isPending,
 }: {
   env: EnvironmentDetail;
   onClose: () => void;
@@ -374,19 +307,11 @@ function DeleteConfirmModal({
   isPending: boolean;
 }) {
   return (
-    <div
-      className="fixed inset-0 bg-surface-sidebar/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-surface-main rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 bg-surface-sidebar/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-surface-main rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="px-6 pt-6 pb-4">
           <div className="w-12 h-12 rounded-2xl bg-error/10 flex items-center justify-center mb-4">
-            <span className="material-symbols-outlined text-error" style={{ fontSize: 24, fontVariationSettings: '"FILL" 1' }}>
-              delete
-            </span>
+            <span className="material-symbols-outlined text-error" style={{ fontSize: 24, fontVariationSettings: '"FILL" 1' }}>delete</span>
           </div>
           <h2 className="font-semibold text-text-primary mb-1.5">Delete environment?</h2>
           <p className="text-sm text-text-secondary leading-relaxed">
@@ -395,10 +320,7 @@ function DeleteConfirmModal({
           </p>
         </div>
         <div className="flex gap-3 px-6 pb-6">
-          <button
-            onClick={onClose}
-            className="flex-1 border border-border-subtle rounded-xl py-2.5 text-sm font-medium text-text-secondary hover:bg-surface-muted transition-colors"
-          >
+          <button onClick={onClose} className="flex-1 border border-border-subtle rounded-xl py-2.5 text-sm font-medium text-text-secondary hover:bg-surface-muted transition-colors">
             Cancel
           </button>
           <button
@@ -406,9 +328,7 @@ function DeleteConfirmModal({
             disabled={isPending}
             className="flex-1 bg-error text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-error/90 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
           >
-            {isPending && (
-              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-            )}
+            {isPending && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
             Delete
           </button>
         </div>
@@ -417,12 +337,8 @@ function DeleteConfirmModal({
   );
 }
 
-// EnvironmentCard
-
 function EnvironmentCard({
-  env,
-  onEdit,
-  onDelete,
+  env, onEdit, onDelete,
 }: {
   env: EnvironmentDetail;
   onEdit: () => void;
@@ -440,8 +356,6 @@ function EnvironmentCard({
 
   return (
     <div className="bg-surface-main border border-border-subtle rounded-xl p-5 flex flex-col gap-4 hover:border-primary/30 hover:shadow-sm transition-all group">
-
-      {/* Top row: dot + name + status badge */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 mt-0.5 ${envDotColor(env.name)}`} />
@@ -449,36 +363,23 @@ function EnvironmentCard({
         </div>
         {env.isActive ? (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-success/10 border border-success/20 text-success text-xs font-semibold flex-shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-success" />
-            Active
+            <span className="w-1.5 h-1.5 rounded-full bg-success" />Active
           </span>
         ) : (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-muted border border-border-subtle text-text-secondary text-xs font-medium flex-shrink-0">
-            <span className="w-1.5 h-1.5 rounded-full bg-border-subtle" />
-            Inactive
+            <span className="w-1.5 h-1.5 rounded-full bg-border-subtle" />Inactive
           </span>
         )}
       </div>
 
-      {/* Description */}
       {env.description && (
-        <p className="text-xs text-text-secondary leading-relaxed line-clamp-2 -mt-1">
-          {env.description}
-        </p>
+        <p className="text-xs text-text-secondary leading-relaxed line-clamp-2 -mt-1">{env.description}</p>
       )}
 
-      {/* Base URL */}
       <div className="bg-surface-muted rounded-lg px-3 py-2 border border-border-subtle/50">
         <p className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider mb-1">BASE URL</p>
-        <button
-          type="button"
-          onClick={copyUrl}
-          title={copied ? 'Copied!' : 'Click to copy'}
-          className="group/url flex items-center justify-between gap-2 w-full"
-        >
-          <code className="font-mono-code text-xs text-primary truncate text-left select-all">
-            {env.baseUrl}
-          </code>
+        <button type="button" onClick={copyUrl} title={copied ? 'Copied!' : 'Click to copy'} className="group/url flex items-center justify-between gap-2 w-full">
+          <code className="font-mono-code text-xs text-primary truncate text-left select-all">{env.baseUrl}</code>
           <span
             className={`material-symbols-outlined flex-shrink-0 transition-colors ${copied ? 'text-success' : 'text-text-secondary group-hover/url:text-primary'}`}
             style={{ fontSize: 14, fontVariationSettings: copied ? '"FILL" 1' : '"FILL" 0' }}
@@ -488,7 +389,6 @@ function EnvironmentCard({
         </button>
       </div>
 
-      {/* Credentials status */}
       <div className={`rounded-lg px-3 py-2 border ${credentialsOk ? 'bg-surface-muted border-border-subtle/50' : 'bg-warning/5 border-warning/30'}`}>
         <p className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider mb-1">CREDENTIALS</p>
         {credentialsOk ? (
@@ -504,7 +404,6 @@ function EnvironmentCard({
         )}
       </div>
 
-      {/* Publisher */}
       <div className={`rounded-lg px-3 py-2 border ${env.publisher ? 'bg-surface-muted border-border-subtle/50' : 'bg-warning/5 border-warning/30'}`}>
         <p className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider mb-1">PUBLISHER</p>
         {env.publisher ? (
@@ -520,42 +419,28 @@ function EnvironmentCard({
         )}
       </div>
 
-      {/* Last used */}
       <div className="flex items-center gap-1.5 text-xs text-text-secondary">
         <span className="material-symbols-outlined" style={{ fontSize: 16 }}>schedule</span>
         Created: {timeAgo(env.createdAt)}
       </div>
 
-      {/* Actions */}
       <div className="mt-auto pt-3 border-t border-border-subtle flex justify-end gap-2">
-        <button
-          onClick={onEdit}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-text-secondary hover:text-primary hover:bg-primary/10 transition-colors"
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span>
-          Edit
+        <button onClick={onEdit} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-text-secondary hover:text-primary hover:bg-primary/10 transition-colors">
+          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span>Edit
         </button>
-        <button
-          onClick={onDelete}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-error hover:bg-error/10 transition-colors"
-        >
-          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
-          Delete
+        <button onClick={onDelete} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-error hover:bg-error/10 transition-colors">
+          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>Delete
         </button>
       </div>
     </div>
   );
 }
 
-// EmptyState
-
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 px-8 text-center">
       <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-5">
-        <span className="material-symbols-outlined text-primary" style={{ fontSize: 30, fontVariationSettings: '"FILL" 1' }}>
-          network_node
-        </span>
+        <span className="material-symbols-outlined text-primary" style={{ fontSize: 30, fontVariationSettings: '"FILL" 1' }}>network_node</span>
       </div>
       <h2 className="text-base font-semibold text-text-primary mb-2">No environments yet</h2>
       <p className="text-sm text-text-secondary max-w-xs mb-6 leading-relaxed">
@@ -572,53 +457,15 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-// Main
-
-type ModalState =
-  | { type: 'create' }
-  | { type: 'edit'; env: EnvironmentDetail }
-  | { type: 'delete'; env: EnvironmentDetail }
-  | null;
+// ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Environments() {
-  const qc = useQueryClient();
-  const [modal, setModal] = useState<ModalState>(null);
-  const [serverError, setServerError] = useState('');
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['environments'],
-    queryFn: () => api.get<ApiResponse<EnvironmentDetail[]>>('/environments'),
-  });
-
-  const environments = data?.data ?? [];
-
-  function invalidate() {
-    qc.invalidateQueries({ queryKey: ['environments'] });
-  }
-
-  const createMutation = useMutation({
-    mutationFn: (body: EnvironmentSaveBody) =>
-      api.post<ApiResponse<EnvironmentDetail>>('/environments', body),
-    onSuccess: () => { invalidate(); setModal(null); setServerError(''); },
-    onError: (err: Error) => setServerError(err.message),
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, body }: { id: string; body: EnvironmentSaveBody }) =>
-      api.put<ApiResponse<EnvironmentDetail>>(`/environments/${id}`, body),
-    onSuccess: () => { invalidate(); setModal(null); setServerError(''); },
-    onError: (err: Error) => setServerError(err.message),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.del<ApiResponse<{ id: string }>>(`/environments/${id}`),
-    onSuccess: () => { invalidate(); setModal(null); },
-    onError: (err: Error) => setServerError(err.message),
-  });
-
-  function openCreate() { setServerError(''); setModal({ type: 'create' }); }
-  function openEdit(env: EnvironmentDetail) { setServerError(''); setModal({ type: 'edit', env }); }
-  function openDelete(env: EnvironmentDetail) { setServerError(''); setModal({ type: 'delete', env }); }
+  const {
+    environments, isLoading,
+    modal, serverError,
+    createMutation, updateMutation, deleteMutation,
+    openCreate, openEdit, openDelete, closeModal,
+  } = useEnvironments();
 
   return (
     <div className="px-8 py-8 max-w-4xl">
@@ -678,7 +525,7 @@ export default function Environments() {
       {/* Modals */}
       {modal?.type === 'create' && (
         <EnvironmentModal
-          onClose={() => setModal(null)}
+          onClose={closeModal}
           onSave={(body) => createMutation.mutate(body)}
           isPending={createMutation.isPending}
           serverError={serverError}
@@ -688,7 +535,7 @@ export default function Environments() {
       {modal?.type === 'edit' && (
         <EnvironmentModal
           initial={modal.env}
-          onClose={() => setModal(null)}
+          onClose={closeModal}
           onSave={(body) => updateMutation.mutate({ id: modal.env.id, body })}
           isPending={updateMutation.isPending}
           serverError={serverError}
@@ -698,7 +545,7 @@ export default function Environments() {
       {modal?.type === 'delete' && (
         <DeleteConfirmModal
           env={modal.env}
-          onClose={() => setModal(null)}
+          onClose={closeModal}
           onConfirm={() => deleteMutation.mutate(modal.env.id)}
           isPending={deleteMutation.isPending}
         />

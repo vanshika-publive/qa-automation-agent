@@ -7,7 +7,7 @@ urlpatterns = [
 
     # Collections
     path('collections', collections.CollectionListCreate.as_view()),
-    path('collections/<str:id>', collections.CollectionDelete.as_view()),
+    path('collections/<str:id>', collections.CollectionDetail.as_view()),
 
     # Environments
     path('environments', environments.EnvironmentListCreate.as_view()),
