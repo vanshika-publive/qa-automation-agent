@@ -6,9 +6,15 @@ from pathlib import Path
 
 import pytest
 
+# data/ dir — runtime artifacts (generated tests, session, reports)
 PROJECT_ROOT = os.environ.get(
     'PLAYWRIGHT_PROJECT_ROOT',
     str(Path(__file__).resolve().parent.parent),
+)
+# backend/ dir — source code, pipeline package; set by runner.py or dev's shell
+BACKEND_ROOT = os.environ.get(
+    'BACKEND_ROOT',
+    str(Path(__file__).resolve().parent.parent.parent / 'backend'),
 )
 SESSION_PATH = os.path.join(PROJECT_ROOT, '.auth', 'session.json')
 SESSION_EXPIRY_SECONDS = 60 * 60 * 24
@@ -61,7 +67,7 @@ def _report_active_publisher():
     base_url = os.environ.get('DASHBOARD_URL', 'https://betadashboard.thepublive.com/v2')
     try:
         import sys
-        sys.path.insert(0, PROJECT_ROOT)
+        sys.path.insert(0, BACKEND_ROOT)
         from pipeline.publisher import detect_active_publisher
         pub = detect_active_publisher(base_url, SESSION_PATH)
     except Exception:

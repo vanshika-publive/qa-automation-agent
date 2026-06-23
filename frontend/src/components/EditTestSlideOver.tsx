@@ -1,0 +1,235 @@
+import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../api/client';
+import { ApiResponse, Collection, Test, Environment } from '../types';
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div className="relative">
+      <input type="checkbox" className="sr-only peer" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <div
+        className="w-11 h-6 bg-border-subtle rounded-full peer peer-checked:bg-primary cursor-pointer
+                   after:content-[''] after:absolute after:top-[2px] after:left-[2px]
+                   after:bg-white after:border after:border-gray-300 after:rounded-full
+                   after:h-5 after:w-5 after:transition-all
+                   peer-checked:after:translate-x-full peer-checked:after:border-white"
+        onClick={() => onChange(!checked)}
+      />
+    </div>
+  );
+}
+
+export default function EditTestSlideOver({
+  test, loading, error, onClose, onSubmit,
+}: {
+  test: Test;
+  loading: boolean;
+  error: string;
+  onClose: () => void;
+  onSubmit: (payload: {
+    name: string; prompt: string; status: string;
+    collection_id: string; environment_ids: string[]; duplicate: boolean;
+  }) => void;
+}) {
+  const [name, setName]               = useState(test.name);
+  const [prompt, setPrompt]           = useState(test.prompt);
+  const [active, setActive]           = useState(test.status !== 'inactive');
+  const [collectionId, setCollection] = useState(test.collectionId);
+  const [envIds, setEnvIds]           = useState<string[]>(test.environmentIds ?? []);
+  const [duplicate, setDuplicate]     = useState(false);
+
+  // Fetch all collections + environments for the dropdowns/pills
+  const { data: colsData } = useQuery({
+    queryKey: ['collections'],
+    queryFn: () => api.get<ApiResponse<Collection[]>>('/collections'),
+  });
+  const { data: envsData } = useQuery({
+    queryKey: ['environments'],
+    queryFn: () => api.get<ApiResponse<Environment[]>>('/environments'),
+  });
+  const allCollections  = colsData?.data  ?? [];
+  const allEnvironments = (envsData?.data ?? []).filter((e) => e.isActive);
+
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  function toggleEnv(id: string) {
+    setEnvIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  }
+
+  function handleSave() {
+    if (!name.trim()) return;
+    onSubmit({ name: name.trim(), prompt, status: active ? 'active' : 'inactive', collection_id: collectionId, environment_ids: envIds, duplicate });
+  }
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 bg-surface-sidebar/40 z-[60]" onClick={onClose} />
+
+      {/* Panel */}
+      <div
+        className="fixed top-0 right-0 h-full w-[520px] bg-white z-[70] flex flex-col"
+        style={{ boxShadow: '-10px 0 25px -5px rgba(0,0,0,0.15)' }}
+      >
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-border-subtle flex justify-between items-center bg-white flex-shrink-0">
+          <h3 className="font-semibold text-text-primary truncate">Edit Test: {test.name}</h3>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted hover:text-text-primary transition-all ml-3 flex-shrink-0"
+          >
+            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+          </button>
+        </div>
+
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+
+          {/* Prompt */}
+          <div className="space-y-2">
+            <label className="block text-sm font-semibold text-text-primary">Prompt</label>
+            <textarea
+              autoFocus
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={3}
+              placeholder="Enter test instructions in plain English…"
+              className="w-full border border-border-subtle rounded-xl px-4 py-3 font-mono-code text-xs text-text-primary placeholder:text-text-secondary focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all resize-none"
+            />
+            <p className="text-xs text-text-secondary">The AI uses this prompt to generate execution steps.</p>
+          </div>
+
+          {/* Test name */}
+          <div className="space-y-2">
+            <label className="block text-sm font-semibold text-text-primary">
+              Test name <span className="text-error">*</span>
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full border border-border-subtle rounded-xl px-4 py-2.5 text-sm text-text-primary focus:ring-2 focus:ring-primary focus:border-primary outline-none transition-all"
+            />
+          </div>
+
+          {/* Status toggle */}
+          <div className="flex items-center justify-between p-4 bg-surface-muted rounded-xl border border-border-subtle">
+            <div>
+              <div className="text-sm font-semibold text-text-primary">Status</div>
+              <div className="text-xs text-text-secondary mt-0.5">Active tests run in scheduled cycles</div>
+            </div>
+            <label className="flex items-center gap-3 cursor-pointer">
+              <Toggle checked={active} onChange={setActive} />
+              <span className="text-xs font-bold uppercase tracking-wide text-text-primary">
+                {active ? 'Active' : 'Inactive'}
+              </span>
+            </label>
+          </div>
+
+          {/* Collection Dropdown */}
+          <div className="space-y-2">
+            <label className="block text-sm font-semibold text-text-primary">Collection</label>
+            <div className="relative">
+              <select
+                value={collectionId}
+                onChange={(e) => setCollection(e.target.value)}
+                className="w-full border border-border-subtle rounded-xl px-4 py-2.5 pr-10 text-sm text-text-primary bg-white focus:ring-2 focus:ring-primary focus:border-primary outline-none appearance-none cursor-pointer transition-all"
+              >
+                {allCollections.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              <span
+                className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-text-secondary"
+                style={{ fontSize: 20 }}
+              >
+                expand_more
+              </span>
+            </div>
+          </div>
+
+          {/* Duplicate Test Toggle */}
+          <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-border-subtle">
+            <div>
+              <div className="text-sm font-semibold text-text-primary">Duplicate Test</div>
+              <div className="text-xs text-text-secondary mt-0.5">Create a copy in the current collection</div>
+            </div>
+            <Toggle checked={duplicate} onChange={setDuplicate} />
+          </div>
+
+          {/* Environment Multi-Selector */}
+          <div className="space-y-2">
+            <label className="block text-sm font-semibold text-text-primary">Environment</label>
+            <div className="flex flex-wrap gap-2">
+              {allEnvironments.map((env) => {
+                const selected = envIds.includes(env.id);
+                return (
+                  <button
+                    key={env.id}
+                    type="button"
+                    onClick={() => toggleEnv(env.id)}
+                    className={[
+                      'flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all',
+                      selected
+                        ? 'border-2 border-primary bg-primary/5 text-primary'
+                        : 'border border-border-subtle text-text-secondary hover:border-primary/40 hover:text-primary',
+                    ].join(' ')}
+                  >
+                    <span
+                      className="material-symbols-outlined"
+                      style={{
+                        fontSize: 16,
+                        fontVariationSettings: selected ? '"FILL" 1' : '"FILL" 0',
+                        color: selected ? '#3525cd' : undefined,
+                      }}
+                    >
+                      check_circle
+                    </span>
+                    {env.name}
+                  </button>
+                );
+              })}
+              <a
+                href="/environments"
+                onClick={onClose}
+                className="flex items-center gap-1 px-4 py-1.5 rounded-full text-sm font-medium border border-dashed border-border-subtle text-text-secondary hover:border-primary hover:text-primary transition-all"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
+                Add
+              </a>
+            </div>
+          </div>
+
+          {error && (
+            <p className="text-sm text-error bg-error/5 border border-error/20 rounded-xl px-4 py-3">{error}</p>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-6 border-t border-border-subtle bg-surface-muted/50 flex-shrink-0">
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 border border-border-subtle bg-white text-text-primary text-sm font-medium rounded-lg py-2.5 hover:bg-surface-muted transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={!name.trim() || loading}
+              className="flex-1 bg-primary text-white text-sm font-semibold rounded-lg py-2.5 hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed active:scale-95 transition-all shadow-sm"
+            >
+              {loading ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
