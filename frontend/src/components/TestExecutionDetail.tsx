@@ -104,7 +104,7 @@ export default function TestExecutionDetail({ testId, colSpan, asPanel }: { test
                   }`}
                 >
                   <StatusBadge status={run.status} />
-                  <span className="text-sm font-medium text-text-primary">Run #{runNum}</span>
+                  <span className="text-sm font-medium text-text-primary">{run.testName}</span>
                   <span className="text-xs text-text-secondary">{fmtDatetime(run.startedAt)}</span>
                   {run.durationMs != null && (
                     <span className="text-xs text-text-secondary font-mono-code">{formatDuration(run.durationMs)}</span>

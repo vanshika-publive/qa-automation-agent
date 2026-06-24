@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Execution } from '../types';
 import ComparePanel from '../components/ComparePanel';
 import ExpandedTestResults, { StatusPill } from '../components/ExpandedTestResults';
@@ -101,6 +101,7 @@ function FolderCardSkeleton() {
 
 export default function Executions() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [runModal,     setRunModal]     = useState(false);
   const [compareOpen,  setCompareOpen]  = useState(false);
@@ -422,11 +423,12 @@ export default function Executions() {
       return (
         <tr
           key={e.id}
-          className={`border-b border-border-subtle transition-colors last:border-b-0 ${
+          onClick={() => navigate(`/executions/${e.id}`)}
+          className={`border-b border-border-subtle transition-colors last:border-b-0 cursor-pointer ${
             isSelected ? 'bg-[#3525cd]/[0.08]' : 'hover:bg-surface-muted/40'
           }`}
         >
-          <td className="px-[14px] py-[11px]" style={{ width: 36 }}>
+          <td className="px-[14px] py-[11px]" style={{ width: 36 }} onClick={(ev) => ev.stopPropagation()}>
             <input type="checkbox" checked={isSelected} onChange={() => exec.toggleRow(e.id)} className="accent-primary" />
           </td>
 
@@ -473,7 +475,7 @@ export default function Executions() {
             <span className="text-sm font-mono-code text-text-secondary tabular-nums">{fmtMSS(elapsedMs)}</span>
           </td>
 
-          <td className="px-[14px] py-[11px]" style={{ width: 96 }}>
+          <td className="px-[14px] py-[11px]" style={{ width: 96 }} onClick={(ev) => ev.stopPropagation()}>
             <div className="flex items-center justify-end gap-1">
               {(e.status === 'passed' || e.status === 'failed') && (
                 <>
