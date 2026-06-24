@@ -1,10 +1,8 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
-import { collectionsService } from '../services/collections';
-import { executionsService } from '../services/executions';
 import { useCollections } from '../hooks/useCollections';
 import { useCollectionTests } from '../hooks/useCollectionTests';
 import { useEnvironments } from '../hooks/useEnvironments';
+import { useRunSuite } from '../hooks/useRunActions';
 
 export default function RunSuiteModal({ onClose, onRun }: { onClose: () => void; onRun: () => void }) {
   const [collectionId, setCollectionId] = useState('');
@@ -19,13 +17,7 @@ export default function RunSuiteModal({ onClose, onRun }: { onClose: () => void;
   const environments = allEnvironments.filter((e) => e.isActive);
   const effectiveEnvId = envId || environments[0]?.id || '';
 
-  const runMut = useMutation({
-    mutationFn: () => testId
-      ? executionsService.retry({ testId, environmentId: effectiveEnvId })
-      : collectionsService.runAllSpecs(collectionId, effectiveEnvId),
-    onSuccess: () => { onClose(); onRun(); },
-    onError: (err: Error) => setError(err.message),
-  });
+  const runMut = useRunSuite();
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
@@ -50,7 +42,10 @@ export default function RunSuiteModal({ onClose, onRun }: { onClose: () => void;
             if (!collectionId) { setError('Select a collection to run.'); return; }
             if (!effectiveEnvId) { setError('No active environment available.'); return; }
             setError('');
-            runMut.mutate();
+            runMut.mutate(
+              { collectionId, testId, environmentId: effectiveEnvId },
+              { onSuccess: () => { onClose(); onRun(); }, onError: (err) => setError(err.message) },
+            );
           }}
           className="px-6 py-5 space-y-4"
         >

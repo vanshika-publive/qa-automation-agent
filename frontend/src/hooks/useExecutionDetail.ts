@@ -42,8 +42,8 @@ export function useExecutionDetail(id: string) {
     mutationFn: () =>
       executionsService.retry({ testId: exec!.testId, environmentId: exec!.environmentId }),
     onSuccess: (res) => {
-      // Backend returns { executionId } directly (not wrapped in ApiResponse)
-      const executionId = (res as unknown as { data: { executionId: string } }).data?.executionId;
+      // Response is the standard ApiResponse envelope: { data: { executionId }, error }
+      const executionId = res.data?.executionId;
       qc.invalidateQueries({ queryKey: ['executions'] });
       if (executionId) navigate(`/executions/${executionId}`);
     },

@@ -15,7 +15,11 @@ export function useCollectionTests(collectionId: string | null) {
     queryKey: ['specs', collectionId],
     queryFn: () => collectionsService.getSpecs(collectionId!),
     enabled: !!collectionId,
-    refetchInterval: 5000,
+    refetchInterval: (query) => {
+      const tests = testsQuery.data?.data ?? [];
+      const specs = query.state.data?.data ?? [];
+      return tests.length > specs.length ? 5000 : false;
+    },
   });
 
   const deleteTestMutation = useMutation({
