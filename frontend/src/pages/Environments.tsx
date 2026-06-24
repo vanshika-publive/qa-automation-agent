@@ -468,7 +468,7 @@ export default function Environments() {
   } = useEnvironments();
 
   return (
-    <div className="px-8 py-8 max-w-4xl">
+    <div className="p-8 max-w-7xl">
 
       {/* Page header */}
       <div className="flex items-center justify-between mb-8">
