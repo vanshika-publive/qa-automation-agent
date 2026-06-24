@@ -17,6 +17,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 
 from core.models import Collection, Test, Environment, Execution, ExecutionStep
+from core.views.tests import _find_spec_file
 from utils.slug import to_collection_slug
 
 PROJECT_ROOT = settings.PLAYWRIGHT_PROJECT_ROOT
@@ -192,15 +193,39 @@ class ExecutionList(APIView):
 class ExecutionDetail(APIView):
     def get(self, request, id):
         try:
-            e = Execution.objects.select_related('test', 'environment').get(id=id)
+            e = Execution.objects.select_related('test', 'test__collection', 'environment').get(id=id)
         except Execution.DoesNotExist:
             return Response({'error': 'Execution not found'}, status=status.HTTP_404_NOT_FOUND)
 
         steps = ExecutionStep.all_objects.filter(execution_id=id).order_by('started_at')
         step_data = [_serialize_step(s) for s in steps]
 
-        data = _serialize_execution(e)
-        data['steps'] = step_data
+        run_number = Execution.objects.filter(
+            test_id=e.test_id,
+            started_at__lte=e.started_at,
+            deleted_at__isnull=True,
+        ).count()
+
+        data = {
+            'id': e.id,
+            'testId': e.test_id,
+            'collectionId': e.test.collection_id,
+            'collectionName': e.test.collection.name,
+            'environmentId': e.environment_id,
+            'status': e.status,
+            'startedAt': e.started_at,
+            'completedAt': e.completed_at,
+            'durationMs': e.duration_ms,
+            'passCount': e.pass_count,
+            'failCount': e.fail_count,
+            'totalCount': e.total_count,
+            'reportDir': e.report_dir,
+            'testName': e.test.name,
+            'environmentName': e.environment.name,
+            'environmentUrl': e.environment.base_url,
+            'runNumber': run_number,
+            'steps': step_data,
+        }
         return Response(data)
 
     def delete(self, request, id):
@@ -271,6 +296,42 @@ def execution_tests(request, id):
         'data': results or [],
         'pending': e.status == 'running',
         'error': None,
+    })
+
+
+@api_view(['GET'])
+def execution_files(request, id):
+    try:
+        e = Execution.objects.select_related('test', 'test__collection').get(id=id)
+    except Execution.DoesNotExist:
+        return Response({'error': 'Execution not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    slug = to_collection_slug(e.test.collection.name)
+    tests_root = os.path.join(PROJECT_ROOT, 'tests')
+    specs_root = os.path.join(PROJECT_ROOT, 'specs')
+
+    abs_path = _find_spec_file(e.test.name, slug, tests_root)
+    spec_filename = None
+    spec_content = None
+    if abs_path:
+        spec_filename = os.path.relpath(abs_path, tests_root).replace('\\', '/')
+        try:
+            spec_content = Path(abs_path).read_text(encoding='utf-8')
+        except Exception:
+            pass
+
+    plan_path = os.path.join(specs_root, slug, str(e.test_id), 'plan.md')
+    plan_content = None
+    if os.path.isfile(plan_path):
+        try:
+            plan_content = Path(plan_path).read_text(encoding='utf-8')
+        except Exception:
+            pass
+
+    return Response({
+        'specFilename': spec_filename,
+        'specContent': spec_content,
+        'planContent': plan_content,
     })
 
 

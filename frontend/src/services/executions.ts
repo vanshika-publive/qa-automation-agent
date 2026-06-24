@@ -1,5 +1,5 @@
 import { api } from '../api/client';
-import { ApiResponse, Execution } from '../types';
+import { ApiResponse, Execution, ExecutionDetail, ExecutionFiles, TestResult } from '../types';
 
 interface Pagination { page: number; pageSize: number; total: number; totalPages: number; }
 export interface PaginatedExecs { data: Execution[]; pagination: Pagination; error: string | null; }
@@ -26,6 +26,15 @@ export const executionsService = {
     if (filters.pageSize)     qs.set('pageSize', String(filters.pageSize));
     return api.get<PaginatedExecs>(`/executions?${qs}`);
   },
+
+  getDetail: (id: string) =>
+    api.get<ExecutionDetail>(`/executions/${id}`),
+
+  getTestResults: (id: string) =>
+    api.get<{ data: TestResult[]; pending: boolean; error: string | null }>(`/executions/${id}/tests`),
+
+  getFiles: (id: string) =>
+    api.get<ExecutionFiles>(`/executions/${id}/files`),
 
   delete: (id: string) =>
     api.del<ApiResponse<{ id: string }>>(`/executions/${id}`),
