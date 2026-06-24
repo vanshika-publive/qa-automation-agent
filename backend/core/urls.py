@@ -34,5 +34,6 @@ urlpatterns = [
     path('executions/<str:id>', executions.ExecutionDetail.as_view()),
     path('executions/<str:id>/steps', executions.execution_steps),
     path('executions/<str:id>/tests', executions.execution_tests),
+    path('executions/<str:id>/files', executions.execution_files),
     path('executions/<str:id>/stream', executions.execution_stream),
 ]

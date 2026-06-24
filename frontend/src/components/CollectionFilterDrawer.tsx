@@ -76,7 +76,7 @@ export default function CollectionFilterDrawer({
         <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
           {/* Date range (created) */}
           <div>
-            <label className={labelCls}>Created Date</label>
+            <label className={labelCls}>Created At</label>
             <div className="space-y-2">
               <div>
                 <span className="text-xs text-text-secondary mb-1 block">From</span>

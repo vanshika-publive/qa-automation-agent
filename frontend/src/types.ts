@@ -17,6 +17,8 @@ export interface Test {
   status: string;
   environmentIds: string[];
   createdAt: string;
+  specFile: { basename: string; filename: string } | null;
+  planFile: string | null;
 }
 
 export interface Environment {
@@ -59,3 +61,31 @@ export interface Execution {
 
 export type StepName = 'orchestrator' | 'planner' | 'generator' | 'runner';
 export type StepStatus = 'pending' | 'running' | 'passed' | 'failed';
+
+export interface ExecStep {
+  id: string;
+  executionId: string;
+  stepName: StepName;
+  status: StepStatus;
+  log: string;
+  startedAt: string;
+  completedAt: string | null;
+}
+
+export interface TestResult {
+  title: string;
+  file: string;
+  status: 'passed' | 'failed' | 'skipped';
+  durationMs: number;
+  error: string | null;
+}
+
+export interface ExecutionDetail extends Execution {
+  steps: ExecStep[];
+}
+
+export interface ExecutionFiles {
+  specFilename: string | null;
+  specContent: string | null;
+  planContent: string | null;
+}
