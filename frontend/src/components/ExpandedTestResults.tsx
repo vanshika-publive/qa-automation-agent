@@ -1,6 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
-import { executionsService } from '../services/executions';
-import { Execution, TestResult, ExecStep } from '../types';
+import { useExpandedTestResults } from '../hooks/useExpandedTestResults';
+import { Execution, TestResult } from '../types';
 import { formatDuration } from '../utils/formatters';
 
 export function StatusPill({ status }: { status: Execution['status'] }) {
@@ -41,25 +40,7 @@ function TestStatusBadge({ status }: { status: TestResult['status'] }) {
 }
 
 export default function ExpandedTestResults({ execution, colSpan = 7 }: { execution: Execution; colSpan?: number }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ['execution-tests', execution.id],
-    queryFn: () => executionsService.getTestResults(execution.id),
-    refetchInterval: execution.status === 'running' ? 3000 : false,
-    staleTime: 0,
-  });
-
-  const tests = data?.data ?? [];
-  const isPending = data?.pending ?? execution.status === 'running';
-  const showStepDetails = execution.status === 'failed' && !isLoading && tests.length === 0;
-
-  const { data: detailData } = useQuery({
-    queryKey: ['execution-detail', execution.id],
-    queryFn: () => executionsService.getDetail(execution.id),
-    enabled: showStepDetails,
-    staleTime: 30_000,
-  });
-
-  const steps: ExecStep[] = detailData?.steps ?? [];
+  const { tests, isLoading, isPending, showStepDetails, steps } = useExpandedTestResults(execution);
   const reportUrl = execution.reportDir ? `/reports/${execution.reportDir}/html/index.html` : null;
 
   return (

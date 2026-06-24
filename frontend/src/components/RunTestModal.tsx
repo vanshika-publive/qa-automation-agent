@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
-import { executionsService } from '../services/executions';
 import { useEnvironments } from '../hooks/useEnvironments';
+import { useRunTest } from '../hooks/useRunActions';
 
 interface RunTestModalProps {
   testId: string;
@@ -11,7 +9,6 @@ interface RunTestModalProps {
 }
 
 export default function RunTestModal({ testId, testName, onClose }: RunTestModalProps) {
-  const navigate = useNavigate();
   const [selectedEnvId, setSelectedEnvId] = useState('');
   const [error, setError] = useState('');
 
@@ -25,20 +22,16 @@ export default function RunTestModal({ testId, testName, onClose }: RunTestModal
     }
   }, [environments, selectedEnvId]);
 
-  const runMutation = useMutation({
-    mutationFn: () => executionsService.retry({ testId, environmentId: selectedEnvId }),
-    onSuccess: () => {
-      onClose();
-      navigate('/executions');
-    },
-    onError: (err: Error) => setError(err.message),
-  });
+  const runMutation = useRunTest(testId);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedEnvId) { setError('Select an environment to continue.'); return; }
     setError('');
-    runMutation.mutate();
+    runMutation.mutate(selectedEnvId, {
+      onSuccess: () => onClose(),
+      onError: (err) => setError(err.message),
+    });
   }
 
   return (

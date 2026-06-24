@@ -1,12 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { collectionsService } from '../services/collections';
 import { useEnvironments } from '../hooks/useEnvironments';
+import { useRunAll } from '../hooks/useRunActions';
 
 export default function RunAllModal({ collectionIds, onClose }: { collectionIds: string[]; onClose: () => void }) {
-  const navigate = useNavigate();
-  const qc = useQueryClient();
   const { environments: allEnvironments } = useEnvironments();
   const environments = allEnvironments.filter((e) => e.isActive);
   const [envId, setEnvId] = useState(environments[0]?.id ?? '');
@@ -15,11 +11,7 @@ export default function RunAllModal({ collectionIds, onClose }: { collectionIds:
     if (environments.length > 0 && !envId) setEnvId(environments[0].id);
   }, [environments, envId]);
 
-  const runMutation = useMutation({
-    mutationFn: (environmentId: string) =>
-      Promise.all(collectionIds.map((id) => collectionsService.runAllSpecs(id, environmentId))),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['executions'] }); onClose(); navigate('/executions'); },
-  });
+  const runMutation = useRunAll(collectionIds);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -50,7 +42,7 @@ export default function RunAllModal({ collectionIds, onClose }: { collectionIds:
               Cancel
             </button>
             <button
-              onClick={() => envId && runMutation.mutate(envId)}
+              onClick={() => envId && runMutation.mutate(envId, { onSuccess: onClose })}
               disabled={!envId || runMutation.isPending}
               className="flex-1 bg-success text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-success/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5"
             >
