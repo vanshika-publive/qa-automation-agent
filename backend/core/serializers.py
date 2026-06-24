@@ -4,22 +4,22 @@ from rest_framework import serializers
 class CollectionSerializer(serializers.Serializer):
     id = serializers.CharField()
     name = serializers.CharField()
-    createdAt = serializers.CharField(source='created_at')
-    testCount = serializers.IntegerField(source='test_count', default=0)
+    created_at = serializers.CharField()
+    test_count = serializers.IntegerField(default=0)
 
 
 class EnvironmentListSerializer(serializers.Serializer):
     id = serializers.CharField()
     name = serializers.CharField()
-    baseUrl = serializers.CharField(source='base_url')
+    base_url = serializers.CharField()
     description = serializers.CharField()
-    isActive = serializers.BooleanField(source='is_active')
-    createdAt = serializers.CharField(source='created_at')
-    loginEmail = serializers.CharField(source='login_email')
+    is_active = serializers.BooleanField()
+    created_at = serializers.CharField()
+    login_email = serializers.CharField()
     publisher = serializers.CharField(allow_blank=True, required=False)
-    hasPassword = serializers.SerializerMethodField()
+    has_password = serializers.SerializerMethodField()
 
-    def get_hasPassword(self, obj):
+    def get_has_password(self, obj):
         if hasattr(obj, 'login_password'):
             return bool(obj.login_password)
         return obj.get('login_password', '') != '' if isinstance(obj, dict) else False
@@ -27,14 +27,14 @@ class EnvironmentListSerializer(serializers.Serializer):
 
 class TestSerializer(serializers.Serializer):
     id = serializers.CharField()
-    collectionId = serializers.CharField(source='collection_id')
+    collection_id = serializers.CharField()
     name = serializers.CharField()
     prompt = serializers.CharField()
     status = serializers.CharField()
-    environmentIds = serializers.SerializerMethodField()
-    createdAt = serializers.CharField(source='created_at')
+    environment_ids = serializers.SerializerMethodField()
+    created_at = serializers.CharField()
 
-    def get_environmentIds(self, obj):
+    def get_environment_ids(self, obj):
         from utils.json_utils import safe_json_parse
         raw = obj.environment_ids if hasattr(obj, 'environment_ids') else obj.get('environment_ids', '[]')
         return safe_json_parse(raw, [])
@@ -42,23 +42,23 @@ class TestSerializer(serializers.Serializer):
 
 class ExecutionSerializer(serializers.Serializer):
     id = serializers.CharField()
-    testId = serializers.CharField(source='test_id')
-    environmentId = serializers.CharField(source='environment_id')
+    test_id = serializers.CharField()
+    environment_id = serializers.CharField()
     status = serializers.CharField()
-    startedAt = serializers.CharField(source='started_at')
-    completedAt = serializers.CharField(source='completed_at', allow_null=True)
-    durationMs = serializers.IntegerField(source='duration_ms', allow_null=True)
-    passCount = serializers.IntegerField(source='pass_count')
-    failCount = serializers.IntegerField(source='fail_count')
-    totalCount = serializers.IntegerField(source='total_count')
-    reportDir = serializers.CharField(source='report_dir', allow_null=True)
+    started_at = serializers.CharField()
+    completed_at = serializers.CharField(allow_null=True)
+    duration_ms = serializers.IntegerField(allow_null=True)
+    pass_count = serializers.IntegerField()
+    fail_count = serializers.IntegerField()
+    total_count = serializers.IntegerField()
+    report_dir = serializers.CharField(allow_null=True)
 
 
 class ExecutionStepSerializer(serializers.Serializer):
     id = serializers.CharField()
-    executionId = serializers.CharField(source='execution_id')
-    stepName = serializers.CharField(source='step_name')
+    execution_id = serializers.CharField()
+    step_name = serializers.CharField()
     status = serializers.CharField()
     log = serializers.CharField()
-    startedAt = serializers.CharField(source='started_at')
-    completedAt = serializers.CharField(source='completed_at', allow_null=True)
+    started_at = serializers.CharField()
+    completed_at = serializers.CharField(allow_null=True)

@@ -149,7 +149,7 @@ class TestDetail(APIView):
             return Response({'error': 'Test not found'}, status=status.HTTP_404_NOT_FOUND)
 
         body = request.data
-        new_collection_id = body.get('collection_id')
+        new_collection_id = body.get('collectionId')
 
         if new_collection_id and new_collection_id != test.collection_id:
             if not Collection.objects.filter(id=new_collection_id).exists():
@@ -162,8 +162,8 @@ class TestDetail(APIView):
         test.status = body.get('status', test.status)
         if new_collection_id:
             test.collection_id = new_collection_id
-        if 'environment_ids' in body and body['environment_ids'] is not None:
-            test.environment_ids = json.dumps(body['environment_ids'])
+        if 'environmentIds' in body and body['environmentIds'] is not None:
+            test.environment_ids = json.dumps(body['environmentIds'])
         test.save()
 
         if body.get('duplicate'):

@@ -1,22 +1,11 @@
 import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '../api/client';
 import { Execution } from '../types';
+import { useComparePanel } from '../hooks/useComparePanel';
+
+type CompareStep = NonNullable<Awaited<ReturnType<typeof useComparePanel>>['stepsA']>[number];
 import { COMPARE_PANEL_WIDTH, FONT_VARIATION_FILLED } from '../constants';
 import { fmtMSS } from '../utils/formatters';
 
-interface CompareStep {
-  id: string;
-  test_name: string;
-  status: 'passed' | 'failed' | 'skipped';
-  duration_ms: number;
-  error_message: string | null;
-}
-
-interface StepsResponse {
-  data: CompareStep[];
-  error: string | null;
-}
 
 interface ComparePanelProps {
   executionIds: string[];
@@ -87,21 +76,7 @@ export default function ComparePanel({ executionIds, executions, onClose }: Comp
   const execA = executions[0];
   const execB = executions[1];
 
-  const { data: dataA, isLoading: loadingA } = useQuery({
-    queryKey: ['exec-steps', idA],
-    queryFn: () => api.get<StepsResponse>(`/executions/${idA}/steps`),
-    staleTime: 30_000,
-  });
-
-  const { data: dataB, isLoading: loadingB } = useQuery({
-    queryKey: ['exec-steps', idB],
-    queryFn: () => api.get<StepsResponse>(`/executions/${idB}/steps`),
-    staleTime: 30_000,
-  });
-
-  const stepsA = dataA?.data ?? [];
-  const stepsB = dataB?.data ?? [];
-  const isLoading = loadingA || loadingB;
+  const { stepsA, stepsB, isLoading } = useComparePanel(idA, idB);
 
   // Merge test names from both runs, preserving run A order first
   const mergedNames: string[] = [];

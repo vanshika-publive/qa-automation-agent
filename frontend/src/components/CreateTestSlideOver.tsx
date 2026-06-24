@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '../api/client';
-import { ApiResponse, Collection, Environment, StepName, StepStatus } from '../types';
+import { Collection, StepName, StepStatus } from '../types';
+import { collectionsService } from '../services/collections';
+import { executionsService } from '../services/executions';
+import { useEnvironments } from '../hooks/useEnvironments';
 import { EDITOR_BG, FONT_VARIATION_FILLED, sseStreamUrl } from '../constants';
 
 interface StepState {
@@ -172,11 +173,8 @@ export default function CreateTestSlideOver({
   const sseRef = useRef<EventSource | null>(null);
 
   // Environments (for the run call)
-  const { data: envData } = useQuery({
-    queryKey: ['environments'],
-    queryFn: () => api.get<ApiResponse<Environment[]>>('/environments'),
-  });
-  const activeEnvs = (envData?.data ?? []).filter((e) => e.isActive);
+  const { environments } = useEnvironments();
+  const activeEnvs = environments.filter((e) => e.isActive);
   const [environmentId, setEnvironmentId] = useState('');
 
   // Slide-in animation on mount
@@ -222,19 +220,13 @@ export default function CreateTestSlideOver({
 
     try {
       // 1. Create the test
-      const testRes = await api.post<ApiResponse<{ id: string }>>(
-        `/collections/${collectionId}/tests`,
-        { name: name.trim(), prompt: prompt.trim() }
-      );
+      const testRes = await collectionsService.createTest(collectionId, { name: name.trim(), prompt: prompt.trim() });
       if (!testRes.data?.id) throw new Error('Failed to create test');
       const testId = testRes.data.id;
       onTestCreated(); // refresh sidebar/table
 
       // 2. Start the execution
-      const runRes = await api.post<ApiResponse<{ executionId: string }>>(
-        `/executions/tests/${testId}/run`,
-        { environmentId }
-      );
+      const runRes = await executionsService.retry({ testId, environmentId });
       if (!runRes.data?.executionId) throw new Error('Failed to start execution');
       const executionId = runRes.data.executionId;
 

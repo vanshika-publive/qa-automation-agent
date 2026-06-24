@@ -1,16 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '../api/client';
-import { ApiResponse, Environment } from '../types';
+import { testsService } from '../services/tests';
+import { useEnvironments } from '../hooks/useEnvironments';
 import { EDITOR_BG, EDITOR_BORDER, EDITOR_FONT_FAMILY, EDITOR_LINE_HEIGHT, FONT_VARIATION_FILLED, sseStreamUrl } from '../constants';
 
 // Page-local types
-
-interface SpecData {
-  filename: string | null;
-  content: string | null;
-  lastModified: string | null;
-}
 
 interface RunnerStepState {
   status: 'running' | 'passed' | 'failed';
@@ -19,7 +12,6 @@ interface RunnerStepState {
   failCount?: number;
 }
 
-interface SpecResponse { data: SpecData; error: string | null }
 
 export interface SpecEditorProps {
   test: { id: string; name: string } | null;
@@ -55,14 +47,9 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
   const isModified = content !== originalContent;
   const lineCount = content.split('\n').length;
 
-  // Environments query
-
-  const { data: envsData } = useQuery({
-    queryKey: ['environments'],
-    queryFn: () => api.get<ApiResponse<Environment[]>>('/environments'),
-    enabled: isOpen,
-  });
-  const environments = (envsData?.data ?? []).filter((e) => e.isActive);
+  // Environments
+  const { environments: allEnvironments } = useEnvironments();
+  const environments = allEnvironments.filter((e) => e.isActive);
 
   // Auto-select first env
   useEffect(() => {
@@ -86,10 +73,7 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
     setExecutionId(null);
 
     if (overrideFilename) {
-      // Load spec file directly by relative path (used when opening from spec file table)
-      api.get<{ data: { content: string }; error: string | null }>(
-        `/specs/view?file=${encodeURIComponent(overrideFilename)}`,
-      )
+      testsService.viewSpecFile(overrideFilename)
         .then((res) => {
           if (res.error || !res.data?.content) {
             setSpecError(res.error ?? 'Could not load spec file.');
@@ -102,9 +86,9 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
         .catch((e: Error) => setSpecError(e.message))
         .finally(() => setIsLoadingSpec(false));
     } else {
-      api.get<SpecResponse>(`/tests/${test.id}/spec`)
+      testsService.getSpec(test.id)
         .then((res) => {
-          if (res.error || !res.data.content) {
+          if (res.error || !res.data?.content) {
             setSpecError(res.error ?? 'No spec file generated yet for this test.');
           } else {
             setContent(res.data.content);
@@ -167,7 +151,7 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
     if (!filename || isSaving) return;
     setIsSaving(true);
     try {
-      await api.put(`/tests/${test!.id}/spec`, { content, filename });
+      await testsService.saveSpec(test!.id, { content, filename });
       setOriginalContent(content);
       setSavedRecently(true);
       setTimeout(() => setSavedRecently(false), 2000);
@@ -191,10 +175,7 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
     setRunnerStep({ status: 'running', log: '' });
 
     try {
-      const res = await api.post<ApiResponse<{ executionId: string }>>(
-        `/tests/${test!.id}/run-spec`,
-        { environmentId: selectedEnvId, filename },
-      );
+      const res = await testsService.runSpec(test!.id, { environmentId: selectedEnvId, filename: filename! });
       const execId = res.data?.executionId;
       if (execId) {
         setExecutionId(execId);
