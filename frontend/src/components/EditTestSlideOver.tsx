@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '../api/client';
-import { ApiResponse, Collection, Test, Environment } from '../types';
+import { Test } from '../types';
+import { useCollections } from '../hooks/useCollections';
+import { useEnvironments } from '../hooks/useEnvironments';
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -28,7 +28,7 @@ export default function EditTestSlideOver({
   onClose: () => void;
   onSubmit: (payload: {
     name: string; prompt: string; status: string;
-    collection_id: string; environment_ids: string[]; duplicate: boolean;
+    collectionId: string; environmentIds: string[]; duplicate: boolean;
   }) => void;
 }) {
   const [name, setName]               = useState(test.name);
@@ -38,17 +38,10 @@ export default function EditTestSlideOver({
   const [envIds, setEnvIds]           = useState<string[]>(test.environmentIds ?? []);
   const [duplicate, setDuplicate]     = useState(false);
 
-  // Fetch all collections + environments for the dropdowns/pills
-  const { data: colsData } = useQuery({
-    queryKey: ['collections'],
-    queryFn: () => api.get<ApiResponse<Collection[]>>('/collections'),
-  });
-  const { data: envsData } = useQuery({
-    queryKey: ['environments'],
-    queryFn: () => api.get<ApiResponse<Environment[]>>('/environments'),
-  });
-  const allCollections  = colsData?.data  ?? [];
-  const allEnvironments = (envsData?.data ?? []).filter((e) => e.isActive);
+  const { collections }  = useCollections();
+  const { environments } = useEnvironments();
+  const allCollections   = collections;
+  const allEnvironments  = environments.filter((e) => e.isActive);
 
   // Close on Escape
   useEffect(() => {
@@ -63,7 +56,7 @@ export default function EditTestSlideOver({
 
   function handleSave() {
     if (!name.trim()) return;
-    onSubmit({ name: name.trim(), prompt, status: active ? 'active' : 'inactive', collection_id: collectionId, environment_ids: envIds, duplicate });
+    onSubmit({ name: name.trim(), prompt, status: active ? 'active' : 'inactive', collectionId, environmentIds: envIds, duplicate });
   }
 
   return (

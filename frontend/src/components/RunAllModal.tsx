@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { collectionsService } from '../services/collections';
-import { environmentsService } from '../services/environments';
+import { useEnvironments } from '../hooks/useEnvironments';
 
 export default function RunAllModal({ collectionIds, onClose }: { collectionIds: string[]; onClose: () => void }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { data: envsData } = useQuery({ queryKey: ['environments'], queryFn: environmentsService.getAll });
-  const environments = (envsData?.data ?? []).filter((e) => e.isActive);
+  const { environments: allEnvironments } = useEnvironments();
+  const environments = allEnvironments.filter((e) => e.isActive);
   const [envId, setEnvId] = useState(environments[0]?.id ?? '');
 
   useEffect(() => {

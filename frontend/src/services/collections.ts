@@ -17,6 +17,9 @@ export const collectionsService = {
   getTests: (collectionId: string) =>
     api.get<ApiResponse<Test[]>>(`/collections/${collectionId}/tests`),
 
+  createTest: (collectionId: string, payload: { name: string; prompt: string }) =>
+    api.post<ApiResponse<{ id: string }>>(`/collections/${collectionId}/tests`, payload),
+
   getSpecs: (collectionId: string) =>
     api.get<ApiResponse<SpecFile[]>>(`/collections/${collectionId}/specs`),
 

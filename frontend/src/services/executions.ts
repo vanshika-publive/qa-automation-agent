@@ -33,6 +33,9 @@ export const executionsService = {
   getTestResults: (id: string) =>
     api.get<{ data: TestResult[]; pending: boolean; error: string | null }>(`/executions/${id}/tests`),
 
+  getSteps: (id: string) =>
+    api.get<{ data: { id: string; test_name: string; status: 'passed' | 'failed' | 'skipped'; duration_ms: number; error_message: string | null }[]; error: string | null }>(`/executions/${id}/steps`),
+
   getFiles: (id: string) =>
     api.get<ExecutionFiles>(`/executions/${id}/files`),
 

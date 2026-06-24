@@ -1,27 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../api/client';
-import { Execution } from '../types';
+import { executionsService } from '../services/executions';
+import { Execution, TestResult, ExecStep } from '../types';
 import { formatDuration } from '../utils/formatters';
-
-interface TestResult {
-  title: string;
-  file: string;
-  status: 'passed' | 'failed' | 'skipped';
-  durationMs: number;
-  error: string | null;
-}
-
-interface ExecutionStep {
-  id: string;
-  stepName: string;
-  status: 'running' | 'passed' | 'failed';
-  log: string;
-  startedAt: string;
-  completedAt: string | null;
-}
-
-interface TestsResponse { data: TestResult[]; pending: boolean; error: string | null }
-interface ExecutionDetailResponse { data: Execution & { steps: ExecutionStep[] }; error: string | null }
 
 export function StatusPill({ status }: { status: Execution['status'] }) {
   const cfgMap: Record<Execution['status'], { cls: string; icon: string; label: string; spin: boolean }> = {
@@ -63,7 +43,7 @@ function TestStatusBadge({ status }: { status: TestResult['status'] }) {
 export default function ExpandedTestResults({ execution, colSpan = 7 }: { execution: Execution; colSpan?: number }) {
   const { data, isLoading } = useQuery({
     queryKey: ['execution-tests', execution.id],
-    queryFn: () => api.get<TestsResponse>(`/executions/${execution.id}/tests`),
+    queryFn: () => executionsService.getTestResults(execution.id),
     refetchInterval: execution.status === 'running' ? 3000 : false,
     staleTime: 0,
   });
@@ -74,12 +54,12 @@ export default function ExpandedTestResults({ execution, colSpan = 7 }: { execut
 
   const { data: detailData } = useQuery({
     queryKey: ['execution-detail', execution.id],
-    queryFn: () => api.get<ExecutionDetailResponse>(`/executions/${execution.id}`),
+    queryFn: () => executionsService.getDetail(execution.id),
     enabled: showStepDetails,
     staleTime: 30_000,
   });
 
-  const steps = detailData?.data?.steps ?? [];
+  const steps: ExecStep[] = detailData?.steps ?? [];
   const reportUrl = execution.reportDir ? `/reports/${execution.reportDir}/html/index.html` : null;
 
   return (

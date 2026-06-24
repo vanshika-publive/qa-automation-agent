@@ -1,7 +1,10 @@
 import { useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { api } from '../api/client';
-import { ApiResponse, Collection, Test, Environment } from '../types';
+import { useMutation } from '@tanstack/react-query';
+import { collectionsService } from '../services/collections';
+import { executionsService } from '../services/executions';
+import { useCollections } from '../hooks/useCollections';
+import { useCollectionTests } from '../hooks/useCollectionTests';
+import { useEnvironments } from '../hooks/useEnvironments';
 
 export default function RunSuiteModal({ onClose, onRun }: { onClose: () => void; onRun: () => void }) {
   const [collectionId, setCollectionId] = useState('');
@@ -9,32 +12,17 @@ export default function RunSuiteModal({ onClose, onRun }: { onClose: () => void;
   const [envId, setEnvId] = useState('');
   const [error, setError] = useState('');
 
-  const collectionsQ = useQuery({
-    queryKey: ['collections'],
-    queryFn: () => api.get<ApiResponse<Collection[]>>('/collections'),
-  });
-  const testsQ = useQuery({
-    queryKey: ['tests', collectionId],
-    queryFn: () => api.get<ApiResponse<Test[]>>(`/collections/${collectionId}/tests`),
-    enabled: !!collectionId,
-  });
-  const envsQ = useQuery({
-    queryKey: ['environments'],
-    queryFn: () => api.get<ApiResponse<Environment[]>>('/environments'),
-  });
+  const { collections, isLoading: collectionsLoading } = useCollections();
+  const { tests } = useCollectionTests(collectionId || null);
+  const { environments: allEnvironments, isLoading: envsLoading } = useEnvironments();
 
-  const collections = collectionsQ.data?.data ?? [];
-  const tests = testsQ.data?.data ?? [];
-  const environments = (envsQ.data?.data ?? []).filter((e) => e.isActive);
+  const environments = allEnvironments.filter((e) => e.isActive);
   const effectiveEnvId = envId || environments[0]?.id || '';
 
   const runMut = useMutation({
-    mutationFn: () => {
-      if (testId) {
-        return api.post<ApiResponse<{ executionId: string }>>(`/executions/tests/${testId}/run`, { environmentId: effectiveEnvId });
-      }
-      return api.post<ApiResponse<{ executionId: string }>>(`/collections/${collectionId}/run-all-specs`, { environmentId: effectiveEnvId });
-    },
+    mutationFn: () => testId
+      ? executionsService.retry({ testId, environmentId: effectiveEnvId })
+      : collectionsService.runAllSpecs(collectionId, effectiveEnvId),
     onSuccess: () => { onClose(); onRun(); },
     onError: (err: Error) => setError(err.message),
   });
@@ -68,7 +56,7 @@ export default function RunSuiteModal({ onClose, onRun }: { onClose: () => void;
         >
           <div>
             <label className="block text-sm font-medium text-text-primary mb-1.5">Collection <span className="text-error">*</span></label>
-            {collectionsQ.isLoading ? (
+            {collectionsLoading ? (
               <div className="h-10 bg-surface-muted rounded-xl animate-pulse" />
             ) : (
               <select
@@ -98,7 +86,7 @@ export default function RunSuiteModal({ onClose, onRun }: { onClose: () => void;
           </div>
           <div>
             <label className="block text-sm font-medium text-text-primary mb-1.5">Environment <span className="text-error">*</span></label>
-            {envsQ.isLoading ? (
+            {envsLoading ? (
               <div className="h-10 bg-surface-muted rounded-xl animate-pulse" />
             ) : environments.length === 0 ? (
               <p className="text-sm text-warning flex items-center gap-1.5">

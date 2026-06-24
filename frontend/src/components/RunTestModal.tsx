@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { api } from '../api/client';
-import { ApiResponse, Environment } from '../types';
+import { useMutation } from '@tanstack/react-query';
+import { executionsService } from '../services/executions';
+import { useEnvironments } from '../hooks/useEnvironments';
 
 interface RunTestModalProps {
   testId: string;
@@ -13,15 +13,10 @@ interface RunTestModalProps {
 export default function RunTestModal({ testId, testName, onClose }: RunTestModalProps) {
   const navigate = useNavigate();
   const [selectedEnvId, setSelectedEnvId] = useState('');
-  const [headless, setHeadless] = useState(true);
-  const [overrideUrl, setOverrideUrl] = useState('');
   const [error, setError] = useState('');
 
-  const envQuery = useQuery({
-    queryKey: ['environments'],
-    queryFn: () => api.get<ApiResponse<Environment[]>>('/environments'),
-  });
-  const environments = (envQuery.data?.data ?? []).filter((e) => e.isActive);
+  const { environments: allEnvironments, isLoading: envsLoading } = useEnvironments();
+  const environments = allEnvironments.filter((e) => e.isActive);
 
   // Auto-select first environment
   useEffect(() => {
@@ -31,10 +26,7 @@ export default function RunTestModal({ testId, testName, onClose }: RunTestModal
   }, [environments, selectedEnvId]);
 
   const runMutation = useMutation({
-    mutationFn: () =>
-      api.post<ApiResponse<{ executionId: string }>>(`/executions/tests/${testId}/run`, {
-        environmentId: selectedEnvId,
-      }),
+    mutationFn: () => executionsService.retry({ testId, environmentId: selectedEnvId }),
     onSuccess: () => {
       onClose();
       navigate('/executions');
@@ -78,7 +70,7 @@ export default function RunTestModal({ testId, testName, onClose }: RunTestModal
             <label className="block text-sm font-medium text-text-primary mb-1.5">
               Environment <span className="text-error">*</span>
             </label>
-            {envQuery.isLoading ? (
+            {envsLoading ? (
               <div className="h-10 bg-surface-muted rounded-lg animate-pulse" />
             ) : environments.length === 0 ? (
               <p className="text-sm text-text-secondary p-3 bg-warning/5 border border-warning/20 rounded-lg">
@@ -101,35 +93,6 @@ export default function RunTestModal({ testId, testName, onClose }: RunTestModal
               </select>
             )}
           </div>
-
-          {/* Override URL */}
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1.5">
-              Override base URL
-              <span className="ml-1.5 text-xs font-normal text-text-secondary">(optional)</span>
-            </label>
-            <input
-              type="url"
-              value={overrideUrl}
-              onChange={(e) => setOverrideUrl(e.target.value)}
-              placeholder="https://staging.example.com"
-              className="w-full border border-border-subtle rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-secondary bg-surface-main focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40"
-            />
-          </div>
-
-          {/* Headless */}
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={headless}
-              onChange={(e) => setHeadless(e.target.checked)}
-              className="w-4 h-4 rounded border-border-subtle text-primary accent-primary"
-            />
-            <div>
-              <div className="text-sm font-medium text-text-primary">Run headless</div>
-              <div className="text-xs text-text-secondary">No browser window will open during the run</div>
-            </div>
-          </label>
 
           {/* Error */}
           {error && (

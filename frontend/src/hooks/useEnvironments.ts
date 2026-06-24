@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { environmentsService, EnvironmentDetail, EnvironmentSaveBody } from '../services/environments';
+import { environmentsService, EnvironmentSaveBody } from '../services/environments';
+import { Environment } from '../types';
 
 export type EnvironmentModalState =
   | { type: 'create' }
-  | { type: 'edit'; env: EnvironmentDetail }
-  | { type: 'delete'; env: EnvironmentDetail }
+  | { type: 'edit'; env: Environment }
+  | { type: 'delete'; env: Environment }
   | null;
 
 export function useEnvironments() {
@@ -44,8 +45,8 @@ export function useEnvironments() {
   });
 
   function openCreate() { setServerError(''); setModal({ type: 'create' }); }
-  function openEdit(env: EnvironmentDetail) { setServerError(''); setModal({ type: 'edit', env }); }
-  function openDelete(env: EnvironmentDetail) { setServerError(''); setModal({ type: 'delete', env }); }
+  function openEdit(env: Environment) { setServerError(''); setModal({ type: 'edit', env }); }
+  function openDelete(env: Environment) { setServerError(''); setModal({ type: 'delete', env }); }
   function closeModal() { setModal(null); setServerError(''); }
 
   return {

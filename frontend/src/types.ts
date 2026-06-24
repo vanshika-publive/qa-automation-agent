@@ -25,11 +25,12 @@ export interface Environment {
   id: string;
   name: string;
   baseUrl: string;
-  loginEmail: string;
-  loginPassword: string;
-  publisher: string;
-  publisherId: string;
+  description: string;
   isActive: boolean;
+  createdAt: string;
+  loginEmail: string;
+  publisher: string;
+  hasPassword: boolean;
 }
 
 export interface SpecFile {

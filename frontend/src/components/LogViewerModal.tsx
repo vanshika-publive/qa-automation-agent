@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { StepName, StepStatus } from '../types';
-import { EDITOR_BG, FONT_VARIATION_FILLED } from '../constants';
+import { EDITOR_BG, FONT_VARIATION_FILLED, sseStreamUrl } from '../constants';
 
 interface StepState {
   name: StepName;
@@ -114,7 +114,7 @@ export default function LogViewerModal({ executionId, testName, onClose }: Props
   const sseRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
-    const es = new EventSource(`/api/executions/${executionId}/stream`);
+    const es = new EventSource(sseStreamUrl(executionId));
     sseRef.current = es;
 
     es.onmessage = (evt) => {
