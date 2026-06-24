@@ -86,10 +86,29 @@ def _find_spec_file(test_name, collection_slug, tests_root):
 
 class CollectionTests(APIView):
     def get(self, request, collection_id):
-        tests = Test.objects.filter(
-            collection_id=collection_id,
-        ).order_by('-created_at')
-        data = [_serialize_test(t) for t in tests]
+        try:
+            collection = Collection.objects.get(id=collection_id)
+        except Collection.DoesNotExist:
+            return Response({'error': 'Collection not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        tests = Test.objects.filter(collection_id=collection_id).order_by('-created_at')
+        slug = to_collection_slug(collection.name)
+        tests_root = os.path.join(PROJECT_ROOT, 'tests')
+        specs_root = os.path.join(PROJECT_ROOT, 'specs')
+
+        data = []
+        for t in tests:
+            serialized = _serialize_test(t)
+            spec_path = _find_spec_file(t.name, slug, tests_root)
+            if spec_path:
+                basename = os.path.basename(spec_path)
+                serialized['specFile'] = {'basename': basename, 'filename': f'{slug}/{basename}'}
+            else:
+                serialized['specFile'] = None
+            plan_path = os.path.join(specs_root, slug, str(t.id), 'plan.md')
+            serialized['planFile'] = 'plan.md' if os.path.isfile(plan_path) else None
+            data.append(serialized)
+
         return Response(data)
 
     def post(self, request, collection_id):

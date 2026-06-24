@@ -2,7 +2,9 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Layout from './components/Layout';
 import Collections from './pages/Collections';
+import CollectionDetail from './pages/CollectionDetail';
 import Executions from './pages/Executions';
+import ExecutionDetail from './pages/ExecutionDetail';
 import Environments from './pages/Environments';
 
 const queryClient = new QueryClient({
@@ -21,7 +23,9 @@ export default function App() {
         <Routes>
           <Route element={<Layout />}>
             <Route path="/" element={<Collections />} />
+            <Route path="/collections/:id" element={<CollectionDetail />} />
             <Route path="/executions" element={<Executions />} />
+            <Route path="/executions/:id" element={<ExecutionDetail />} />
             <Route path="/environments" element={<Environments />} />
           </Route>
         </Routes>

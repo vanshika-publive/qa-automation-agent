@@ -4,14 +4,16 @@ export default function PaginationBar({
   total,
   pageSize,
   onPage,
+  alwaysShow = false,
 }: {
   page: number;
   totalPages: number;
   total: number;
   pageSize: number;
   onPage: (p: number) => void;
+  alwaysShow?: boolean;
 }) {
-  if (totalPages <= 1) return null;
+  if (totalPages <= 1 && !alwaysShow) return null;
 
   const from = (page - 1) * pageSize + 1;
   const to   = Math.min(page * pageSize, total);

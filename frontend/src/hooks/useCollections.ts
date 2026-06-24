@@ -1,13 +1,16 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { CollectionFilterState, DEFAULT_COLLECTION_FILTERS } from '../components/CollectionFilterDrawer';
 import { collectionsService } from '../services/collections';
 import { fmtDate } from '../utils/formatters';
 
+const PAGE_SIZE = 10;
+
 export function useCollections() {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [colFilters, setColFilters] = useState<CollectionFilterState>(DEFAULT_COLLECTION_FILTERS);
+  const [page, setPage] = useState(1);
 
   const query = useQuery({
     queryKey: ['collections'],
@@ -29,6 +32,12 @@ export function useCollections() {
       return true;
     });
   }, [collections, search, colFilters]);
+
+  useEffect(() => { setPage(1); }, [search, colFilters]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredCollections.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedCollections = filteredCollections.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const dateRangeLabel = [
     colFilters.from ? fmtDate(`${colFilters.from}T12:00:00Z`) : null,
@@ -53,6 +62,11 @@ export function useCollections() {
   return {
     collections,
     filteredCollections,
+    pagedCollections,
+    page: safePage,
+    setPage,
+    totalPages,
+    pageSize: PAGE_SIZE,
     isLoading: query.isLoading,
     search, setSearch,
     colFilters, setColFilters,

@@ -1,95 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Test, SpecFile } from '../types';
-import { collectionsService } from '../services/collections';
-import RunTestModal from '../components/RunTestModal';
-import CreateTestSlideOver from '../components/CreateTestSlideOver';
-import SpecEditor from '../components/SpecEditor';
-import TestExecutionDetail from '../components/TestExecutionDetail';
-import EditTestSlideOver from '../components/EditTestSlideOver';
+import { useNavigate } from 'react-router-dom';
 import { relTime, fmtTableDatetime } from '../utils/formatters';
-import { ACCENTS } from '../utils/status';
 import CollectionFilterDrawer from '../components/CollectionFilterDrawer';
-import { environmentsService } from '../services/environments';
+import RunAllModal from '../components/RunAllModal';
+import PaginationBar from '../components/PaginationBar';
 import { useCollections } from '../hooks/useCollections';
-import { useCollectionTests } from '../hooks/useCollectionTests';
 
-// ── Inline page-local components ────────────────────────────────────────────
-
-function RunAllModal({ collectionId, onClose }: { collectionId: string; onClose: () => void }) {
-  const qc = useQueryClient();
-  const { data: envsData } = useQuery({
-    queryKey: ['environments'],
-    queryFn: environmentsService.getAll,
-  });
-  const environments = (envsData?.data ?? []).filter((e) => e.isActive);
-  const [envId, setEnvId] = useState(environments[0]?.id ?? '');
-
-  useEffect(() => {
-    if (environments.length > 0 && !envId) setEnvId(environments[0].id);
-  }, [environments, envId]);
-
-  const runMutation = useMutation({
-    mutationFn: (environmentId: string) => collectionsService.runAllSpecs(collectionId, environmentId),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['executions'] }); onClose(); },
-  });
-
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-surface-main rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <div className="px-6 py-4 border-b border-border-subtle flex items-center justify-between">
-          <h2 className="font-semibold text-text-primary">Run All Specs</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors">
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
-          </button>
-        </div>
-        <div className="px-6 py-5 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1.5">Environment</label>
-            <select
-              value={envId}
-              onChange={(e) => setEnvId(e.target.value)}
-              className="w-full border border-border-subtle rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40"
-            >
-              {environments.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-              {environments.length === 0 && <option disabled>No environments configured</option>}
-            </select>
-          </div>
-          {runMutation.error && (
-            <p className="text-sm text-error bg-error/5 border border-error/20 rounded-lg px-3 py-2">
-              {runMutation.error.message}
-            </p>
-          )}
-          <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onClose} className="flex-1 border border-border-subtle rounded-xl py-2.5 text-sm font-medium text-text-secondary hover:bg-surface-muted transition-colors">
-              Cancel
-            </button>
-            <button
-              onClick={() => envId && runMutation.mutate(envId)}
-              disabled={!envId || runMutation.isPending}
-              className="flex-1 bg-success text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-success/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-1.5"
-            >
-              {runMutation.isPending ? (
-                <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Running…</>
-              ) : (
-                'Run All'
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function findMatchingSpec(testName: string, specs: SpecFile[]): SpecFile | null {
-  const kebab = testName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-  const kebabMatch = specs.find((s) => s.basename.startsWith(kebab));
-  if (kebabMatch) return kebabMatch;
-  const words = testName.toLowerCase().split(/\s+/).filter((w) => w.length >= 3);
-  return specs.find((s) => words.some((w) => s.basename.toLowerCase().includes(w))) ?? null;
-}
+// ── Empty state ───────────────────────────────────────────────────────────────
 
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
@@ -188,13 +105,12 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
   );
 }
 
+// ── Modals ────────────────────────────────────────────────────────────────────
+
 function CreateCollectionModal({
   loading, error, onClose, onSubmit,
 }: {
-  loading: boolean;
-  error: string;
-  onClose: () => void;
-  onSubmit: (name: string) => void;
+  loading: boolean; error: string; onClose: () => void; onSubmit: (name: string) => void;
 }) {
   const [name, setName] = useState('');
   return (
@@ -223,9 +139,7 @@ function CreateCollectionModal({
               className="w-full border border-border-subtle rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40"
             />
           </div>
-          {error && (
-            <p className="text-sm text-error bg-error/5 border border-error/20 rounded-lg px-3 py-2">{error}</p>
-          )}
+          {error && <p className="text-sm text-error bg-error/5 border border-error/20 rounded-lg px-3 py-2">{error}</p>}
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose} className="flex-1 border border-border-subtle rounded-xl py-2.5 text-sm font-medium text-text-secondary hover:bg-surface-muted transition-colors">
               Cancel
@@ -247,11 +161,7 @@ function CreateCollectionModal({
 function RenameCollectionModal({
   initialName, loading, error, onClose, onSubmit,
 }: {
-  initialName: string;
-  loading: boolean;
-  error: string;
-  onClose: () => void;
-  onSubmit: (name: string) => void;
+  initialName: string; loading: boolean; error: string; onClose: () => void; onSubmit: (name: string) => void;
 }) {
   const [name, setName] = useState(initialName);
   return (
@@ -277,9 +187,7 @@ function RenameCollectionModal({
               className="w-full border border-border-subtle rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40"
             />
           </div>
-          {error && (
-            <p className="text-sm text-error bg-error/5 border border-error/20 rounded-lg px-3 py-2">{error}</p>
-          )}
+          {error && <p className="text-sm text-error bg-error/5 border border-error/20 rounded-lg px-3 py-2">{error}</p>}
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose} className="flex-1 border border-border-subtle rounded-xl py-2.5 text-sm font-medium text-text-secondary hover:bg-surface-muted transition-colors">
               Cancel
@@ -301,43 +209,23 @@ function RenameCollectionModal({
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Collections() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const expandedColId = searchParams.get('col'); // which collection folder is open
+  const navigate = useNavigate();
 
-  // UI state
-  const [createOpen,      setCreateOpen]      = useState(false);
-  const [slideOverOpen,   setSlideOverOpen]   = useState(false);
-  const [selectedColIds,  setSelectedColIds]  = useState<Set<string>>(new Set());
-  const [expandedTestId,  setExpandedTestId]  = useState<string | null>(null);
-  const [renamingCol,     setRenamingCol]     = useState<{ id: string; name: string } | null>(null);
+  const [createOpen,     setCreateOpen]     = useState(false);
+  const [selectedColIds, setSelectedColIds] = useState<Set<string>>(new Set());
+  const [renamingCol,    setRenamingCol]    = useState<{ id: string; name: string } | null>(null);
+  const [runAllColIds,   setRunAllColIds]   = useState<string[] | null>(null);
+  const [colFilterOpen,  setColFilterOpen]  = useState(false);
   const selectAllRef = useRef<HTMLInputElement>(null);
-  const [runModal,        setRunModal]        = useState<{ testId: string; testName: string } | null>(null);
-  const [editingTest,     setEditingTest]     = useState<Test | null>(null);
-  const [specFileEditing, setSpecFileEditing] = useState<SpecFile | null>(null);
-  const [runAllColId,     setRunAllColId]     = useState<string | null>(null);
-  const [colFilterOpen,   setColFilterOpen]   = useState(false);
 
-  // Data layer — hooks encapsulate all queries + mutations
   const {
-    collections, filteredCollections, isLoading,
+    collections, filteredCollections, pagedCollections,
+    page, setPage, totalPages, pageSize,
+    isLoading,
     search, setSearch, colFilters, setColFilters,
     dateActive, filtersActive, dateRangeLabel, clearAllFilters,
     createMutation, deleteMutation: deleteCollectionMutation, renameMutation,
   } = useCollections();
-
-  const {
-    tests, specs,
-    isLoadingTests, isLoadingSpecs,
-    deleteTestMutation, updateTestMutation,
-    invalidateTests,
-  } = useCollectionTests(expandedColId);
-
-  // Close accordion if the expanded collection gets deleted
-  useEffect(() => {
-    if (expandedColId && collections.length > 0 && !collections.find((c) => c.id === expandedColId)) {
-      setSearchParams({}, { replace: true });
-    }
-  }, [collections, expandedColId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync select-all checkbox indeterminate state
   useEffect(() => {
@@ -348,7 +236,6 @@ export default function Collections() {
     selectAllRef.current.checked = all;
   }, [selectedColIds, filteredCollections]);
 
-  // Handlers
   function handleDeleteSelected() {
     const count = selectedColIds.size;
     if (!window.confirm(`Delete ${count} collection${count === 1 ? '' : 's'} and all their tests?`)) return;
@@ -377,16 +264,11 @@ export default function Collections() {
     setSelectedColIds(allSelected ? new Set() : new Set(filteredCollections.map((c) => c.id)));
   }
 
-  function handleDeleteTest(id: string) {
-    if (!window.confirm('Delete this test case?')) return;
-    deleteTestMutation.mutate(id);
-  }
-
   function handleCreateCollection(name: string) {
     createMutation.mutate(name, {
       onSuccess: (res) => {
         setCreateOpen(false);
-        if (res.data?.id) setSearchParams({ col: res.data.id }, { replace: true });
+        if (res.data?.id) navigate(`/collections/${res.data.id}`);
       },
     });
   }
@@ -466,13 +348,22 @@ export default function Collections() {
 
         <div className="ml-auto flex items-center gap-2">
           {selectedColIds.size > 0 && (
-            <button
-              onClick={handleDeleteSelected}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-error/30 bg-error/5 text-error hover:bg-error/10 transition-all duration-150 active:scale-[0.98]"
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
-              Delete {selectedColIds.size} selected
-            </button>
+            <>
+              <button
+                onClick={() => setRunAllColIds(Array.from(selectedColIds))}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-success/30 bg-success/5 text-success hover:bg-success/10 transition-all duration-150 active:scale-[0.98]"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>play_arrow</span>
+                Run {selectedColIds.size} selected
+              </button>
+              <button
+                onClick={handleDeleteSelected}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-error/30 bg-error/5 text-error hover:bg-error/10 transition-all duration-150 active:scale-[0.98]"
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                Delete {selectedColIds.size} selected
+              </button>
+            </>
           )}
           <button
             onClick={() => setColFilterOpen(true)}
@@ -489,7 +380,7 @@ export default function Collections() {
         </div>
       </div>
 
-      {/* Collections table with inline folder expansion */}
+      {/* Collections table */}
       <div className="bg-surface-main rounded-2xl border border-border-subtle overflow-hidden">
         <table className="w-full">
           <thead>
@@ -504,220 +395,97 @@ export default function Collections() {
                 />
               </th>
               <th className="text-left px-4 py-3.5 text-sm font-semibold text-text-primary">Collection</th>
-              <th className="text-left px-4 py-3.5 text-sm font-semibold text-text-primary" style={{ width: 140 }}>Tests</th>
-              <th className="text-left px-4 py-3.5 text-sm font-semibold text-text-primary" style={{ width: 200 }}>Created</th>
+              <th className="text-left px-4 py-3.5 text-sm font-semibold text-text-primary" style={{ width: 200 }}>Created at</th>
               <th className="text-left px-4 py-3.5 text-sm font-semibold text-text-primary" style={{ width: 120 }}>Actions</th>
             </tr>
           </thead>
           <tbody>
             {filteredCollections.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-16 text-center text-sm text-text-secondary">
+                <td colSpan={4} className="px-4 py-16 text-center text-sm text-text-secondary">
                   {collections.length === 0 ? 'No collections yet.' : 'No collections match your filters.'}
                 </td>
               </tr>
             ) : (
-              filteredCollections.map((col) => {
-                const isChecked  = selectedColIds.has(col.id);
-                const isExpanded = expandedColId === col.id;
+              pagedCollections.map((col) => {
+                const isChecked = selectedColIds.has(col.id);
                 return (
-                  <tbody key={col.id} className="[&+tbody]:border-t [&+tbody]:border-border-subtle">
-                    {/* Collection row */}
-                    <tr
-                      onClick={() => {
-                        setExpandedTestId(null);
-                        setSearchParams(isExpanded ? {} : { col: col.id });
-                      }}
-                      className={`group cursor-pointer transition-all duration-150 border-b border-border-subtle ${
-                        isChecked ? 'bg-primary/5' : isExpanded ? 'bg-surface-muted/60' : 'hover:bg-surface-muted/50'
-                      }`}
-                    >
-                      <td className="px-4 py-3.5" onClick={(e) => toggleColSelection(col.id, e)}>
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={() => {}}
-                          className="w-4 h-4 rounded accent-primary cursor-pointer"
-                        />
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-2.5">
-                          <span
-                            className={`material-symbols-outlined transition-all duration-200 ${
-                              isExpanded ? 'text-primary' : 'text-text-secondary'
-                            }`}
-                            style={{ fontSize: 18, fontVariationSettings: isExpanded ? '"FILL" 1' : '"FILL" 0' }}
-                          >
-                            {isExpanded ? 'folder_open' : 'folder'}
-                          </span>
-                          <span className="font-medium text-text-primary text-sm">{col.name}</span>
-                          <span
-                            className={`material-symbols-outlined text-text-secondary transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
-                            style={{ fontSize: 16 }}
-                          >
-                            expand_more
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3.5 text-sm text-text-secondary">
-                        {col.testCount} {col.testCount === 1 ? 'test' : 'tests'}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        {(() => { const { date, time } = fmtTableDatetime(col.createdAt); return (
+                  <tr
+                    key={col.id}
+                    onClick={() => navigate(`/collections/${col.id}`)}
+                    className={`group cursor-pointer transition-all duration-150 border-b border-border-subtle ${
+                      isChecked ? 'bg-primary/5' : 'hover:bg-surface-muted/50'
+                    }`}
+                  >
+                    <td className="px-4 py-3.5" onClick={(e) => toggleColSelection(col.id, e)}>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {}}
+                        className="w-4 h-4 rounded accent-primary cursor-pointer"
+                      />
+                    </td>
+                    <td className="px-4 py-3.5">
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className="material-symbols-outlined text-text-secondary"
+                          style={{ fontSize: 18 }}
+                        >
+                          folder
+                        </span>
+                        <span className="font-medium text-text-primary text-sm">{col.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3.5">
+                      {(() => {
+                        const { date, time } = fmtTableDatetime(col.createdAt);
+                        return (
                           <time title={relTime(col.createdAt)} dateTime={col.createdAt} className="flex flex-col">
                             <span className="text-sm text-text-primary">{date}</span>
                             <span className="text-xs text-text-secondary mt-0.5">{time}</span>
                           </time>
-                        ); })()}
-                      </td>
-                      <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex items-center gap-0.5 opacity-40 group-hover:opacity-100 transition-opacity duration-150">
-                          <button
-                            onClick={() => setRunAllColId(col.id)}
-                            title="Run all specs"
-                            className="w-7 h-7 flex items-center justify-center rounded-lg text-success hover:bg-success/10 transition-colors"
-                          >
-                            <span className="material-symbols-outlined" style={{ fontSize: 17 }}>play_arrow</span>
-                          </button>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); setRenamingCol({ id: col.id, name: col.name }); renameMutation.reset(); }}
-                            title="Rename collection"
-                            className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors"
-                          >
-                            <span className="material-symbols-outlined" style={{ fontSize: 17 }}>edit</span>
-                          </button>
-                          <button
-                            onClick={(e) => handleDeleteSingle(col.id, e)}
-                            title="Delete collection"
-                            className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-error/10 hover:text-error transition-colors"
-                          >
-                            <span className="material-symbols-outlined" style={{ fontSize: 17 }}>delete</span>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-
-                    {/* Inline tests panel */}
-                    {isExpanded && (
-                      <tr>
-                        <td colSpan={5} className="p-0 bg-surface-muted/20">
-                          {/* Tests sub-header */}
-                          <div className="flex items-center justify-between px-6 py-3 border-b border-border-subtle">
-                            <span className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
-                              {isLoadingTests ? 'Loading…' : `${tests.length} ${tests.length === 1 ? 'test' : 'tests'}`}
-                            </span>
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => specs.length > 0 && setRunAllColId(col.id)}
-                                disabled={specs.length === 0}
-                                title={specs.length === 0 ? 'No spec files yet' : `Run all ${specs.length} spec file${specs.length === 1 ? '' : 's'}`}
-                                className={`inline-flex items-center gap-1.5 border border-border-subtle rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                                  specs.length === 0 ? 'text-text-secondary opacity-40 cursor-not-allowed' : 'text-text-secondary hover:bg-surface-main'
-                                }`}
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>play_circle</span>
-                                Run suite
-                              </button>
-                              <button
-                                onClick={() => setSlideOverOpen(true)}
-                                className="inline-flex items-center gap-1.5 bg-primary text-white rounded-lg px-3 py-1.5 text-xs font-semibold hover:bg-primary/90 transition-colors"
-                              >
-                                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>add</span>
-                                Add Test
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* Tests table */}
-                          <table className="w-full">
-                            <tbody className="divide-y divide-border-subtle">
-                              {isLoadingTests || isLoadingSpecs ? (
-                                Array.from({ length: 2 }).map((_, i) => (
-                                  <tr key={i} className="animate-pulse">
-                                    <td className="px-6 py-4" colSpan={4}><div className="h-5 bg-surface-muted rounded" /></td>
-                                  </tr>
-                                ))
-                              ) : tests.length === 0 ? (
-                                <tr>
-                                  <td colSpan={4} className="px-6 py-10 text-center">
-                                    <span className="material-symbols-outlined text-border-subtle block mb-2" style={{ fontSize: 32 }}>folder_open</span>
-                                    <p className="text-sm text-text-primary font-medium">No tests yet</p>
-                                    <p className="text-xs text-text-secondary mt-1">Click "Add Test" to get started</p>
-                                  </td>
-                                </tr>
-                              ) : (
-                                tests.flatMap((test, idx) => {
-                                  const spec       = findMatchingSpec(test.name, specs);
-                                  const accent     = ACCENTS[idx % ACCENTS.length];
-                                  const isTestOpen = expandedTestId === test.id;
-                                  return [
-                                    <tr
-                                      key={test.id}
-                                      onClick={() => setExpandedTestId(isTestOpen ? null : test.id)}
-                                      className={`group cursor-pointer transition-colors ${isTestOpen ? 'bg-primary/5' : 'hover:bg-surface-muted/40'}`}
-                                    >
-                                      <td className="pl-6 pr-4 py-3">
-                                        <div className="flex items-center gap-3">
-                                          <div className={`w-8 h-8 ${isTestOpen ? 'bg-primary/10' : accent.bg} rounded-lg flex items-center justify-center flex-shrink-0`}>
-                                            <span
-                                              className={`material-symbols-outlined ${isTestOpen ? 'text-primary' : accent.icon}`}
-                                              style={{ fontSize: 17, fontVariationSettings: '"FILL" 1' }}
-                                            >
-                                              {spec ? 'description' : 'draft'}
-                                            </span>
-                                          </div>
-                                          <span className="font-medium text-text-primary text-sm leading-snug line-clamp-1">{test.name}</span>
-                                        </div>
-                                      </td>
-                                      <td className="px-4 py-3 text-sm">
-                                        {spec
-                                          ? <span className="font-mono-code text-xs text-text-secondary bg-surface-muted px-2 py-0.5 rounded">{spec.basename}</span>
-                                          : <span className="italic text-xs text-text-secondary">No spec yet</span>
-                                        }
-                                      </td>
-                                      <td className="px-4 py-3">
-                                        <div className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                                          <button
-                                            onClick={() => setRunModal({ testId: test.id, testName: test.name })}
-                                            title={spec ? 'Re-run pipeline' : 'Run pipeline'}
-                                            className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${spec ? 'text-success hover:bg-success/10' : 'text-warning hover:bg-warning/10'}`}
-                                          >
-                                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>play_arrow</span>
-                                          </button>
-                                          <button onClick={() => setEditingTest(test)} title="Edit test" className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors">
-                                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span>
-                                          </button>
-                                          {spec && (
-                                            <button onClick={() => setSpecFileEditing(spec)} title="Edit spec code" className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-primary hover:bg-primary/5 transition-colors">
-                                              <span className="material-symbols-outlined" style={{ fontSize: 15 }}>code</span>
-                                            </button>
-                                          )}
-                                          <button onClick={() => handleDeleteTest(test.id)} title="Delete test" className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-error/10 hover:text-error transition-colors">
-                                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
-                                          </button>
-                                        </div>
-                                      </td>
-                                      <td className="pr-4 py-3 w-10">
-                                        <span className={`material-symbols-outlined text-text-secondary transition-transform duration-200 ${isTestOpen ? 'rotate-180' : ''}`} style={{ fontSize: 16 }}>
-                                          expand_more
-                                        </span>
-                                      </td>
-                                    </tr>,
-                                    ...(isTestOpen ? [<TestExecutionDetail key={`detail-${test.id}`} testId={test.id} colSpan={4} />] : []),
-                                  ];
-                                })
-                              )}
-                            </tbody>
-                          </table>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
+                        );
+                      })()}
+                    </td>
+                    <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-0.5 opacity-40 group-hover:opacity-100 transition-opacity duration-150">
+                        <button
+                          onClick={() => setRunAllColIds([col.id])}
+                          title="Run all specs"
+                          className="w-7 h-7 flex items-center justify-center rounded-lg text-success hover:bg-success/10 transition-colors"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 17 }}>play_arrow</span>
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setRenamingCol({ id: col.id, name: col.name }); renameMutation.reset(); }}
+                          title="Rename collection"
+                          className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 17 }}>edit</span>
+                        </button>
+                        <button
+                          onClick={(e) => handleDeleteSingle(col.id, e)}
+                          title="Delete collection"
+                          className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-error/10 hover:text-error transition-colors"
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 17 }}>delete</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
                 );
               })
             )}
           </tbody>
         </table>
+        <PaginationBar
+          page={page}
+          totalPages={totalPages}
+          total={filteredCollections.length}
+          pageSize={pageSize}
+          onPage={setPage}
+          alwaysShow
+        />
       </div>
 
       {/* Modals */}
@@ -744,54 +512,8 @@ export default function Collections() {
         />
       )}
 
-      {editingTest && (
-        <EditTestSlideOver
-          test={editingTest}
-          loading={updateTestMutation.isPending}
-          error={updateTestMutation.error?.message ?? ''}
-          onClose={() => setEditingTest(null)}
-          onSubmit={(payload) => {
-            updateTestMutation.mutate(
-              { id: editingTest.id, ...payload },
-              { onSuccess: () => setEditingTest(null) },
-            );
-          }}
-        />
-      )}
-
-      {runModal && (
-        <RunTestModal
-          testId={runModal.testId}
-          testName={runModal.testName}
-          onClose={() => setRunModal(null)}
-        />
-      )}
-
-      {slideOverOpen && (
-        <CreateTestSlideOver
-          collections={collections}
-          defaultCollectionId={expandedColId ?? undefined}
-          onClose={() => setSlideOverOpen(false)}
-          onTestCreated={invalidateTests}
-        />
-      )}
-
-      {!!specFileEditing && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]" onClick={() => setSpecFileEditing(null)} />
-      )}
-      <SpecEditor
-        test={specFileEditing && tests[0] ? { id: tests[0].id, name: specFileEditing.basename } : null}
-        isOpen={!!specFileEditing}
-        onClose={() => setSpecFileEditing(null)}
-        overrideFilename={specFileEditing?.filename}
-        onRunStarted={() => invalidateTests()}
-      />
-
-      {runAllColId && (
-        <RunAllModal
-          collectionId={runAllColId}
-          onClose={() => setRunAllColId(null)}
-        />
+      {runAllColIds && (
+        <RunAllModal collectionIds={runAllColIds} onClose={() => setRunAllColIds(null)} />
       )}
 
       <CollectionFilterDrawer
