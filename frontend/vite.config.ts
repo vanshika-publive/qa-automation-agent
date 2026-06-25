@@ -10,6 +10,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    allowedHosts: ['scarcity-crushable-abiding.ngrok-free.dev'],
     proxy: {
       '/api': {
         target: apiProxyTarget,
