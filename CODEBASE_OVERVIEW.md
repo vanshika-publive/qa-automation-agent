@@ -75,6 +75,14 @@ automation-agent-2/
 ├── backend/                # Django + DRF API server + AI pipeline
 │   ├── config/             # Django project (settings, urls, wsgi/asgi)
 │   ├── core/               # CRUD app: Collection/Test/Environment/Execution models + views
+│   │   ├── models.py            # ORM models (soft delete, UUID PKs, ISO timestamps)
+│   │   ├── decorators.py        # @validate_body(Serializer) + @fetch_object(Model, msg)
+│   │   ├── serializers/         # camelCase I/O serializers, one file per resource
+│   │   ├── views/               # APIView classes, one per URL (health/collections/environments/tests/executions)
+│   │   ├── urls.py              # explicit path() entries — no SimpleRouter
+│   │   ├── services/            # business logic layer (collection/test/environment/execution)
+│   │   ├── renderers.py         # EnvelopeRenderer → {data, error} wrapper
+│   │   └── exceptions.py        # envelope_exception_handler
 │   ├── pipeline/           # the AI agent pipeline (orchestrator/planner/generator/runner) — NO db models
 │   ├── utils/              # tiny shared helpers (slug, json, markdown, errors)
 │   ├── capture_session.py  # one-off script: manually clear MFA, save reusable browser session
@@ -158,6 +166,15 @@ envelope: **`{ data: T | null, error: string | null }`**, plus `pagination` for 
 endpoints. A matching custom exception handler (`core/exceptions.py`) wraps DRF's
 default error responses into the same envelope. There is no authentication —
 `DEFAULT_PERMISSION_CLASSES = [AllowAny]` (internal tool, not exposed publicly).
+
+**View architecture:** every endpoint is an `APIView` subclass (one class per URL), with
+handlers named by HTTP verb only (`get`/`post`/`put`/`patch`/`delete`). All 23 routes
+are declared explicitly as `path()` entries in `core/urls.py` — no `SimpleRouter` or
+`ViewSet`. Two decorators in `core/decorators.py` are applied at the handler level:
+`@validate_body(SerializerClass)` (validates request body, injects `data=`; 400 on
+failure) and `@fetch_object(Model, "X not found")` (fetches by URL `pk`, injects `obj=`;
+404 on miss). Output serializers in `core/serializers/` emit **camelCase** fields that
+match `frontend/src/types.ts` exactly.
 
 | Method & Path | Purpose |
 |---|---|
@@ -594,7 +611,8 @@ were each, at some point, a real flaky-test root cause on this specific dashboar
 - Run orchestration is plain background threads, not a task queue — fine at current
   scale, but there's no retry/visibility infrastructure beyond the DB rows themselves.
 - `frontend/src/types.ts`'s `Environment` interface declares a `publisherId: string`
-  field that the backend never actually serializes (`core/views/environments.py` only
-  returns `publisher`, the name) — harmless today since nothing reads it, but a
-  trap for anyone trying to use it.
+  field that the backend never serializes (`EnvironmentSerializer` in
+  `core/serializers/environment.py` outputs `publisher` — the name string — not
+  `publisherId`) — harmless today since nothing reads it, but a trap for anyone
+  trying to use it.
 - The New Relic key issue noted in §11.

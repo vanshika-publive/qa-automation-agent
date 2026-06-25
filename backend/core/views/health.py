@@ -1,7 +1,8 @@
-from rest_framework.decorators import api_view
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 
-@api_view(['GET'])
-def health_check(request):
-    return Response({'ok': True})
+class HealthView(APIView):
+
+    def get(self, request):
+        return Response({'ok': True})

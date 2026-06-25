@@ -1,39 +1,40 @@
 from django.urls import path
+
 from .views import health, collections, environments, tests, executions
 
 urlpatterns = [
-    # Health
-    path('health', health.health_check),
+    path('health', health.HealthView.as_view()),
 
-    # Collections
-    path('collections', collections.CollectionListCreate.as_view()),
-    path('collections/<str:id>', collections.CollectionDetail.as_view()),
+    # --- Collections ---------------------------------------------------------
+    path('collections', collections.CollectionListView.as_view()),
+    path('collections/<str:pk>', collections.CollectionDetailView.as_view()),
+    path('collections/<str:pk>/tests', collections.CollectionTestsView.as_view()),
+    path('collections/<str:pk>/specs', collections.CollectionSpecsView.as_view()),
+    path('collections/<str:pk>/run-all-specs', collections.CollectionRunSpecsView.as_view()),
 
-    # Environments
-    path('environments', environments.EnvironmentListCreate.as_view()),
-    path('environments/active-publisher', environments.ActivePublisher.as_view()),
-    path('environments/<str:id>', environments.EnvironmentUpdateDelete.as_view()),
+    # --- Environments --------------------------------------------------------
+    # active-publisher must precede <pk> or it would be captured as an id.
+    path('environments', environments.EnvironmentListView.as_view()),
+    path('environments/active-publisher', environments.EnvironmentPublisherView.as_view()),
+    path('environments/<str:pk>', environments.EnvironmentDetailView.as_view()),
 
-    # Specs
-    path('collections/<str:collection_id>/specs', tests.collection_specs),
-    path('specs/view', tests.view_spec),
-    path('specs', tests.delete_spec),
+    # --- Tests ---------------------------------------------------------------
+    path('tests/<str:pk>', tests.TestDetailView.as_view()),
+    path('tests/<str:pk>/spec', tests.TestSpecView.as_view()),
+    path('tests/<str:pk>/run-spec', tests.TestRunSpecView.as_view()),
+    path('tests/<str:pk>/run', tests.TestRunView.as_view()),
 
-    # Tests
-    path('collections/<str:collection_id>/tests', tests.CollectionTests.as_view()),
-    path('tests/<str:id>', tests.TestDetail.as_view()),
-    path('tests/<str:id>/spec', tests.TestSpec.as_view()),
-    path('tests/<str:id>/run-spec', tests.run_spec),
+    # --- Spec files (no resource id in the path) -----------------------------
+    path('specs/view', tests.SpecReadView.as_view()),
+    path('specs', tests.SpecDeleteView.as_view()),
 
-    # Execution run endpoints (must be before executions/<str:id> to avoid shadowing)
-    path('collections/<str:collection_id>/run-all-specs', executions.run_all_specs),
-    path('executions/tests/<str:test_id>/run', executions.run_test),
-
-    # Execution CRUD
-    path('executions', executions.ExecutionList.as_view()),
-    path('executions/<str:id>', executions.ExecutionDetail.as_view()),
-    path('executions/<str:id>/steps', executions.execution_steps),
-    path('executions/<str:id>/tests', executions.execution_tests),
-    path('executions/<str:id>/files', executions.execution_files),
-    path('executions/<str:id>/stream', executions.execution_stream),
+    # --- Executions ----------------------------------------------------------
+    path('executions', executions.ExecutionListView.as_view()),
+    # Frontend posts here to start a run; reuses the TestRunView handler.
+    path('executions/tests/<str:pk>/run', tests.TestRunView.as_view()),
+    path('executions/<str:pk>', executions.ExecutionDetailView.as_view()),
+    path('executions/<str:pk>/steps', executions.ExecutionStepsView.as_view()),
+    path('executions/<str:pk>/tests', executions.ExecutionTestsView.as_view()),
+    path('executions/<str:pk>/files', executions.ExecutionFilesView.as_view()),
+    path('executions/<str:pk>/stream', executions.ExecutionStreamView.as_view()),
 ]

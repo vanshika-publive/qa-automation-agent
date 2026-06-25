@@ -11,9 +11,11 @@ PLANNER_NUDGE_THRESHOLD = 0.75
 GENERATOR_NUDGE_THRESHOLD = 0.7
 GENERATOR_FINAL_WARNING_THRESHOLD = 0.87
 
+# Spec file matching — shared with core/services/test_service.py
 EXCLUDED_SPEC_FILES = frozenset(['conftest.py', 'helpers.py'])
 MIN_SLUG_WORD_LENGTH = 3
 
+# Results parsing — shared with core/services/execution_service.py
 ERROR_TRUNCATE_LENGTH = 400
 
 SESSION_EXPIRY_SECONDS = 60 * 60 * 24

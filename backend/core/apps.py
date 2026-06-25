@@ -10,18 +10,18 @@ class CoreConfig(AppConfig):
     name = 'core'
 
     def ready(self):
-        from datetime import datetime, timezone
         try:
             from .models import Execution, Environment
             import uuid
+            from utils.datetime_utils import DateTimeUtils
 
             Execution.all_objects.filter(status='running').update(
                 status='failed',
-                completed_at=datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+                completed_at=DateTimeUtils.now_iso(),
             )
 
             if Environment.objects.count() == 0:
-                now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+                now = DateTimeUtils.now_iso()
                 Environment.objects.create(
                     id=str(uuid.uuid4()),
                     name='Beta',
