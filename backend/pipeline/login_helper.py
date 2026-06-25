@@ -88,9 +88,7 @@ def refresh_session(project_root):
 
     os.makedirs(os.path.dirname(session_path), exist_ok=True)
 
-    # Reuse strategy: the dashboard requires email-OTP MFA that automated login can't clear,
-    # so a manually-created "Stay signed in" session is reused until it expires. If the stored
-    # session still has a valid auth cookie, keep it — never clobber it with a fresh login.
+    # MFA blocks automated login — reuse a human-created session until it expires, never overwrite it.
     if _stored_session_is_valid(session_path):
         print('Existing session is still valid — reusing it (skipping re-login)')
         return
@@ -123,11 +121,7 @@ def refresh_session(project_root):
                 timeout=LOGIN_TIMEOUT_MS,
             )
 
-            # The dashboard enforces email-OTP MFA: email+password redirects to /mfa and NO
-            # auth cookie is issued until the 6-digit code is entered. Leaving /login is NOT
-            # proof of a successful login. Fail loudly here instead of saving a useless session
-            # (which silently makes every downstream test fail at the login page, after the
-            # planner/generator have already burned API calls).
+            # Leaving /login is not proof of success — /mfa redirect means no auth cookie was issued.
             if '/mfa' in page.url:
                 raise RuntimeError(
                     'Login requires MFA (an email OTP step) — automated email+password login '

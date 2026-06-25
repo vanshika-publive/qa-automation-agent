@@ -22,13 +22,11 @@ export function useExecutions(
   const [appliedFilters, setAppliedFilters]  = useState<FilterState>(DEFAULT_FILTERS);
   const [now,            setNow]             = useState(Date.now());
 
-  // Level 0: collections list (for filter chips)
   const collectionsQuery = useQuery({
     queryKey: ['collections'],
     queryFn: collectionsService.getAll,
   });
 
-  // Level 1: filtered + paginated table
   const tableExecsQuery = useQuery({
     queryKey: ['executions', 'table', appliedFilters, tablePage],
     queryFn: () => executionsService.getAll({
@@ -46,7 +44,6 @@ export function useExecutions(
     },
   });
 
-  // Level 2: collection-scoped executions for test-card indicators
   const colExecsQuery = useQuery({
     queryKey: ['executions', 'col', selectedColId],
     queryFn: () => executionsService.getAll({ collectionId: selectedColId!, pageSize: 100 }),
@@ -57,14 +54,12 @@ export function useExecutions(
     },
   });
 
-  // Level 2: tests within selected collection
   const testsQuery = useQuery({
     queryKey: ['tests', selectedColId],
     queryFn: () => collectionsService.getTests(selectedColId!),
     enabled: !!selectedColId,
   });
 
-  // Level 3: runs for specific test
   const testExecsQuery = useQuery({
     queryKey: ['executions', 'test', selectedTestId],
     queryFn: () => executionsService.getAll({ testId: selectedTestId!, pageSize: 20 }),
@@ -75,7 +70,6 @@ export function useExecutions(
     },
   });
 
-  // Derived data
   const collections     = collectionsQuery.data?.data ?? [];
   const tableExecs      = tableExecsQuery.data?.data ?? [];
   const tablePagination = tableExecsQuery.data?.pagination;
@@ -88,7 +82,6 @@ export function useExecutions(
     [tableExecs],
   );
 
-  // Live timer for running execution durations
   useEffect(() => {
     if (!hasRunning) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -109,7 +102,6 @@ export function useExecutions(
     return ids.map((id) => tableExecs.find((e) => e.id === id)).filter(Boolean) as Execution[];
   }, [selectedIds, tableExecs]);
 
-  // Client-side pagination for level 3 run list
   const runListTotalPages = Math.ceil(testExecs.length / RUN_LIST_PAGE_SIZE);
   const runListSlice = testExecs.slice(
     runListPage * RUN_LIST_PAGE_SIZE,
@@ -127,7 +119,6 @@ export function useExecutions(
     testExecs.find((e) => e.testId === selectedTestId)?.testName ??
     'Test';
 
-  // Mutations
   const deleteMutation = useMutation({
     mutationFn: executionsService.delete,
     onSuccess: () => {
@@ -143,7 +134,6 @@ export function useExecutions(
     onSuccess: () => qc.invalidateQueries({ queryKey: ['executions'] }),
   });
 
-  // Filter actions
   function applyFilters(f: FilterState) { setAppliedFilters(f); setTablePage(1); }
   function clearFilters() { setAppliedFilters(DEFAULT_FILTERS); setTablePage(1); }
   function removeFilter(key: keyof FilterState | 'dateRange') {
@@ -154,7 +144,6 @@ export function useExecutions(
     setTablePage(1);
   }
 
-  // Selection actions
   function toggleRow(id: string) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -168,7 +157,6 @@ export function useExecutions(
   }
 
   return {
-    // Data
     collections,
     tableExecs, tablePagination,
     colExecs, execsByTestId,
@@ -176,23 +164,17 @@ export function useExecutions(
     runListSlice, runListTotalPages,
     compareExecutions,
     selectedTestName,
-    // Loading states
     isLoadingTable: tableExecsQuery.isLoading || collectionsQuery.isLoading,
     isLoadingTests: testsQuery.isLoading,
     isLoadingTestExecs: testExecsQuery.isLoading,
-    // Pagination
     tablePage, setTablePage,
     runListPage, setRunListPage,
-    // Selection
     selectedIds, toggleRow, toggleAll,
-    // Filters
     appliedFilters, activeFilterCount,
     applyFilters, clearFilters, removeFilter,
-    // State
     expandedId, setExpandedId,
     retryingId,
     now,
-    // Mutations
     deleteMutation,
     retryMutation,
   };

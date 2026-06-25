@@ -77,7 +77,6 @@ def extract_scenario_url(steps: List[str], base_url: str) -> str:
         if navigate_match:
             return f"{base_url}{navigate_match.group(1)}"
 
-        # Keyword fallback when the plan step has no explicit URL.
         if re.search(r'article.*(creat|add|new)|create.*article|add.*article', step, flags=re.IGNORECASE):
             return f"{base_url}/posts/article/create"
         if re.search(r'video.*(creat|add|new)|create.*video', step, flags=re.IGNORECASE):

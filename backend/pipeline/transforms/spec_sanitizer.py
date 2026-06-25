@@ -4,7 +4,6 @@ import re
 def sanitize_spec(code: str, scenario_name: str) -> str:
     out = code
 
-    # to_have_url with exact string -> regex
     def _to_have_url_repl(m: re.Match) -> str:
         url_path = m.group(2)
         escaped = re.escape(url_path)
@@ -40,7 +39,6 @@ def sanitize_spec(code: str, scenario_name: str) -> str:
         out,
     )
 
-    # get_by_title(...).click() -> get_by_title(..., exact=True).last.click()
     def _title_click_last(m: re.Match) -> str:
         q = m.group(1)
         name = m.group(2)
@@ -64,7 +62,6 @@ def sanitize_spec(code: str, scenario_name: str) -> str:
         out,
     )
 
-    # Replace '[Scenario]' placeholder with actual scenario name.
     escaped_name = scenario_name.replace("'", "\\'")
     out = re.sub(
         r"def\s+test_\[Scenario\]",
@@ -77,7 +74,6 @@ def sanitize_spec(code: str, scenario_name: str) -> str:
     out = out.replace('.to_be_enabled()', '.to_be_enabled(timeout=15000)')
     out = out.replace('.to_be_disabled()', '.to_be_disabled(timeout=15000)')
 
-    # Inject `ts = int(time.time() * 1000)` if missing.
     if not re.search(r'ts\s*=\s*int\(time\.time\(\)', out):
         out = re.sub(
             r'(def\s+test_\w+\(page\):\s*\n)',
@@ -85,15 +81,12 @@ def sanitize_spec(code: str, scenario_name: str) -> str:
             out,
         )
 
-    # Ensure 'import time' is present if ts = int(time.time()...) is used
     if 'time.time()' in out and 'import time' not in out:
         out = f'import time\n{out}'
 
-    # Ensure 'import re' is present if re.compile is used
     if 're.compile' in out and 'import re' not in out:
         out = f'import re\n{out}'
 
-    # Inject helper imports if safe_fill/safe_sequential_fill used
     if re.search(r'(safe_fill|safe_sequential_fill)', out) and 'from helpers import' not in out:
         helpers_needed = []
         if 'safe_fill' in out:
@@ -101,7 +94,6 @@ def sanitize_spec(code: str, scenario_name: str) -> str:
         if 'safe_sequential_fill' in out:
             helpers_needed.append('safe_sequential_fill')
         import_line = f"from helpers import {', '.join(helpers_needed)}"
-        # Insert after other imports
         if 'from playwright' in out:
             out = re.sub(
                 r"(from playwright[^\n]+\n)",
@@ -126,7 +118,6 @@ def sanitize_spec(code: str, scenario_name: str) -> str:
         out,
     )
 
-    # Inline get_by_role().fill() -> safe_fill() for textboxes.
     def _fill_to_safe_fill(m: re.Match) -> str:
         label = m.group(2)
         value = m.group(3)

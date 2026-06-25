@@ -344,7 +344,6 @@ def run_planner_agent(test_plan, plan_path: str) -> None:
 
 
 def _test_plan_to_dict(plan):
-    """Convert a TestPlan dataclass to a JSON-serializable dict."""
     return {
         'url': plan.url,
         'title': plan.title,
