@@ -10,9 +10,10 @@ import RunAllModal from '../components/RunAllModal';
 import { ACCENTS } from '../utils/status';
 import { useCollections } from '../hooks/useCollections';
 import { useCollectionTests } from '../hooks/useCollectionTests';
+import { testsService } from '../services/tests';
 import {
   FolderX, ArrowLeft, FolderOpen, PlayCircle, Plus,
-  Play, Pencil, Code2, Trash2, ChevronDown, FileText, Folder,
+  Play, Pencil, Code2, Trash2, ChevronDown, FileText, Folder, X,
 } from 'lucide-react';
 
 
@@ -36,6 +37,21 @@ export default function CollectionDetail() {
   const [editingTest,    setEditingTest]    = useState<Test | null>(null);
   const [specEditing,    setSpecEditing]    = useState<Test | null>(null);
   const [runAllOpen,     setRunAllOpen]     = useState(false);
+  const [planModal,      setPlanModal]      = useState<{ testName: string; content: string } | null>(null);
+  const [planLoading,    setPlanLoading]    = useState<string | null>(null);
+
+  async function handleOpenPlan(e: React.MouseEvent, test: Test) {
+    e.stopPropagation();
+    setPlanLoading(test.id);
+    try {
+      const res = await testsService.getPlan(test.id);
+      if (res.data?.content) {
+        setPlanModal({ testName: test.name, content: res.data.content });
+      }
+    } finally {
+      setPlanLoading(null);
+    }
+  }
 
   function handleDeleteTest(testId: string) {
     if (!window.confirm('Delete this test case?')) return;
@@ -164,7 +180,15 @@ export default function CollectionDetail() {
                     </td>
                     <td className="px-4 py-3.5">
                       {test.planFile
-                        ? <span className="font-mono-code text-xs text-text-secondary bg-surface-muted px-2 py-0.5 rounded">{test.planFile}</span>
+                        ? (
+                          <button
+                            onClick={(e) => handleOpenPlan(e, test)}
+                            disabled={planLoading === test.id}
+                            className="font-mono-code text-xs text-primary bg-primary/10 hover:bg-primary/20 px-2 py-0.5 rounded transition-colors disabled:opacity-50"
+                          >
+                            {planLoading === test.id ? 'Loading…' : test.planFile}
+                          </button>
+                        )
                         : <span className="italic text-xs text-text-secondary">No plan yet</span>}
                     </td>
                     <td className="px-4 py-3.5">
@@ -273,6 +297,37 @@ export default function CollectionDetail() {
 
       {runAllOpen && (
         <RunAllModal collectionIds={[id!]} onClose={() => setRunAllOpen(false)} />
+      )}
+
+      {planModal && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+          onClick={() => setPlanModal(null)}
+        >
+          <div
+            className="bg-surface-main rounded-2xl border border-border-subtle w-full max-w-3xl max-h-[80vh] flex flex-col shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle shrink-0">
+              <div className="flex items-center gap-2">
+                <FileText size={16} className="text-text-secondary" />
+                <h2 className="text-sm font-semibold text-text-primary">plan.md</h2>
+                <span className="text-xs text-text-secondary truncate max-w-xs">{planModal.testName}</span>
+              </div>
+              <button
+                onClick={() => setPlanModal(null)}
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="overflow-y-auto px-5 py-4">
+              <pre className="text-sm text-text-primary font-mono leading-relaxed whitespace-pre-wrap">
+                {planModal.content}
+              </pre>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

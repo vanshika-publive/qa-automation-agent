@@ -32,7 +32,7 @@ export function useTestExecutionHistory(testId: string, expandedExecId: string |
     allRuns,
     openId,
     isLoadingRuns: execsQ.isLoading,
-    steps: detailQ.data?.steps ?? [],
+    steps: detailQ.data?.data?.steps ?? [],
     isLoadingDetail: detailQ.isLoading,
     testResults: resultsQ.data?.data ?? [],
   };

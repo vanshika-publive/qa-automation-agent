@@ -225,9 +225,23 @@ New Relic APM is wired in via `backend/newrelic.ini` (Python agent). The license
 
 ---
 
-## Serializer field naming
+## Backend view architecture
 
-`backend/core/serializers.py` uses **snake_case** field names (e.g. `test_id`, `created_at`, `is_active`). The frontend `types.ts` must align — if you see mismatches, check which direction the serializer currently outputs before assuming camelCase.
+All views are `APIView` subclasses — **one class per URL**, handlers named by the HTTP verb only (`get`, `post`, `put`, `patch`, `delete`). No `ViewSet`, no DRF router. Every route is declared explicitly in `core/urls.py` via `path(..., SomeView.as_view())`.
+
+Two reusable decorators in `core/decorators.py` handle cross-cutting concerns:
+- `@validate_body(SerializerClass)` — runs the input serializer, injects `data=validated_data` kwarg, raises `ValidationError` (→ 400) on failure.
+- `@fetch_object(Model, "X not found", select_related=())` — fetches by URL `pk`, injects `obj=` kwarg, raises `NotFound` (→ 404) on miss.
+
+Stacking order matters: `@fetch_object` outermost when a 404 should take priority over a 400; `@validate_body` outermost when a missing body field should be caught first.
+
+---
+
+## Serializer conventions
+
+Serializers live in `backend/core/serializers/` (package — one file per resource: `collection.py`, `environment.py`, `test.py`, `execution.py`, plus `__init__.py` that re-exports all classes). All **output** serializers use **camelCase** field names that match `frontend/src/types.ts` exactly (e.g. `createdAt`, `testCount`, `baseUrl`, `isActive`, `collectionId`). Never add snake_case fields to an output serializer.
+
+Input serializers (`*WriteSerializer`, `*CreateSerializer`, `*UpdateSerializer`) are used exclusively through the `@validate_body` decorator — never call `.is_valid()` manually inside a view handler.
 
 ---
 

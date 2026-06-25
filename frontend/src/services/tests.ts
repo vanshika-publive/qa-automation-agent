@@ -30,4 +30,7 @@ export const testsService = {
 
   runSpec: (testId: string, payload: { environmentId: string; filename: string }) =>
     api.post<ApiResponse<{ executionId: string }>>(`/tests/${testId}/run-spec`, payload),
+
+  getPlan: (testId: string) =>
+    api.get<ApiResponse<{ content: string }>>(`/tests/${testId}/plan`),
 };

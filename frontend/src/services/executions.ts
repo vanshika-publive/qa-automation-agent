@@ -28,7 +28,7 @@ export const executionsService = {
   },
 
   getDetail: (id: string) =>
-    api.get<ExecutionDetail>(`/executions/${id}`),
+    api.get<ApiResponse<ExecutionDetail>>(`/executions/${id}`),
 
   getTestResults: (id: string) =>
     api.get<{ data: TestResult[]; pending: boolean; error: string | null }>(`/executions/${id}/tests`),
@@ -37,7 +37,7 @@ export const executionsService = {
     api.get<{ data: { id: string; test_name: string; status: 'passed' | 'failed' | 'skipped'; duration_ms: number; error_message: string | null }[]; error: string | null }>(`/executions/${id}/steps`),
 
   getFiles: (id: string) =>
-    api.get<ExecutionFiles>(`/executions/${id}/files`),
+    api.get<ApiResponse<ExecutionFiles>>(`/executions/${id}/files`),
 
   delete: (id: string) =>
     api.del<ApiResponse<{ id: string }>>(`/executions/${id}`),

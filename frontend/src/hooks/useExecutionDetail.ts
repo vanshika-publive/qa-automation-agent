@@ -10,13 +10,13 @@ export function useExecutionDetail(id: string) {
     queryKey: ['execution', id],
     queryFn: () => executionsService.getDetail(id),
     refetchInterval: (query) => {
-      const s = query.state.data?.status;
+      const s = query.state.data?.data?.status;
       return s === 'running' || s === 'queued' ? 2000 : false;
     },
     enabled: !!id,
   });
 
-  const exec = detailQ.data;
+  const exec = detailQ.data?.data;
 
   const resultsQ = useQuery({
     queryKey: ['execution', id, 'tests'],
@@ -54,7 +54,7 @@ export function useExecutionDetail(id: string) {
     steps: exec?.steps ?? [],
     testResults: resultsQ.data?.data ?? [],
     testResultsPending: resultsQ.data?.pending ?? (exec?.status === 'running'),
-    files: filesQ.data ?? null,
+    files: filesQ.data?.data ?? null,
     history: historyQ.data?.data ?? [],
     isLoading: detailQ.isLoading,
     isError: detailQ.isError,

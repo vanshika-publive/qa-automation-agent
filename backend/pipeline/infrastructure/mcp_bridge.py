@@ -9,8 +9,8 @@ from typing import Any, Optional
 
 from django.conf import settings
 
-from .constants import MCP_TIMEOUT_MS, MCP_PROTOCOL_VERSION, PLAYWRIGHT_BROWSER
-from .credential_manager import get_credentials
+from pipeline.constants import MCP_TIMEOUT_MS, MCP_PROTOCOL_VERSION, PLAYWRIGHT_BROWSER
+from pipeline.utils.credential_manager import CredentialManager
 
 
 @dataclass
@@ -20,44 +20,11 @@ class _PendingRequest:
     error: Optional[str] = None
 
 
-def _find_mcp_cli() -> str:
-    # node_modules live in backend/ (next to package.json), not in the data dir
-    backend_root = settings.BACKEND_ROOT
-    pkg_dir = os.path.join(backend_root, 'node_modules', '@playwright', 'mcp')
-    pkg_json_path = os.path.join(pkg_dir, 'package.json')
-
-    if not os.path.isfile(pkg_json_path):
-        raise RuntimeError(
-            '@playwright/mcp is not installed.\n'
-            f'Run: cd {backend_root} && npm install'
-        )
-
-    with open(pkg_json_path, encoding='utf-8') as f:
-        pkg = json.load(f)
-
-    candidates = []
-    bin_field = pkg.get('bin')
-    if isinstance(bin_field, str):
-        candidates.append(os.path.join(pkg_dir, bin_field))
-    elif isinstance(bin_field, dict):
-        for rel in bin_field.values():
-            candidates.append(os.path.join(pkg_dir, rel))
-
-    for c in candidates:
-        if os.path.isfile(c):
-            return c
-
-    raise RuntimeError(
-        'Found @playwright/mcp but could not locate its CLI entry.\n'
-        f'Checked: {", ".join(candidates)}\n'
-        'Inspect node_modules/@playwright/mcp/package.json -> "bin" field.'
-    )
-
-
 class MCPBridge:
+
     def __init__(self, project_root: Optional[str] = None, extra_args: Optional[list] = None):
         self._project_root = project_root or settings.PLAYWRIGHT_PROJECT_ROOT
-        cli_path = _find_mcp_cli()
+        cli_path = MCPBridge._find_cli()
 
         session_path = os.path.join(self._project_root, '.auth', 'session.json')
         session_args = ['--storage-state', session_path] if os.path.isfile(session_path) else []
@@ -66,9 +33,8 @@ class MCPBridge:
         if extra_args:
             args += extra_args
 
-        node_bin = 'node'
         self.proc = subprocess.Popen(
-            [node_bin, cli_path] + args,
+            ['node', cli_path] + args,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=None,
@@ -84,8 +50,40 @@ class MCPBridge:
 
         self._reader_thread = threading.Thread(target=self._read_loop, daemon=True)
         self._reader_thread.start()
-
         self._initialize()
+
+    @staticmethod
+    def _find_cli() -> str:
+        backend_root = settings.BACKEND_ROOT
+        pkg_dir = os.path.join(backend_root, 'node_modules', '@playwright', 'mcp')
+        pkg_json_path = os.path.join(pkg_dir, 'package.json')
+
+        if not os.path.isfile(pkg_json_path):
+            raise RuntimeError(
+                '@playwright/mcp is not installed.\n'
+                f'Run: cd {backend_root} && npm install'
+            )
+
+        with open(pkg_json_path, encoding='utf-8') as f:
+            pkg = json.load(f)
+
+        candidates = []
+        bin_field = pkg.get('bin')
+        if isinstance(bin_field, str):
+            candidates.append(os.path.join(pkg_dir, bin_field))
+        elif isinstance(bin_field, dict):
+            for rel in bin_field.values():
+                candidates.append(os.path.join(pkg_dir, rel))
+
+        for c in candidates:
+            if os.path.isfile(c):
+                return c
+
+        raise RuntimeError(
+            'Found @playwright/mcp but could not locate its CLI entry.\n'
+            f'Checked: {", ".join(candidates)}\n'
+            'Inspect node_modules/@playwright/mcp/package.json -> "bin" field.'
+        )
 
     def _read_loop(self):
         try:
@@ -166,7 +164,7 @@ class MCPBridge:
         self._notify('notifications/initialized')
 
         try:
-            dashboard_url = get_credentials()['dashboard_url'].rstrip('/')
+            dashboard_url = CredentialManager.get_all()['dashboard_url'].rstrip('/')
             self._send('tools/call', {
                 'name': 'browser_navigate',
                 'arguments': {'url': f'{dashboard_url}/home'},
@@ -174,7 +172,7 @@ class MCPBridge:
         except Exception as e:
             print(f'[MCPBridge] warmup navigation skipped: {e}', file=sys.stderr)
 
-    def list_tools(self):
+    def list_tools(self) -> list:
         result = self._send('tools/list')
         return result.get('tools', []) if result else []
 
