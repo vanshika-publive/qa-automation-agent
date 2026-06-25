@@ -160,9 +160,7 @@ def run_pipeline(execution_id, test_id, environment_id, on_step=None):
         refresh_session(PROJECT_ROOT)
         print('Session refreshed')
 
-        # Detect which publisher the session is actually logged into. The dashboard is
-        # multi-publisher and a reused session can be on the wrong org; the agent runs
-        # against THIS publisher and never switches (switching = a different session/URL).
+        # Reused sessions can be on a different org — detect which publisher is actually active.
         from .publisher import detect_active_publisher
         active_pub = detect_active_publisher(
             env_row['base_url'], os.path.join(PROJECT_ROOT, '.auth', 'session.json'))
@@ -317,9 +315,7 @@ def run_spec_file(execution_id, test_id, spec_filename, environment_id, on_step=
         refresh_session(PROJECT_ROOT)
         print('Session refreshed')
 
-        # Detect which publisher the session is actually logged into. The dashboard is
-        # multi-publisher and a reused session can be on the wrong org; the agent runs
-        # against THIS publisher and never switches (switching = a different session/URL).
+        # Reused sessions can be on a different org — detect which publisher is actually active.
         from .publisher import detect_active_publisher
         active_pub = detect_active_publisher(
             env_row['base_url'], os.path.join(PROJECT_ROOT, '.auth', 'session.json'))

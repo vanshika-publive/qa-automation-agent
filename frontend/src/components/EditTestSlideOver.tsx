@@ -44,7 +44,6 @@ export default function EditTestSlideOver({
   const allCollections   = collections;
   const allEnvironments  = environments.filter((e) => e.isActive);
 
-  // Close on Escape
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', handler);
@@ -62,15 +61,11 @@ export default function EditTestSlideOver({
 
   return (
     <>
-      {/* Backdrop */}
       <div className="fixed inset-0 bg-surface-sidebar/40 z-[60]" onClick={onClose} />
-
-      {/* Panel */}
       <div
         className="fixed top-0 right-0 h-full w-[520px] bg-white z-[70] flex flex-col"
         style={{ boxShadow: '-10px 0 25px -5px rgba(0,0,0,0.15)' }}
       >
-        {/* Header */}
         <div className="px-6 py-4 border-b border-border-subtle flex justify-between items-center bg-white flex-shrink-0">
           <h3 className="font-semibold text-text-primary truncate">Edit Test: {test.name}</h3>
           <button
@@ -81,10 +76,8 @@ export default function EditTestSlideOver({
           </button>
         </div>
 
-        {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
 
-          {/* Prompt */}
           <div className="space-y-2">
             <label className="block text-sm font-semibold text-text-primary">Prompt</label>
             <textarea
@@ -98,7 +91,6 @@ export default function EditTestSlideOver({
             <p className="text-xs text-text-secondary">The AI uses this prompt to generate execution steps.</p>
           </div>
 
-          {/* Test name */}
           <div className="space-y-2">
             <label className="block text-sm font-semibold text-text-primary">
               Test name <span className="text-error">*</span>
@@ -111,7 +103,6 @@ export default function EditTestSlideOver({
             />
           </div>
 
-          {/* Status toggle */}
           <div className="flex items-center justify-between p-4 bg-surface-muted rounded-xl border border-border-subtle">
             <div>
               <div className="text-sm font-semibold text-text-primary">Status</div>
@@ -125,7 +116,6 @@ export default function EditTestSlideOver({
             </label>
           </div>
 
-          {/* Collection Dropdown */}
           <div className="space-y-2">
             <label className="block text-sm font-semibold text-text-primary">Collection</label>
             <div className="relative">
@@ -142,7 +132,6 @@ export default function EditTestSlideOver({
             </div>
           </div>
 
-          {/* Duplicate Test Toggle */}
           <div className="flex items-center justify-between p-4 bg-white rounded-xl border border-border-subtle">
             <div>
               <div className="text-sm font-semibold text-text-primary">Duplicate Test</div>
@@ -151,7 +140,6 @@ export default function EditTestSlideOver({
             <Toggle checked={duplicate} onChange={setDuplicate} />
           </div>
 
-          {/* Environment Multi-Selector */}
           <div className="space-y-2">
             <label className="block text-sm font-semibold text-text-primary">Environment</label>
             <div className="flex flex-wrap gap-2">
@@ -193,7 +181,6 @@ export default function EditTestSlideOver({
           )}
         </div>
 
-        {/* Footer */}
         <div className="p-6 border-t border-border-subtle bg-surface-muted/50 flex-shrink-0">
           <div className="flex gap-3">
             <button

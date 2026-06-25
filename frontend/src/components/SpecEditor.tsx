@@ -4,8 +4,6 @@ import { useEnvironments } from '../hooks/useEnvironments';
 import { EDITOR_BG, EDITOR_BORDER, EDITOR_FONT_FAMILY, EDITOR_LINE_HEIGHT, sseStreamUrl } from '../constants';
 import { Play, Save, CheckCircle2, XCircle, X, FileText } from 'lucide-react';
 
-// Page-local types
-
 interface RunnerStepState {
   status: 'running' | 'passed' | 'failed';
   log: string;
@@ -22,8 +20,6 @@ export interface SpecEditorProps {
   /** When set, load this spec file directly by path instead of resolving via test id */
   overrideFilename?: string;
 }
-
-// Component
 
 export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overrideFilename }: SpecEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -48,18 +44,14 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
   const isModified = content !== originalContent;
   const lineCount = content.split('\n').length;
 
-  // Environments
   const { environments: allEnvironments } = useEnvironments();
   const environments = allEnvironments.filter((e) => e.isActive);
 
-  // Auto-select first env
   useEffect(() => {
     if (environments.length > 0 && !selectedEnvId) {
       setSelectedEnvId(environments[0].id);
     }
   }, [environments, selectedEnvId]);
-
-  // Load spec when panel opens
 
   useEffect(() => {
     if (!isOpen || !test) return;
@@ -102,8 +94,6 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
     }
   }, [isOpen, test?.id, overrideFilename]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // SSE stream for runner output
-
   useEffect(() => {
     if (!executionId) return;
 
@@ -141,12 +131,9 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
     return () => es.close();
   }, [executionId]);
 
-  // Auto-scroll log output
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [runnerStep?.log]);
-
-  // Save handler
 
   const handleSave = useCallback(async () => {
     if (!filename || isSaving) return;
@@ -157,18 +144,15 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
       setSavedRecently(true);
       setTimeout(() => setSavedRecently(false), 2000);
     } catch {
-      // silent — user can retry
+      // save failures are non-fatal; user can retry
     } finally {
       setIsSaving(false);
     }
   }, [filename, content, isSaving, test]);
 
-  // Run handler
-
   const handleRun = async () => {
     if (!filename || !selectedEnvId || isRunning) return;
 
-    // Auto-save if modified
     if (isModified) await handleSave();
 
     setIsRunning(true);
@@ -188,8 +172,6 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
     }
   };
 
-  // Keyboard shortcuts
-
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: KeyboardEvent) => {
@@ -202,8 +184,6 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [isOpen, handleSave, onClose]);
-
-  // Tab key in textarea
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Tab') {
@@ -220,13 +200,9 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
     }
   }
 
-  // Scroll sync
-
   function syncScroll(e: React.UIEvent<HTMLTextAreaElement>) {
     if (lineNumRef.current) lineNumRef.current.scrollTop = e.currentTarget.scrollTop;
   }
-
-  // Render
 
   const lines = content.split('\n');
 
@@ -237,7 +213,6 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
       }`}
       style={{ backgroundColor: EDITOR_BG }}
     >
-      {/* Header */}
       <div className="px-6 py-3.5 border-b border-white/10 flex items-center justify-between flex-shrink-0" style={{ backgroundColor: EDITOR_BORDER }}>
         <div className="min-w-0">
           <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold mb-0.5">
@@ -255,7 +230,6 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Environment selector */}
           <div className="flex items-center gap-2">
             <span className="text-slate-400 text-[12px]">Env:</span>
             <select
@@ -273,7 +247,6 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
             </select>
           </div>
 
-          {/* Run Spec button */}
           <button
             onClick={handleRun}
             disabled={!filename || !selectedEnvId || isRunning}
@@ -287,7 +260,6 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
             {isRunning ? 'Running…' : 'Run Spec'}
           </button>
 
-          {/* Save button */}
           <button
             onClick={handleSave}
             disabled={!filename || isSaving || !isModified}
@@ -306,7 +278,6 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
             )}
           </button>
 
-          {/* Close */}
           <button
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors ml-1"
@@ -316,10 +287,8 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
         </div>
       </div>
 
-      {/* Editor body */}
       <div className="flex-1 overflow-hidden flex flex-col min-h-0">
         {isLoadingSpec ? (
-          /* Loading skeleton */
           <div className="flex-1 p-6 space-y-2" style={{ backgroundColor: EDITOR_BG }}>
             {Array.from({ length: 18 }).map((_, i) => (
               <div
@@ -330,7 +299,6 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
             ))}
           </div>
         ) : specError ? (
-          /* No spec yet */
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-slate-400 p-8">
             <FileText size={56} className="text-slate-600" />
             <p className="text-white font-medium text-base">No spec file generated yet</p>
@@ -339,9 +307,7 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
             </p>
           </div>
         ) : (
-          /* Code editor */
           <div className="flex flex-1 overflow-hidden min-h-0">
-            {/* Line numbers */}
             <div
               ref={lineNumRef}
               className="w-11 flex-shrink-0 overflow-hidden select-none border-r border-white/5 pt-6 pb-6"
@@ -358,7 +324,6 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
               ))}
             </div>
 
-            {/* Textarea */}
             <textarea
               ref={textareaRef}
               value={content}
@@ -377,7 +342,6 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
           </div>
         )}
 
-        {/* Status bar */}
         {!isLoadingSpec && !specError && (
           <div className="h-6 border-t border-white/5 flex items-center px-4 gap-5 flex-shrink-0" style={{ backgroundColor: EDITOR_BORDER }}>
             <span className="text-[11px] text-slate-500">TypeScript</span>
@@ -401,7 +365,6 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
         )}
       </div>
 
-      {/* Run panel (slides up from bottom) */}
       <div
         className={`border-t border-white/10 flex-shrink-0 overflow-hidden transition-all duration-300 ${
           runPanelVisible ? 'max-h-[200px]' : 'max-h-0'
@@ -419,7 +382,6 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
             </button>
           </div>
 
-          {/* Step status */}
           <div className="flex items-center gap-2 mb-2.5">
             <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${
               runnerStep?.status === 'passed' ? 'bg-success/20' :
@@ -452,7 +414,6 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
             )}
           </div>
 
-          {/* Log output */}
           <div
             ref={logRef}
             className="flex-1 rounded-lg p-3 overflow-y-auto font-mono text-[11px] leading-relaxed"

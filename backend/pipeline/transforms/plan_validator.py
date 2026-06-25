@@ -47,27 +47,18 @@ def normalize_field_name(s: str) -> str:
 
 def extract_fill_labels(text: str) -> List[str]:
     """Extract fill labels from safe_fill/safe_sequential_fill and get_by_role textbox calls.
-
-    Accepts both Python (safe_fill, get_by_role, name=..., re.compile(r'...')) and legacy
-    TypeScript (safeFill, getByRole, { name: ... }, /.../) syntax, so plans in either style
-    validate identically during/after the Python migration.
-
-    Placeholders like '...', '*', '<label>' are pseudocode the model writes when showing
-    example syntax; flagging them as hallucinated fields would trap the planner in an
-    unrecoverable rejection loop.
+    Accepts both Python and legacy TypeScript syntax so plans in either style validate identically.
+    Placeholders like '...', '*', '<label>' are skipped — flagging them would cause unrecoverable rejection loops.
     """
     fill = r"(?:safe_fill|safe_sequential_fill|safeFill|safeSequentialFill)"
     name = r"(?:name\s*=\s*|\{\s*name:\s*)"
     labels: List[str] = []
-    # string label: safe_fill(page, 'Label') / safeFill(page, 'Label')
     for m in re.finditer(fill + r"\(\s*page\s*,\s*['\"]([^'\"]+)['\"]", text):
         labels.append(m.group(1))
-    # regex label: safe_fill(page, re.compile(r'Label')) / safeFill(page, /Label/)
     for m in re.finditer(fill + r"\(\s*page\s*,\s*re\.compile\(\s*r?['\"]([^'\"]+)['\"]", text):
         labels.append(m.group(1))
     for m in re.finditer(fill + r"\(\s*page\s*,\s*/([^/]+)/", text):
         labels.append(m.group(1))
-    # get_by_role('textbox', name='Label') / getByRole('textbox', { name: 'Label' })
     for m in re.finditer(r"(?:get_by_role|getByRole)\(\s*['\"]textbox['\"]\s*,\s*" + name + r"['\"]([^'\"]+)['\"]", text):
         labels.append(m.group(1))
     for m in re.finditer(r"(?:get_by_role|getByRole)\(\s*['\"]textbox['\"]\s*,\s*" + name + r"re\.compile\(\s*r?['\"]([^'\"]+)['\"]", text):

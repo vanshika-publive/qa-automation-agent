@@ -9,8 +9,6 @@ import {
   RotateCcw, Timer, Network,
 } from 'lucide-react';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 const STEP_ORDER = ['orchestrator', 'planner', 'generator', 'runner'] as const;
 
 function StatusBadge({ status }: { status: Execution['status'] }) {
@@ -57,8 +55,6 @@ function TestResultBadge({ status }: { status: TestResult['status'] }) {
     </span>
   );
 }
-
-// ── Pipeline steps timeline ───────────────────────────────────────────────────
 
 function PipelineSteps({ steps }: { steps: ExecStep[] }) {
   const stepMap = Object.fromEntries(steps.map((s) => [s.stepName, s]));
@@ -111,8 +107,6 @@ function PipelineSteps({ steps }: { steps: ExecStep[] }) {
     </section>
   );
 }
-
-// ── Test results table ────────────────────────────────────────────────────────
 
 function TestResultsTable({ results, pending }: { results: TestResult[]; pending: boolean }) {
   if (pending && results.length === 0) {
@@ -174,8 +168,6 @@ function TestResultsTable({ results, pending }: { results: TestResult[]; pending
   );
 }
 
-// ── Plan.md viewer ────────────────────────────────────────────────────────────
-
 function PlanView({ content }: { content: string }) {
   const [open, setOpen] = useState(true);
   return (
@@ -200,8 +192,6 @@ function PlanView({ content }: { content: string }) {
     </section>
   );
 }
-
-// ── .py file viewer ───────────────────────────────────────────────────────────
 
 function SpecFileView({ filename, content }: { filename: string | null; content: string }) {
   const [open, setOpen] = useState(false);
@@ -240,8 +230,6 @@ function SpecFileView({ filename, content }: { filename: string | null; content:
     </section>
   );
 }
-
-// ── Run history ───────────────────────────────────────────────────────────────
 
 function RunHistory({ history, currentId }: { history: Execution[]; currentId: string }) {
   if (history.length === 0) return null;
@@ -323,8 +311,6 @@ function RunHistory({ history, currentId }: { history: Execution[]; currentId: s
   );
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────────
-
 export default function ExecutionDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -357,7 +343,6 @@ export default function ExecutionDetail() {
   return (
     <div className="p-8 max-w-5xl">
 
-      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <button
@@ -387,7 +372,6 @@ export default function ExecutionDetail() {
         </button>
       </div>
 
-      {/* Status banner */}
       <div className="bg-surface-main rounded-2xl border border-border-subtle p-5 mb-5 flex flex-wrap items-center gap-4">
         <StatusBadge status={exec.status} />
         <div className="flex flex-wrap items-center gap-4 text-sm text-text-secondary">
@@ -421,21 +405,12 @@ export default function ExecutionDetail() {
         </div>
       </div>
 
-      {/* Pipeline */}
       <PipelineSteps steps={steps} />
-
-      {/* Test results */}
       <TestResultsTable results={testResults} pending={testResultsPending} />
-
-      {/* Plan.md */}
       {files?.planContent && <PlanView content={files.planContent} />}
-
-      {/* Generated .py file */}
       {files?.specContent && (
         <SpecFileView filename={files.specFilename} content={files.specContent} />
       )}
-
-      {/* Run history */}
       <RunHistory history={history} currentId={id!} />
     </div>
   );

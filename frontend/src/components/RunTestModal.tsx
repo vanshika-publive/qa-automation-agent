@@ -16,7 +16,6 @@ export default function RunTestModal({ testId, testName, onClose }: RunTestModal
   const { environments: allEnvironments, isLoading: envsLoading } = useEnvironments();
   const environments = allEnvironments.filter((e) => e.isActive);
 
-  // Auto-select first environment
   useEffect(() => {
     if (environments.length && !selectedEnvId) {
       setSelectedEnvId(environments[0].id);

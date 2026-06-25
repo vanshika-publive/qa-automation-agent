@@ -22,16 +22,12 @@ interface Props {
   onTestCreated: () => void;
 }
 
-// Constants
-
 const INITIAL_STEPS: StepState[] = [
   { name: 'orchestrator', label: 'Orchestrator',    description: 'Parsing intent & building test plan',   status: 'pending', log: '' },
   { name: 'planner',      label: 'Planner Agent',   description: 'Exploring UI & mapping locators',       status: 'pending', log: '' },
   { name: 'generator',    label: 'Generator Agent', description: 'Writing Playwright test code',          status: 'pending', log: '' },
   { name: 'runner',       label: 'Test Runner',     description: 'Executing tests & collecting results',  status: 'pending', log: '' },
 ];
-
-// Sub-components
 
 function StepCircle({ status }: { status: StepStatus }) {
   if (status === 'passed') {
@@ -55,7 +51,6 @@ function StepCircle({ status }: { status: StepStatus }) {
       </div>
     );
   }
-  // pending
   return (
     <div className="w-8 h-8 rounded-full border-2 border-border-subtle bg-surface-muted flex items-center justify-center flex-shrink-0">
       <div className="w-2 h-2 rounded-full bg-border-subtle" />
@@ -88,7 +83,6 @@ function StepRow({
 
   return (
     <div className="flex gap-3">
-      {/* Left: circle + connector line */}
       <div className="flex flex-col items-center">
         <StepCircle status={step.status} />
         {!isLast && (
@@ -100,7 +94,6 @@ function StepRow({
         )}
       </div>
 
-      {/* Right: content */}
       <div className={`flex-1 pb-5 ${isLast ? '' : ''}`}>
         <div className="flex items-center justify-between">
           <div>
@@ -132,7 +125,6 @@ function StepRow({
           </div>
         </div>
 
-        {/* Log output */}
         {expanded && step.log && (
           <div className="mt-2 rounded-lg p-3 overflow-x-auto" style={{ backgroundColor: EDITOR_BG }}>
             <pre className="text-[11px] text-[#94A3B8] font-mono-code whitespace-pre-wrap break-words leading-relaxed max-h-40 overflow-y-auto">
@@ -145,8 +137,6 @@ function StepRow({
   );
 }
 
-// Main Component
-
 export default function CreateTestSlideOver({
   collections,
   defaultCollectionId,
@@ -155,25 +145,21 @@ export default function CreateTestSlideOver({
 }: Props) {
   const navigate = useNavigate();
 
-  // Form state
   const [name, setName] = useState('');
   const [collectionId, setCollectionId] = useState(defaultCollectionId ?? collections[0]?.id ?? '');
   const [prompt, setPrompt] = useState('');
   const [formError, setFormError] = useState('');
 
-  // Pipeline state
   const [phase, setPhase] = useState<'form' | 'running' | 'done'>('form');
   const [steps, setSteps] = useState<StepState[]>(INITIAL_STEPS);
   const [expandedStep, setExpandedStep] = useState<StepName | null>(null);
   const [pipelineFailed, setPipelineFailed] = useState(false);
   const sseRef = useRef<EventSource | null>(null);
 
-  // Environments (for the run call)
   const { environments } = useEnvironments();
   const activeEnvs = environments.filter((e) => e.isActive);
   const [environmentId, setEnvironmentId] = useState('');
 
-  // Slide-in animation on mount
   const [visible, setVisible] = useState(false);
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true));
@@ -182,12 +168,10 @@ export default function CreateTestSlideOver({
     };
   }, []);
 
-  // Sync collectionId if defaultCollectionId changes
   useEffect(() => {
     if (defaultCollectionId) setCollectionId(defaultCollectionId);
   }, [defaultCollectionId]);
 
-  // Auto-select first active environment when data loads
   useEffect(() => {
     if (activeEnvs.length && !environmentId) setEnvironmentId(activeEnvs[0].id);
   }, [activeEnvs.length]);
@@ -215,21 +199,17 @@ export default function CreateTestSlideOver({
     setFormError('');
 
     try {
-      // 1. Create the test
       const testRes = await collectionsService.createTest(collectionId, { name: name.trim(), prompt: prompt.trim() });
       if (!testRes.data?.id) throw new Error('Failed to create test');
       const testId = testRes.data.id;
-      onTestCreated(); // refresh sidebar/table
+      onTestCreated();
 
-      // 2. Start the execution
       const runRes = await executionsService.retry({ testId, environmentId });
       if (!runRes.data?.executionId) throw new Error('Failed to start execution');
       const executionId = runRes.data.executionId;
 
-      // 3. Switch to pipeline view
       setPhase('running');
 
-      // 4. Open SSE stream
       const es = new EventSource(sseStreamUrl(executionId));
       sseRef.current = es;
 
@@ -240,12 +220,10 @@ export default function CreateTestSlideOver({
             steps: { stepName: StepName; status: StepStatus; log: string }[];
           };
 
-          // Update each step from the stream snapshot
           payload.steps.forEach((s) => {
             applyStepUpdate(s.stepName, s.status, s.log);
           });
 
-          // If execution is done
           if (!payload.execution || payload.execution.status !== 'running') {
             if (payload.execution?.status === 'failed') setPipelineFailed(true);
             es.close();
@@ -273,19 +251,16 @@ export default function CreateTestSlideOver({
 
   return (
     <>
-      {/* Backdrop */}
       <div
         className={`fixed inset-0 bg-black/30 z-40 transition-opacity duration-300 ${visible ? 'opacity-100' : 'opacity-0'}`}
         onClick={phase === 'done' || phase === 'form' ? handleClose : undefined}
       />
 
-      {/* Panel */}
       <div
         className={`fixed top-0 right-0 h-full w-[680px] bg-white shadow-2xl z-50 flex flex-col transition-transform duration-300 ease-out ${
           visible ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-border-subtle flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -310,12 +285,9 @@ export default function CreateTestSlideOver({
           </button>
         </div>
 
-        {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
 
-          {/* Form fields (always visible) */}
           <div className={`space-y-5 transition-opacity duration-300 ${phase !== 'form' ? 'opacity-40 pointer-events-none' : ''}`}>
-            {/* Test Name */}
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1.5">
                 Test Name <span className="text-error">*</span>
@@ -330,7 +302,6 @@ export default function CreateTestSlideOver({
               />
             </div>
 
-            {/* Collection */}
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1.5">
                 Collection <span className="text-error">*</span>
@@ -353,7 +324,6 @@ export default function CreateTestSlideOver({
               )}
             </div>
 
-            {/* Test Intent */}
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1.5">
                 Test Intent <span className="text-error">*</span>
@@ -371,7 +341,6 @@ export default function CreateTestSlideOver({
               </p>
             </div>
 
-            {/* Pro tip */}
             <div className="flex gap-3 bg-surface-container-low rounded-xl p-4 border border-surface-container">
               <Lightbulb size={18} className="text-primary flex-shrink-0 mt-0.5" />
               <div className="text-xs text-text-secondary leading-relaxed">
@@ -382,7 +351,6 @@ export default function CreateTestSlideOver({
               </div>
             </div>
 
-            {/* Environment selector */}
             <div>
               <label className="block text-sm font-medium text-text-primary mb-1.5">
                 Environment <span className="text-error">*</span>
@@ -411,14 +379,12 @@ export default function CreateTestSlideOver({
               )}
             </div>
 
-            {/* Form error */}
             {formError && phase === 'form' && (
               <p className="text-sm text-error bg-error/5 border border-error/20 rounded-xl px-4 py-3">
                 {formError}
               </p>
             )}
 
-            {/* Generate button */}
             <button
               onClick={handleGenerate}
               disabled={phase !== 'form' || !environmentId}
@@ -428,7 +394,6 @@ export default function CreateTestSlideOver({
             </button>
           </div>
 
-          {/* Pipeline Status */}
           {phase !== 'form' && (
             <div
               className="space-y-4"
@@ -441,7 +406,6 @@ export default function CreateTestSlideOver({
                 }
               `}</style>
 
-              {/* Section header */}
               <div className="flex items-center gap-3">
                 <div className="h-px flex-1 bg-border-subtle" />
                 <div className="flex items-center gap-2">
@@ -456,7 +420,6 @@ export default function CreateTestSlideOver({
                 <div className="h-px flex-1 bg-border-subtle" />
               </div>
 
-              {/* Step summary bar */}
               <div className="flex gap-1 h-1.5 rounded-full overflow-hidden bg-surface-muted">
                 {steps.map((s) => (
                   <div
@@ -471,7 +434,6 @@ export default function CreateTestSlideOver({
                 ))}
               </div>
 
-              {/* Steps timeline */}
               <div className="pt-2">
                 {steps.map((step, i) => (
                   <StepRow
@@ -484,7 +446,6 @@ export default function CreateTestSlideOver({
                 ))}
               </div>
 
-              {/* Completion message */}
               {phase === 'done' && (
                 <div
                   className={`rounded-xl px-4 py-4 border ${
@@ -522,7 +483,6 @@ export default function CreateTestSlideOver({
           )}
         </div>
 
-        {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-border-subtle flex-shrink-0 bg-surface-muted/50">
           <button
             onClick={handleClose}

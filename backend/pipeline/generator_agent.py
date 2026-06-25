@@ -34,35 +34,20 @@ MAX_NO_TOOL_NUDGES = 3
 
 
 def _extract_python_code(text: str):
-    """
-    Salvage a Python test from an assistant message that returned the code as prose
-    instead of calling generator_write_test. gpt-4o at temperature=0 does this
-    deterministically for some scenarios, so we recover rather than fail the run.
-
-    Returns the extracted source, or None if the message has no test code.
-    """
+    """Salvage a Python test from prose instead of a tool call.
+    gpt-4o at temperature=0 does this deterministically for some scenarios."""
     if not text:
         return None
-    # Prefer a fenced code block (```python ... ``` or bare ``` ... ```).
     fence = re.search(r'```(?:python|py)?\s*\n(.*?)```', text, flags=re.DOTALL)
-    if fence:
-        candidate = fence.group(1).strip()
-    else:
-        candidate = text.strip()
-    # Only treat it as a test if it actually looks like one.
+    candidate = fence.group(1).strip() if fence else text.strip()
     if 'def test_' in candidate and ('import' in candidate or 'page' in candidate):
         return candidate
     return None
 
 
 def generate_scenario(openai_client, model, scenario, url, tests_dir, plan_snapshots=None):
-    """
-    Generate a single Playwright test spec for one scenario.
-    Returns the written file path, or None if the generator never called generator_write_test.
-
-    scenario: a Scenario dataclass (from plan_parser) with attributes:
-        scenario_name, flow_name, file_name, steps, expected
-    """
+    """Generate a single Playwright test spec for one scenario. Returns the file path written,
+    or None if generator_write_test was never called."""
     if plan_snapshots is None:
         plan_snapshots = {}
 
@@ -96,8 +81,7 @@ def generate_scenario(openai_client, model, scenario, url, tests_dir, plan_snaps
 
     try:
         mcp_tools = bridge.list_tools()
-        # Generator is a code writer; exposing click/type/fill makes it attempt live form fills
-        # that silently fail on React-controlled fields.
+        # Exposing click/type/fill makes it attempt live form fills that silently fail on React-controlled fields.
         filtered_mcp = [t for t in mcp_tools if t['name'] in GENERATOR_ALLOWED_MCP]
         all_tools = GENERATOR_CUSTOM_TOOLS + [mcp_to_openai_tool(t) for t in filtered_mcp]
 
@@ -118,7 +102,6 @@ def generate_scenario(openai_client, model, scenario, url, tests_dir, plan_snaps
         else:
             snapshot_context = ''
 
-        # Find page.goto paths in the scenario steps
         goto_paths = re.findall(
             r"page\.goto\(['\"`](\/[^'\"`]+)['\"`]\)",
             '\n'.join(scenario.steps),
@@ -128,7 +111,6 @@ def generate_scenario(openai_client, model, scenario, url, tests_dir, plan_snaps
         else:
             pages_to_browse = [scenario_url]
 
-        # Build workflow instructions
         workflow_lines = []
         for i, p in enumerate(pages_to_browse):
             workflow_lines.append(f'{i * 2 + 1}. generator_setup_page(url: "{p}")')
@@ -190,9 +172,6 @@ def generate_scenario(openai_client, model, scenario, url, tests_dir, plan_snaps
 
             tool_calls = msg.tool_calls
             if not tool_calls or len(tool_calls) == 0:
-                # The model replied with text instead of a tool call. If it already wrote
-                # the test, we're done. Otherwise try to salvage code from the message, and
-                # failing that, nudge it to actually call generator_write_test.
                 if written_file:
                     break
 
@@ -244,8 +223,7 @@ def generate_scenario(openai_client, model, scenario, url, tests_dir, plan_snaps
                     result = json.dumps(action_log, indent=2)
 
                 elif name == 'generator_discover_limits':
-                    # Read-only DOM inspection — typing would trigger React onChange API calls
-                    # and toast errors.
+                    # Typing would trigger React onChange API calls and toast errors — read-only DOM only.
                     max_result = ''
                     try:
                         max_result = bridge.call_tool('browser_evaluate', {
@@ -294,7 +272,6 @@ def generate_scenario(openai_client, model, scenario, url, tests_dir, plan_snaps
 
             messages.extend(tool_results)
 
-            # Nudge at 70% of iteration budget
             nudge_iteration = int(MAX_GENERATOR_ITERATIONS * GENERATOR_NUDGE_THRESHOLD) - 1
             if not written_file and iteration == nudge_iteration:
                 messages.append({
@@ -308,7 +285,6 @@ def generate_scenario(openai_client, model, scenario, url, tests_dir, plan_snaps
                     ),
                 })
 
-            # Final warning at 87% of iteration budget
             final_warning_iteration = int(
                 MAX_GENERATOR_ITERATIONS * GENERATOR_FINAL_WARNING_THRESHOLD
             ) - 1
@@ -378,7 +354,6 @@ def run_generator_agent(plan_path: str, tests_dir: str):
             'Re-run the planner to regenerate the plan.'
         )
 
-    # Extract URL from plan content or fall back to credentials
     url_match = re.search(r'^URL:\s*(.+)$', plan_content, re.MULTILINE)
     if url_match:
         url = url_match.group(1).strip()
