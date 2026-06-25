@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Test } from '../types';
 import { useCollections } from '../hooks/useCollections';
 import { useEnvironments } from '../hooks/useEnvironments';
+import { X, ChevronDown, CheckCircle, Plus } from 'lucide-react';
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -76,7 +77,7 @@ export default function EditTestSlideOver({
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted hover:text-text-primary transition-all ml-3 flex-shrink-0"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+            <X size={20} />
           </button>
         </div>
 
@@ -137,12 +138,7 @@ export default function EditTestSlideOver({
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
-              <span
-                className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-text-secondary"
-                style={{ fontSize: 20 }}
-              >
-                expand_more
-              </span>
+              <ChevronDown size={20} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-text-secondary" />
             </div>
           </div>
 
@@ -173,16 +169,10 @@ export default function EditTestSlideOver({
                         : 'border border-border-subtle text-text-secondary hover:border-primary/40 hover:text-primary',
                     ].join(' ')}
                   >
-                    <span
-                      className="material-symbols-outlined"
-                      style={{
-                        fontSize: 16,
-                        fontVariationSettings: selected ? '"FILL" 1' : '"FILL" 0',
-                        color: selected ? '#3525cd' : undefined,
-                      }}
-                    >
-                      check_circle
-                    </span>
+                    <CheckCircle
+                      size={16}
+                      style={{ color: selected ? '#3525cd' : undefined }}
+                    />
                     {env.name}
                   </button>
                 );
@@ -192,7 +182,7 @@ export default function EditTestSlideOver({
                 onClick={onClose}
                 className="flex items-center gap-1 px-4 py-1.5 rounded-full text-sm font-medium border border-dashed border-border-subtle text-text-secondary hover:border-primary hover:text-primary transition-all"
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
+                <Plus size={16} />
                 Add
               </a>
             </div>

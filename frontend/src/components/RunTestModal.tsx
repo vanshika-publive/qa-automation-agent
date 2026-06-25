@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useEnvironments } from '../hooks/useEnvironments';
 import { useRunTest } from '../hooks/useRunActions';
+import { X, Play } from 'lucide-react';
 
 interface RunTestModalProps {
   testId: string;
@@ -53,7 +54,7 @@ export default function RunTestModal({ testId, testName, onClose }: RunTestModal
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+            <X size={20} />
           </button>
         </div>
 
@@ -111,7 +112,7 @@ export default function RunTestModal({ testId, testName, onClose }: RunTestModal
               {runMutation.isPending ? (
                 <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
-                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>play_arrow</span>
+                <Play size={18} />
               )}
               {runMutation.isPending ? 'Starting…' : 'Run now'}
             </button>

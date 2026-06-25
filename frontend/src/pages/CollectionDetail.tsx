@@ -10,6 +10,10 @@ import RunAllModal from '../components/RunAllModal';
 import { ACCENTS } from '../utils/status';
 import { useCollections } from '../hooks/useCollections';
 import { useCollectionTests } from '../hooks/useCollectionTests';
+import {
+  FolderX, ArrowLeft, FolderOpen, PlayCircle, Plus,
+  Play, Pencil, Code2, Trash2, ChevronDown, FileText, Folder,
+} from 'lucide-react';
 
 
 export default function CollectionDetail() {
@@ -49,7 +53,7 @@ export default function CollectionDetail() {
   if (!collection) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-64px)] gap-4">
-        <span className="material-symbols-outlined text-border-subtle" style={{ fontSize: 48 }}>folder_off</span>
+        <FolderX size={48} className="text-border-subtle" />
         <p className="text-text-secondary text-sm">Collection not found.</p>
         <button onClick={() => navigate('/')} className="text-primary text-sm hover:underline">
           ← Back to Collections
@@ -69,16 +73,11 @@ export default function CollectionDetail() {
             onClick={() => navigate('/')}
             className="w-9 h-9 flex items-center justify-center rounded-xl border border-border-subtle text-text-secondary hover:bg-surface-muted transition-colors"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+            <ArrowLeft size={18} />
           </button>
           <div>
             <div className="flex items-center gap-2.5">
-              <span
-                className="material-symbols-outlined text-primary"
-                style={{ fontSize: 20, fontVariationSettings: '"FILL" 1' }}
-              >
-                folder_open
-              </span>
+              <FolderOpen size={20} className="text-primary" />
               <h1 className="text-2xl font-bold text-text-primary">{collection.name}</h1>
             </div>
             <p className="text-sm text-text-secondary mt-0.5">
@@ -97,14 +96,14 @@ export default function CollectionDetail() {
                 : 'text-text-secondary hover:bg-surface-muted'
             }`}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>play_circle</span>
+            <PlayCircle size={16} />
             Run Suite
           </button>
           <button
             onClick={() => setSlideOverOpen(true)}
             className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0 active:scale-[0.98]"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
+            <Plus size={16} />
             Add Test
           </button>
         </div>
@@ -133,7 +132,7 @@ export default function CollectionDetail() {
             ) : tests.length === 0 ? (
               <tr>
                 <td colSpan={4} className="px-6 py-16 text-center">
-                  <span className="material-symbols-outlined text-border-subtle block mb-2" style={{ fontSize: 40 }}>folder_open</span>
+                  <FolderOpen size={40} className="text-border-subtle mx-auto mb-2" />
                   <p className="text-sm text-text-primary font-medium">No tests yet</p>
                   <p className="text-xs text-text-secondary mt-1">Click "Add Test" to get started</p>
                 </td>
@@ -153,12 +152,10 @@ export default function CollectionDetail() {
                     <td className="px-6 py-3.5">
                       <div className="flex items-center gap-3">
                         <div className={`w-8 h-8 ${isTestOpen ? 'bg-primary/10' : accent.bg} rounded-lg flex items-center justify-center flex-shrink-0`}>
-                          <span
-                            className={`material-symbols-outlined ${isTestOpen ? 'text-primary' : accent.icon}`}
-                            style={{ fontSize: 17, fontVariationSettings: '"FILL" 1' }}
-                          >
-                            {test.specFile ? 'description' : 'draft'}
-                          </span>
+                          {test.specFile
+                            ? <FileText size={17} className={isTestOpen ? 'text-primary' : accent.icon} />
+                            : <Folder size={17} className={isTestOpen ? 'text-primary' : accent.icon} />
+                          }
                         </div>
                         {test.specFile
                           ? <span className="font-mono-code text-xs text-text-secondary bg-surface-muted px-2 py-0.5 rounded break-all">{test.specFile.basename}</span>
@@ -182,14 +179,14 @@ export default function CollectionDetail() {
                             test.specFile ? 'text-success hover:bg-success/10' : 'text-warning hover:bg-warning/10'
                           }`}
                         >
-                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>play_arrow</span>
+                          <Play size={15} />
                         </button>
                         <button
                           onClick={() => setEditingTest(test)}
                           title="Edit test"
                           className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors"
                         >
-                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span>
+                          <Pencil size={15} />
                         </button>
                         {test.specFile && (
                           <button
@@ -197,7 +194,7 @@ export default function CollectionDetail() {
                             title="Edit spec code"
                             className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-primary hover:bg-primary/5 transition-colors"
                           >
-                            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>code</span>
+                            <Code2 size={15} />
                           </button>
                         )}
                         <button
@@ -205,17 +202,15 @@ export default function CollectionDetail() {
                           title="Delete test"
                           className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-error/10 hover:text-error transition-colors"
                         >
-                          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>
+                          <Trash2 size={15} />
                         </button>
                       </div>
                     </td>
                     <td className="pr-4 py-3.5">
-                      <span
-                        className={`material-symbols-outlined text-text-secondary transition-transform duration-200 ${isTestOpen ? 'rotate-180' : ''}`}
-                        style={{ fontSize: 16 }}
-                      >
-                        expand_more
-                      </span>
+                      <ChevronDown
+                        size={16}
+                        className={`text-text-secondary transition-transform duration-200 ${isTestOpen ? 'rotate-180' : ''}`}
+                      />
                     </td>
                   </tr>,
                   ...(isTestOpen
@@ -277,7 +272,7 @@ export default function CollectionDetail() {
       />
 
       {runAllOpen && (
-        <RunAllModal collectionId={id!} onClose={() => setRunAllOpen(false)} />
+        <RunAllModal collectionIds={[id!]} onClose={() => setRunAllOpen(false)} />
       )}
     </div>
   );

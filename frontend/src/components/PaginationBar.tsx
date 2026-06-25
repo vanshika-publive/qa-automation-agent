@@ -1,3 +1,5 @@
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+
 export default function PaginationBar({
   page,
   totalPages,
@@ -45,7 +47,7 @@ export default function PaginationBar({
           onClick={() => onPage(page - 1)}
           className={`${btnBase} border border-border-subtle text-text-secondary hover:bg-surface-main disabled:opacity-40 disabled:cursor-not-allowed`}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>chevron_left</span>
+          <ChevronLeft size={14} />
         </button>
         {pageNumbers().map((p, i) =>
           p === '…' ? (
@@ -69,7 +71,7 @@ export default function PaginationBar({
           onClick={() => onPage(page + 1)}
           className={`${btnBase} border border-border-subtle text-text-secondary hover:bg-surface-main disabled:opacity-40 disabled:cursor-not-allowed`}
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>chevron_right</span>
+          <ChevronRight size={14} />
         </button>
       </div>
     </div>

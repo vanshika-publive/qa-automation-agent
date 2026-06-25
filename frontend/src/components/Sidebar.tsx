@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom';
+import { FolderOpen, PlayCircle, Network } from 'lucide-react';
 
 const navItems = [
-  { to: '/', icon: 'folder_open', label: 'Collections', end: true },
-  { to: '/executions', icon: 'play_circle', label: 'Executions', end: false },
-  { to: '/environments', icon: 'settings_ethernet', label: 'Environments', end: false },
+  { to: '/', icon: FolderOpen, label: 'Collections', end: true },
+  { to: '/executions', icon: PlayCircle, label: 'Executions', end: false },
+  { to: '/environments', icon: Network, label: 'Environments', end: false },
 ];
 
 export default function Sidebar() {
@@ -24,7 +25,7 @@ export default function Sidebar() {
 
         {/* Nav */}
         <nav className="space-y-1">
-          {navItems.map(({ to, icon, label, end }) => (
+          {navItems.map(({ to, icon: Icon, label, end }) => (
             <NavLink
               key={to}
               to={to}
@@ -35,7 +36,7 @@ export default function Sidebar() {
                   : 'flex items-center gap-3 px-4 py-3 text-secondary-fixed-dim hover:text-white hover:bg-on-secondary-fixed-variant/5 transition-colors'
               }
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 22 }}>{icon}</span>
+              <Icon size={22} />
               <span className="font-body-medium text-body-medium">{label}</span>
             </NavLink>
           ))}

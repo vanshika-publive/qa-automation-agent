@@ -3,6 +3,11 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useExecutionDetail } from '../hooks/useExecutionDetail';
 import { ExecStep, TestResult, Execution } from '../types';
 import { relTime, fmtDatetime, fmtMSS } from '../utils/formatters';
+import {
+  CheckCircle2, XCircle, RefreshCw, Clock, HelpCircle, MinusCircle,
+  ArrowRight, Code2, FileText, ChevronDown, ArrowLeft, ChevronRight,
+  RotateCcw, Timer, Network,
+} from 'lucide-react';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -10,20 +15,23 @@ const STEP_ORDER = ['orchestrator', 'planner', 'generator', 'runner'] as const;
 
 function StatusBadge({ status }: { status: Execution['status'] }) {
   const cfg = {
-    passed:  { cls: 'bg-success/10 text-success border-success/20',   icon: 'check_circle', label: 'Passed'  },
-    failed:  { cls: 'bg-error/10 text-error border-error/20',         icon: 'cancel',       label: 'Failed'  },
-    running: { cls: 'bg-warning/10 text-warning border-warning/20',   icon: 'sync',         label: 'Running' },
-    queued:  { cls: 'bg-surface-muted text-text-secondary border-border-subtle', icon: 'schedule', label: 'Queued' },
-  }[status] ?? { cls: '', icon: 'help', label: status };
+    passed:  { cls: 'bg-success/10 text-success border-success/20',   label: 'Passed'  },
+    failed:  { cls: 'bg-error/10 text-error border-error/20',         label: 'Failed'  },
+    running: { cls: 'bg-warning/10 text-warning border-warning/20',   label: 'Running' },
+    queued:  { cls: 'bg-surface-muted text-text-secondary border-border-subtle', label: 'Queued' },
+  }[status] ?? { cls: '', label: status };
+
+  function StatusIcon() {
+    if (status === 'passed') return <CheckCircle2 size={14} />;
+    if (status === 'failed') return <XCircle size={14} />;
+    if (status === 'running') return <RefreshCw size={14} className="animate-spin" />;
+    if (status === 'queued') return <Clock size={14} />;
+    return <HelpCircle size={14} />;
+  }
 
   return (
     <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-sm font-semibold ${cfg.cls}`}>
-      <span
-        className={`material-symbols-outlined ${status === 'running' ? 'animate-spin' : ''}`}
-        style={{ fontSize: 14, fontVariationSettings: '"FILL" 1' }}
-      >
-        {cfg.icon}
-      </span>
+      <StatusIcon />
       {cfg.label}
     </span>
   );
@@ -31,13 +39,20 @@ function StatusBadge({ status }: { status: Execution['status'] }) {
 
 function TestResultBadge({ status }: { status: TestResult['status'] }) {
   const cfg = {
-    passed:  { cls: 'text-success', icon: 'check_circle' },
-    failed:  { cls: 'text-error',   icon: 'cancel'       },
-    skipped: { cls: 'text-warning', icon: 'remove_circle' },
+    passed:  { cls: 'text-success' },
+    failed:  { cls: 'text-error'   },
+    skipped: { cls: 'text-warning' },
   }[status];
+
+  function ResultIcon() {
+    if (status === 'passed') return <CheckCircle2 size={13} />;
+    if (status === 'failed') return <XCircle size={13} />;
+    return <MinusCircle size={13} />;
+  }
+
   return (
     <span className={`inline-flex items-center gap-1 text-xs font-semibold ${cfg.cls}`}>
-      <span className="material-symbols-outlined" style={{ fontSize: 13, fontVariationSettings: '"FILL" 1' }}>{cfg.icon}</span>
+      <ResultIcon />
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
   );
@@ -80,7 +95,7 @@ function PipelineSteps({ steps }: { steps: ExecStep[] }) {
                 )}
               </button>
               {i < STEP_ORDER.length - 1 && (
-                <span className="material-symbols-outlined text-border-subtle mx-1" style={{ fontSize: 16 }}>arrow_forward</span>
+                <ArrowRight size={16} className="text-border-subtle mx-1" />
               )}
             </div>
           );
@@ -134,7 +149,7 @@ function TestResultsTable({ results, pending }: { results: TestResult[]; pending
       {Object.entries(byFile).map(([file, rows]) => (
         <div key={file}>
           <div className="px-5 py-2 bg-surface-muted/60 border-b border-border-subtle flex items-center gap-2">
-            <span className="material-symbols-outlined text-text-secondary" style={{ fontSize: 14 }}>code</span>
+            <Code2 size={14} className="text-text-secondary" />
             <span className="text-xs font-mono text-text-secondary">{file || 'unknown file'}</span>
           </div>
           {rows.map((r, i) => (
@@ -170,12 +185,10 @@ function PlanView({ content }: { content: string }) {
         className="w-full px-5 py-4 flex items-center justify-between border-b border-border-subtle hover:bg-surface-muted/40 transition-colors"
       >
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-text-secondary" style={{ fontSize: 16 }}>description</span>
+          <FileText size={16} className="text-text-secondary" />
           <h2 className="text-sm font-semibold text-text-primary">Test Plan (plan.md)</h2>
         </div>
-        <span className={`material-symbols-outlined text-text-secondary transition-transform duration-200 ${open ? 'rotate-180' : ''}`} style={{ fontSize: 18 }}>
-          expand_more
-        </span>
+        <ChevronDown size={18} className={`text-text-secondary transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
         <div className="px-5 py-4 overflow-x-auto">
@@ -199,7 +212,7 @@ function SpecFileView({ filename, content }: { filename: string | null; content:
         className="w-full px-5 py-4 flex items-center justify-between hover:bg-surface-muted/40 transition-colors"
       >
         <div className="flex items-center gap-2">
-          <span className="material-symbols-outlined text-text-secondary" style={{ fontSize: 16 }}>code</span>
+          <Code2 size={16} className="text-text-secondary" />
           <h2 className="text-sm font-semibold text-text-primary">Generated Test File</h2>
           {filename && (
             <span className="text-xs text-text-secondary font-mono bg-surface-muted px-2 py-0.5 rounded-md border border-border-subtle">
@@ -207,9 +220,7 @@ function SpecFileView({ filename, content }: { filename: string | null; content:
             </span>
           )}
         </div>
-        <span className={`material-symbols-outlined text-text-secondary transition-transform duration-200 ${open ? 'rotate-180' : ''}`} style={{ fontSize: 18 }}>
-          expand_more
-        </span>
+        <ChevronDown size={18} className={`text-text-secondary transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
         <div className="border-t border-border-subtle">
@@ -234,6 +245,13 @@ function SpecFileView({ filename, content }: { filename: string | null; content:
 
 function RunHistory({ history, currentId }: { history: Execution[]; currentId: string }) {
   if (history.length === 0) return null;
+
+  function HistoryStatusIcon({ status }: { status: Execution['status'] }) {
+    if (status === 'passed') return <CheckCircle2 size={11} />;
+    if (status === 'failed') return <XCircle size={11} />;
+    if (status === 'running') return <RefreshCw size={11} />;
+    return <Clock size={11} />;
+  }
 
   return (
     <section className="bg-surface-main rounded-2xl border border-border-subtle overflow-hidden mb-5">
@@ -276,9 +294,7 @@ function RunHistory({ history, currentId }: { history: Execution[]; currentId: s
                     e.status === 'running' ? 'bg-warning/10 text-warning border-warning/20' :
                     'bg-surface-muted text-text-secondary border-border-subtle'
                   }`}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 11, fontVariationSettings: '"FILL" 1' }}>
-                      {e.status === 'passed' ? 'check_circle' : e.status === 'failed' ? 'cancel' : e.status === 'running' ? 'sync' : 'schedule'}
-                    </span>
+                    <HistoryStatusIcon status={e.status} />
                     {e.status.charAt(0).toUpperCase() + e.status.slice(1)}
                   </span>
                 </td>
@@ -330,7 +346,7 @@ export default function ExecutionDetail() {
     return (
       <div className="p-8 max-w-5xl">
         <button onClick={() => navigate('/executions')} className="inline-flex items-center gap-1.5 text-sm text-text-secondary hover:text-text-primary mb-6 transition-colors">
-          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+          <ArrowLeft size={18} />
           Back to Executions
         </button>
         <p className="text-text-secondary">Execution not found.</p>
@@ -348,12 +364,12 @@ export default function ExecutionDetail() {
             onClick={() => navigate('/executions')}
             className="w-9 h-9 flex items-center justify-center rounded-xl border border-border-subtle hover:bg-surface-muted transition-colors"
           >
-            <span className="material-symbols-outlined text-text-secondary" style={{ fontSize: 18 }}>arrow_back</span>
+            <ArrowLeft size={18} className="text-text-secondary" />
           </button>
           <div>
             <nav className="flex items-center gap-1 text-xs text-text-secondary mb-0.5">
               <button onClick={() => navigate('/executions')} className="hover:text-primary transition-colors">Executions</button>
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>chevron_right</span>
+              <ChevronRight size={14} />
               <span className="text-text-primary font-medium">{exec.collectionName} · #{exec.runNumber}</span>
             </nav>
             <h1 className="text-xl font-bold text-text-primary">{exec.testName}</h1>
@@ -366,7 +382,7 @@ export default function ExecutionDetail() {
         >
           {retryMutation.isPending
             ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Re-running…</>
-            : <><span className="material-symbols-outlined" style={{ fontSize: 16, fontVariationSettings: '"FILL" 1' }}>replay</span>Re-run</>
+            : <><RotateCcw size={16} />Re-run</>
           }
         </button>
       </div>
@@ -376,19 +392,19 @@ export default function ExecutionDetail() {
         <StatusBadge status={exec.status} />
         <div className="flex flex-wrap items-center gap-4 text-sm text-text-secondary">
           <span className="flex items-center gap-1.5">
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>schedule</span>
+            <Clock size={14} />
             {relTime(exec.startedAt)}
             <span className="text-text-secondary/50 mx-0.5">·</span>
             <span className="text-xs text-text-secondary/70">{fmtDatetime(exec.startedAt)}</span>
           </span>
           {exec.durationMs != null && (
             <span className="flex items-center gap-1.5">
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>timer</span>
+              <Timer size={14} />
               {fmtMSS(exec.durationMs)}
             </span>
           )}
           <span className="flex items-center gap-1.5">
-            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>network_node</span>
+            <Network size={14} />
             {exec.environmentName}
             {exec.environmentUrl && (
               <span className="text-text-secondary/60 text-xs ml-0.5">{exec.environmentUrl}</span>

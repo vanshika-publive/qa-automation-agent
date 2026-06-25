@@ -1,15 +1,12 @@
+import { Search } from 'lucide-react';
+
 export default function TopBar() {
   return (
     <header className="fixed top-0 left-[240px] right-0 h-16 z-30 bg-surface-main border-b border-border-subtle flex items-center justify-between px-6">
       {/* Search */}
       <div className="flex items-center gap-4 flex-1">
         <div className="relative max-w-md w-full">
-          <span
-            className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary"
-            style={{ fontSize: 20 }}
-          >
-            search
-          </span>
+          <Search size={20} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-secondary" />
           <input
             type="text"
             placeholder="Search collections or tests..."

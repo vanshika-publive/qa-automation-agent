@@ -11,6 +11,11 @@ import { formatDuration, fmtDatetime, fmtDate, fmtMSS, relTime } from '../utils/
 import { ACCENTS, STATUS_BG } from '../utils/status';
 import LogViewerModal from '../components/LogViewerModal';
 import { useExecutions } from '../hooks/useExecutions';
+import {
+  Folder, FolderOpen, X, Calendar, ListFilter, PlayCircle, Play,
+  ChevronLeft, ChevronRight, Network, RotateCcw, Trash2, ChevronDown,
+  BarChart3, Square, Terminal, ArrowLeftRight, ArrowLeft,
+} from 'lucide-react';
 
 // ── Page-local components ────────────────────────────────────────────────────
 
@@ -43,10 +48,10 @@ function FilterBar({
     <div className="flex items-center gap-2 flex-wrap mb-5">
       {collectionName && (
         <span className={chipCls}>
-          <span className="material-symbols-outlined" style={{ fontSize: 12 }}>folder</span>
+          <Folder size={12} />
           {collectionName}
           <button onClick={() => onRemove('collectionId')} className="hover:text-primary/60 transition-colors">
-            <span className="material-symbols-outlined" style={{ fontSize: 12 }}>close</span>
+            <X size={12} />
           </button>
         </span>
       )}
@@ -54,16 +59,16 @@ function FilterBar({
         <span className={chipCls}>
           {statusLabel}
           <button onClick={() => onRemove('status')} className="hover:text-primary/60 transition-colors">
-            <span className="material-symbols-outlined" style={{ fontSize: 12 }}>close</span>
+            <X size={12} />
           </button>
         </span>
       )}
       {hasDateRange && (
         <span className={chipCls}>
-          <span className="material-symbols-outlined" style={{ fontSize: 12 }}>calendar_today</span>
+          <Calendar size={12} />
           {dateRangeLabel}
           <button onClick={() => onRemove('dateRange')} className="hover:text-primary/60 transition-colors">
-            <span className="material-symbols-outlined" style={{ fontSize: 12 }}>close</span>
+            <X size={12} />
           </button>
         </span>
       )}
@@ -78,7 +83,7 @@ function FilterBar({
           activeCount > 0 ? 'border-primary bg-primary/10 text-primary' : 'border-border-subtle text-text-secondary hover:bg-surface-muted'
         }`}
       >
-        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>filter_list</span>
+        <ListFilter size={16} />
         Filters
         {activeCount > 0 && (
           <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-primary text-white text-[10px] font-bold leading-none">{activeCount}</span>
@@ -135,7 +140,7 @@ export default function Executions() {
   function renderHeader() {
     const backBtn = (
       <button onClick={goBack} className="w-9 h-9 flex items-center justify-center rounded-xl border border-border-subtle hover:bg-surface-muted transition-colors">
-        <span className="material-symbols-outlined text-text-secondary" style={{ fontSize: 18 }}>arrow_back</span>
+        <ArrowLeft size={18} className="text-text-secondary" />
       </button>
     );
 
@@ -147,11 +152,11 @@ export default function Executions() {
             <div>
               <nav className="flex items-center gap-1 text-xs text-text-secondary mb-0.5">
                 <button onClick={() => setSearchParams({})} className="hover:text-primary transition-colors">Collections</button>
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>chevron_right</span>
+                <ChevronRight size={14} />
                 {selectedCollection && (
                   <>
                     <button onClick={() => setSearchParams({ col: selectedColId! })} className="hover:text-primary transition-colors">{selectedCollection.name}</button>
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>chevron_right</span>
+                    <ChevronRight size={14} />
                   </>
                 )}
                 <span className="text-text-primary font-medium">{exec.selectedTestName}</span>
@@ -160,7 +165,7 @@ export default function Executions() {
             </div>
           </div>
           <button onClick={() => setRunModal(true)} className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0">
-            <span className="material-symbols-outlined" style={{ fontSize: 16, fontVariationSettings: '"FILL" 1' }}>play_arrow</span>
+            <Play size={16} />
             Run Again
           </button>
         </div>
@@ -175,14 +180,14 @@ export default function Executions() {
             <div>
               <nav className="flex items-center gap-1 text-xs text-text-secondary mb-0.5">
                 <button onClick={() => setSearchParams({})} className="hover:text-primary transition-colors">Collections</button>
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>chevron_right</span>
+                <ChevronRight size={14} />
                 <span className="text-text-primary font-medium">{selectedCollection.name}</span>
               </nav>
               <h1 className="text-xl font-bold text-text-primary">{selectedCollection.name}</h1>
             </div>
           </div>
           <button onClick={() => setRunModal(true)} className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0">
-            <span className="material-symbols-outlined" style={{ fontSize: 16, fontVariationSettings: '"FILL" 1' }}>play_arrow</span>
+            <Play size={16} />
             Run Suite
           </button>
         </div>
@@ -201,7 +206,7 @@ export default function Executions() {
           </p>
         </div>
         <button onClick={() => setRunModal(true)} className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0">
-          <span className="material-symbols-outlined" style={{ fontSize: 16, fontVariationSettings: '"FILL" 1' }}>play_arrow</span>
+          <Play size={16} />
           Run Suite
         </button>
       </div>
@@ -223,12 +228,12 @@ export default function Executions() {
       return (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
-            <span className="material-symbols-outlined text-primary" style={{ fontSize: 28, fontVariationSettings: '"FILL" 1' }}>play_circle</span>
+            <PlayCircle size={28} className="text-primary" />
           </div>
           <h2 className="text-base font-semibold text-text-primary mb-1.5">No runs yet</h2>
           <p className="text-sm text-text-secondary max-w-xs mb-5">Run this test to see execution history here.</p>
           <button onClick={() => setRunModal(true)} className="inline-flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">
-            <span className="material-symbols-outlined" style={{ fontSize: 16, fontVariationSettings: '"FILL" 1' }}>play_arrow</span>
+            <Play size={16} />
             Run Now
           </button>
         </div>
@@ -279,7 +284,7 @@ export default function Executions() {
                   </td>
                   <td className="py-4 pr-4">
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-surface-container text-xs font-medium text-text-secondary border border-border-subtle">
-                      <span className="material-symbols-outlined" style={{ fontSize: 11 }}>network_node</span>
+                      <Network size={11} />
                       {e.environmentName}
                     </span>
                   </td>
@@ -296,7 +301,7 @@ export default function Executions() {
                       >
                         {exec.retryingId === e.id
                           ? <span className="w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin block" />
-                          : <span className="material-symbols-outlined" style={{ fontSize: 16 }}>replay</span>
+                          : <RotateCcw size={16} />
                         }
                       </button>
                       <button
@@ -305,11 +310,9 @@ export default function Executions() {
                         title="Delete"
                         className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-error hover:bg-error/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                       >
-                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                        <Trash2 size={16} />
                       </button>
-                      <span className={`material-symbols-outlined text-text-secondary transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} style={{ fontSize: 18 }}>
-                        expand_more
-                      </span>
+                      <ChevronDown size={18} className={`text-text-secondary transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
                     </div>
                   </td>
                 </tr>,
@@ -323,7 +326,7 @@ export default function Executions() {
             <span className="text-xs text-text-secondary">Page {exec.runListPage + 1} of {exec.runListTotalPages} · {exec.testExecs.length} runs</span>
             <div className="flex items-center gap-2">
               <button disabled={exec.runListPage === 0} onClick={() => exec.setRunListPage((p) => p - 1)} className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-border-subtle rounded-lg text-text-secondary hover:bg-surface-main disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>chevron_left</span>Prev
+                <ChevronLeft size={14} />Prev
               </button>
               {Array.from({ length: exec.runListTotalPages }).map((_, i) => (
                 <button key={i} onClick={() => exec.setRunListPage(i)} className={`w-7 h-7 rounded-lg text-xs font-semibold transition-colors ${i === exec.runListPage ? 'bg-primary text-white' : 'text-text-secondary hover:bg-surface-main border border-border-subtle'}`}>
@@ -331,7 +334,7 @@ export default function Executions() {
                 </button>
               ))}
               <button disabled={exec.runListPage >= exec.runListTotalPages - 1} onClick={() => exec.setRunListPage((p) => p + 1)} className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium border border-border-subtle rounded-lg text-text-secondary hover:bg-surface-main disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
-                Next<span className="material-symbols-outlined" style={{ fontSize: 14 }}>chevron_right</span>
+                Next<ChevronRight size={14} />
               </button>
             </div>
           </div>
@@ -354,7 +357,7 @@ export default function Executions() {
     if (exec.tests.length === 0) {
       return (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <span className="material-symbols-outlined text-border-subtle mb-3" style={{ fontSize: 48 }}>folder_open</span>
+          <FolderOpen size={48} className="text-border-subtle mb-3" />
           <p className="text-text-primary font-medium">No tests in this folder</p>
           <p className="text-sm text-text-secondary mt-1">Add tests from the Folders page</p>
         </div>
@@ -384,9 +387,10 @@ export default function Executions() {
               <div className="rounded-2xl border border-border-subtle p-5 bg-surface-main hover:border-primary/30 hover:shadow-sm transition-all">
                 <div className="flex items-start justify-between mb-4">
                   <div className={`w-11 h-11 ${colors.bg} rounded-xl flex items-center justify-center flex-shrink-0`}>
-                    <span className={`material-symbols-outlined ${colors.icon}`} style={{ fontSize: 22, fontVariationSettings: '"FILL" 1' }}>
-                      {lastExec ? 'folder' : 'folder_open'}
-                    </span>
+                    {lastExec
+                      ? <Folder size={22} className={colors.icon} />
+                      : <FolderOpen size={22} className={colors.icon} />
+                    }
                   </div>
                   {lastExec && <StatusPill status={lastExec.status} />}
                 </div>
@@ -449,7 +453,7 @@ export default function Executions() {
 
           <td className="px-[14px] py-[11px]" style={{ width: 140 }}>
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-muted border border-border-subtle text-xs font-medium text-text-secondary max-w-[120px] truncate">
-              <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 12 }}>folder</span>
+              <Folder size={12} className="flex-shrink-0" />
               <span className="truncate">{e.collectionName}</span>
             </span>
           </td>
@@ -482,12 +486,12 @@ export default function Executions() {
                   {e.reportDir && e.totalCount > 0 && (
                     <a href={`/reports/${e.reportDir}/html/index.html`} target="_blank" rel="noopener noreferrer" title="View report"
                       className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-primary hover:bg-primary/10 border border-transparent hover:border-border-subtle transition-colors">
-                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>assessment</span>
+                      <BarChart3 size={16} />
                     </a>
                   )}
                   <button title="Re-run" onClick={() => exec.retryMutation.mutate(e)} disabled={exec.retryMutation.isPending}
                     className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-primary hover:bg-primary/10 border border-transparent hover:border-border-subtle transition-colors disabled:opacity-40">
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>replay</span>
+                    <RotateCcw size={16} />
                   </button>
                 </>
               )}
@@ -495,24 +499,24 @@ export default function Executions() {
                 <>
                   <button title="Stop"
                     className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-error hover:bg-error/10 border border-transparent hover:border-border-subtle transition-colors">
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>stop</span>
+                    <Square size={16} />
                   </button>
                   <button title="View log" onClick={() => setLogExec(e)}
                     className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-primary hover:bg-primary/10 border border-transparent hover:border-border-subtle transition-colors">
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>terminal</span>
+                    <Terminal size={16} />
                   </button>
                 </>
               )}
               {e.status === 'queued' && (
                 <button title="Cancel"
                   className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-error hover:bg-error/10 border border-transparent hover:border-border-subtle transition-colors">
-                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                  <X size={16} />
                 </button>
               )}
               {e.status !== 'running' && (
                 <button title="Delete" onClick={() => exec.deleteMutation.mutate(e.id)} disabled={exec.deleteMutation.isPending}
                   className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-error hover:bg-error/10 border border-transparent hover:border-border-subtle transition-colors disabled:opacity-40">
-                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                  <Trash2 size={16} />
                 </button>
               )}
             </div>
@@ -540,7 +544,7 @@ export default function Executions() {
               onClick={() => setCompareOpen(true)}
               className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-primary/90 transition-colors"
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>compare_arrows</span>
+              <ArrowLeftRight size={16} />
               Compare ({exec.selectedIds.size})
             </button>
           </div>
