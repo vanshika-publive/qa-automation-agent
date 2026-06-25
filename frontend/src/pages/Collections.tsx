@@ -5,6 +5,11 @@ import CollectionFilterDrawer from '../components/CollectionFilterDrawer';
 import RunAllModal from '../components/RunAllModal';
 import PaginationBar from '../components/PaginationBar';
 import { useCollections } from '../hooks/useCollections';
+import {
+  Sparkles, Check, ArrowRight, CheckCircle2, FlaskConical,
+  X, FolderPlus, Search, Calendar, Play, Trash2, Folder,
+  Pencil, ListFilter,
+} from 'lucide-react';
 
 // ── Empty state ───────────────────────────────────────────────────────────────
 
@@ -35,7 +40,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
         <div className="space-y-8 order-2 lg:order-1">
           <div className="space-y-4">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-label-sm font-label-sm">
-              <span className="material-symbols-outlined" style={{ fontSize: 14, fontVariationSettings: '"FILL" 1' }}>auto_awesome</span>
+              <Sparkles size={14} />
               AI-Powered Automation
             </div>
             <h2 className="font-display-lg text-display-lg text-on-surface tracking-tight leading-tight">
@@ -53,7 +58,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
             ].map((text, i) => (
               <li key={i} className="flex items-start gap-4 group">
                 <div className="mt-1 w-6 h-6 rounded-full bg-surface-container-highest flex items-center justify-center flex-shrink-0 group-hover:bg-primary/20 transition-colors">
-                  <span className="material-symbols-outlined text-primary" style={{ fontSize: 16, fontVariationSettings: '"wght" 600' }}>check</span>
+                  <Check size={16} className="text-primary" />
                 </div>
                 <span className="text-text-primary font-body-base leading-snug">{text}</span>
               </li>
@@ -65,7 +70,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
               className="bg-primary hover:bg-primary/90 text-white px-8 py-4 rounded-xl font-headline-sm text-headline-sm transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/20 active:translate-y-0 flex items-center gap-3"
             >
               <span>Create Your First Test</span>
-              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>arrow_forward</span>
+              <ArrowRight size={20} />
             </button>
           </div>
         </div>
@@ -81,10 +86,10 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
                 className="w-full h-auto object-contain transition-transform duration-700 group-hover:scale-105"
               />
               <div className="float-1 absolute top-8 left-8 bg-white shadow-lg rounded-xl p-3 border border-border-subtle">
-                <span className="material-symbols-outlined text-success" style={{ fontVariationSettings: '"FILL" 1' }}>check_circle</span>
+                <CheckCircle2 size={24} className="text-success" />
               </div>
               <div className="float-2 absolute bottom-12 right-8 bg-white shadow-lg rounded-xl p-3 border border-border-subtle">
-                <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: '"FILL" 1' }}>science</span>
+                <FlaskConical size={24} className="text-primary" />
               </div>
             </div>
             <div className="absolute -bottom-6 -left-12 bg-[#0F172A] text-[#94A3B8] p-4 rounded-xl border border-white/10 shadow-2xl font-mono-code text-[11px] max-w-[200px] hidden md:block">
@@ -119,7 +124,7 @@ function CreateCollectionModal({
         <div className="px-6 py-4 border-b border-border-subtle flex items-center justify-between">
           <h2 className="font-semibold text-text-primary">New Collection</h2>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors">
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+            <X size={20} />
           </button>
         </div>
         <form
@@ -170,7 +175,7 @@ function RenameCollectionModal({
         <div className="px-6 py-4 border-b border-border-subtle flex items-center justify-between">
           <h2 className="font-semibold text-text-primary">Rename Collection</h2>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors">
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+            <X size={20} />
           </button>
         </div>
         <form
@@ -313,7 +318,7 @@ export default function Collections() {
           onClick={() => { setCreateOpen(true); createMutation.reset(); }}
           className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0 active:scale-[0.98]"
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>create_new_folder</span>
+          <FolderPlus size={18} />
           New Collection
         </button>
       </div>
@@ -321,7 +326,7 @@ export default function Collections() {
       {/* Filter bar */}
       <div className="flex items-center gap-2 flex-wrap mb-5">
         <div className="relative">
-          <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary pointer-events-none" style={{ fontSize: 18 }}>search</span>
+          <Search size={18} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary pointer-events-none" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -332,10 +337,10 @@ export default function Collections() {
 
         {dateActive && (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/20">
-            <span className="material-symbols-outlined" style={{ fontSize: 12 }}>calendar_today</span>
+            <Calendar size={12} />
             {dateRangeLabel}
             <button onClick={() => setColFilters((f) => ({ ...f, from: '', to: '' }))} className="hover:text-primary/60 transition-colors">
-              <span className="material-symbols-outlined" style={{ fontSize: 12 }}>close</span>
+              <X size={12} />
             </button>
           </span>
         )}
@@ -353,14 +358,14 @@ export default function Collections() {
                 onClick={() => setRunAllColIds(Array.from(selectedColIds))}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-success/30 bg-success/5 text-success hover:bg-success/10 transition-all duration-150 active:scale-[0.98]"
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>play_arrow</span>
+                <Play size={16} />
                 Run {selectedColIds.size} selected
               </button>
               <button
                 onClick={handleDeleteSelected}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-error/30 bg-error/5 text-error hover:bg-error/10 transition-all duration-150 active:scale-[0.98]"
               >
-                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>delete</span>
+                <Trash2 size={16} />
                 Delete {selectedColIds.size} selected
               </button>
             </>
@@ -371,7 +376,7 @@ export default function Collections() {
               dateActive ? 'border-primary bg-primary/10 text-primary' : 'border-border-subtle text-text-secondary hover:bg-surface-muted'
             }`}
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>filter_list</span>
+            <ListFilter size={16} />
             Filters
             {dateActive && (
               <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-primary text-white text-[10px] font-bold leading-none">1</span>
@@ -427,12 +432,7 @@ export default function Collections() {
                     </td>
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-2.5">
-                        <span
-                          className="material-symbols-outlined text-text-secondary"
-                          style={{ fontSize: 18 }}
-                        >
-                          folder
-                        </span>
+                        <Folder size={18} className="text-text-secondary" />
                         <span className="font-medium text-text-primary text-sm">{col.name}</span>
                       </div>
                     </td>
@@ -454,21 +454,21 @@ export default function Collections() {
                           title="Run all specs"
                           className="w-7 h-7 flex items-center justify-center rounded-lg text-success hover:bg-success/10 transition-colors"
                         >
-                          <span className="material-symbols-outlined" style={{ fontSize: 17 }}>play_arrow</span>
+                          <Play size={17} />
                         </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); setRenamingCol({ id: col.id, name: col.name }); renameMutation.reset(); }}
                           title="Rename collection"
                           className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors"
                         >
-                          <span className="material-symbols-outlined" style={{ fontSize: 17 }}>edit</span>
+                          <Pencil size={17} />
                         </button>
                         <button
                           onClick={(e) => handleDeleteSingle(col.id, e)}
                           title="Delete collection"
                           className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-error/10 hover:text-error transition-colors"
                         >
-                          <span className="material-symbols-outlined" style={{ fontSize: 17 }}>delete</span>
+                          <Trash2 size={17} />
                         </button>
                       </div>
                     </td>

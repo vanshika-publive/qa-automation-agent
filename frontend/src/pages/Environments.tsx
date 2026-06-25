@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import { EnvironmentDetail, EnvironmentSaveBody } from '../services/environments';
 import { useEnvironments } from '../hooks/useEnvironments';
+import {
+  AlertCircle, Link, Mail, Key, Eye, EyeOff, CheckCircle2,
+  Building2, Lock, AlertTriangle, Clock, Pencil, Trash2,
+  Network, Plus, PlusCircle, Copy,
+} from 'lucide-react';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -86,9 +91,10 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
         <div className="flex items-center justify-between px-6 py-4 border-b border-border-subtle flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
-              <span className="material-symbols-outlined text-primary" style={{ fontSize: 18 }}>
-                {isEdit ? 'edit' : 'add_circle'}
-              </span>
+              {isEdit
+                ? <Pencil size={18} className="text-primary" />
+                : <PlusCircle size={18} className="text-primary" />
+              }
             </div>
             <h2 className="font-semibold text-text-primary">
               {isEdit ? 'Edit environment' : 'Add environment'}
@@ -98,7 +104,7 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+            <Plus size={20} className="rotate-45" />
           </button>
         </div>
 
@@ -118,7 +124,7 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
               />
               {nameError && (
                 <p className="mt-1.5 text-xs text-error flex items-center gap-1">
-                  <span className="material-symbols-outlined" style={{ fontSize: 12 }}>error</span>{nameError}
+                  <AlertCircle size={12} />{nameError}
                 </p>
               )}
             </div>
@@ -129,7 +135,7 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
               </label>
               <div className="relative">
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-secondary">
-                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>link</span>
+                  <Link size={16} />
                 </span>
                 <input
                   type="text" value={baseUrl}
@@ -142,7 +148,7 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
               </div>
               {urlError && (
                 <p className="mt-1.5 text-xs text-error flex items-center gap-1">
-                  <span className="material-symbols-outlined" style={{ fontSize: 12 }}>error</span>{urlError}
+                  <AlertCircle size={12} />{urlError}
                 </p>
               )}
             </div>
@@ -163,7 +169,7 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
 
             <div className="border-t border-border-subtle pt-1">
               <div className="flex items-center gap-2 mb-4">
-                <span className="material-symbols-outlined text-text-secondary" style={{ fontSize: 16 }}>lock</span>
+                <Lock size={16} className="text-text-secondary" />
                 <p className="text-sm font-medium text-text-primary">Dashboard credentials</p>
               </div>
               <p className="text-xs text-text-secondary mb-4 -mt-2 leading-relaxed">
@@ -176,7 +182,7 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
                 </label>
                 <div className="relative">
                   <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-secondary">
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>mail</span>
+                    <Mail size={16} />
                   </span>
                   <input
                     type="email" value={loginEmail}
@@ -189,7 +195,7 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
                 </div>
                 {emailError && (
                   <p className="mt-1.5 text-xs text-error flex items-center gap-1">
-                    <span className="material-symbols-outlined" style={{ fontSize: 12 }}>error</span>{emailError}
+                    <AlertCircle size={12} />{emailError}
                   </p>
                 )}
               </div>
@@ -201,14 +207,14 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
                   </label>
                   {isEdit && initial?.hasPassword && !loginPassword && (
                     <span className="inline-flex items-center gap-1 text-xs text-success font-medium">
-                      <span className="material-symbols-outlined" style={{ fontSize: 13 }}>check_circle</span>
+                      <CheckCircle2 size={13} />
                       Password saved — leave blank to keep
                     </span>
                   )}
                 </div>
                 <div className="relative">
                   <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-text-secondary">
-                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>key</span>
+                    <Key size={16} />
                   </span>
                   <input
                     type={showPassword ? 'text' : 'password'} value={loginPassword}
@@ -224,14 +230,12 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text-primary transition-colors"
                     tabIndex={-1}
                   >
-                    <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-                      {showPassword ? 'visibility_off' : 'visibility'}
-                    </span>
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
                 {passwordError && (
                   <p className="mt-1.5 text-xs text-error flex items-center gap-1">
-                    <span className="material-symbols-outlined" style={{ fontSize: 12 }}>error</span>{passwordError}
+                    <AlertCircle size={12} />{passwordError}
                   </p>
                 )}
               </div>
@@ -240,7 +244,7 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
                 <div className="mt-4">
                   <label className="block text-sm font-medium text-text-primary mb-1.5">Publisher</label>
                   <div className="flex items-center gap-2 bg-surface-muted border border-border-subtle rounded-xl px-3.5 py-2.5">
-                    <span className="material-symbols-outlined text-primary flex-shrink-0" style={{ fontSize: 15 }}>apartment</span>
+                    <Building2 size={15} className="text-primary flex-shrink-0" />
                     <span className="text-xs text-text-primary">
                       {initial?.publisher || <span className="text-text-secondary italic">Not yet detected — will be set on first run</span>}
                     </span>
@@ -269,7 +273,7 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
 
             {serverError && (
               <div className="flex items-start gap-2 bg-error/5 border border-error/20 rounded-xl px-3.5 py-3">
-                <span className="material-symbols-outlined text-error flex-shrink-0 mt-0.5" style={{ fontSize: 16 }}>error</span>
+                <AlertCircle size={16} className="text-error flex-shrink-0 mt-0.5" />
                 <p className="text-sm text-error">{serverError}</p>
               </div>
             )}
@@ -311,7 +315,7 @@ function DeleteConfirmModal({
       <div className="bg-surface-main rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="px-6 pt-6 pb-4">
           <div className="w-12 h-12 rounded-2xl bg-error/10 flex items-center justify-center mb-4">
-            <span className="material-symbols-outlined text-error" style={{ fontSize: 24, fontVariationSettings: '"FILL" 1' }}>delete</span>
+            <Trash2 size={24} className="text-error" />
           </div>
           <h2 className="font-semibold text-text-primary mb-1.5">Delete environment?</h2>
           <p className="text-sm text-text-secondary leading-relaxed">
@@ -380,12 +384,10 @@ function EnvironmentCard({
         <p className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider mb-1">BASE URL</p>
         <button type="button" onClick={copyUrl} title={copied ? 'Copied!' : 'Click to copy'} className="group/url flex items-center justify-between gap-2 w-full">
           <code className="font-mono-code text-xs text-primary truncate text-left select-all">{env.baseUrl}</code>
-          <span
-            className={`material-symbols-outlined flex-shrink-0 transition-colors ${copied ? 'text-success' : 'text-text-secondary group-hover/url:text-primary'}`}
-            style={{ fontSize: 14, fontVariationSettings: copied ? '"FILL" 1' : '"FILL" 0' }}
-          >
-            {copied ? 'check_circle' : 'content_copy'}
-          </span>
+          {copied
+            ? <CheckCircle2 size={14} className="flex-shrink-0 text-success" />
+            : <Copy size={14} className="flex-shrink-0 text-text-secondary group-hover/url:text-primary transition-colors" />
+          }
         </button>
       </div>
 
@@ -393,12 +395,12 @@ function EnvironmentCard({
         <p className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider mb-1">CREDENTIALS</p>
         {credentialsOk ? (
           <div className="flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-success" style={{ fontSize: 14, fontVariationSettings: '"FILL" 1' }}>lock</span>
+            <Lock size={14} className="text-success" />
             <span className="text-xs text-text-primary truncate">{env.loginEmail}</span>
           </div>
         ) : (
           <div className="flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-warning" style={{ fontSize: 14 }}>warning</span>
+            <AlertTriangle size={14} className="text-warning" />
             <span className="text-xs text-warning font-medium">Not configured — click Edit</span>
           </div>
         )}
@@ -408,28 +410,28 @@ function EnvironmentCard({
         <p className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider mb-1">PUBLISHER</p>
         {env.publisher ? (
           <div className="flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-primary" style={{ fontSize: 14 }}>apartment</span>
+            <Building2 size={14} className="text-primary" />
             <span className="text-xs text-text-primary truncate">{env.publisher}</span>
           </div>
         ) : (
           <div className="flex items-center gap-1.5">
-            <span className="material-symbols-outlined text-warning" style={{ fontSize: 14 }}>warning</span>
+            <AlertTriangle size={14} className="text-warning" />
             <span className="text-xs text-warning font-medium">Not set — click Edit</span>
           </div>
         )}
       </div>
 
       <div className="flex items-center gap-1.5 text-xs text-text-secondary">
-        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>schedule</span>
+        <Clock size={16} />
         Created: {timeAgo(env.createdAt)}
       </div>
 
       <div className="mt-auto pt-3 border-t border-border-subtle flex justify-end gap-2">
         <button onClick={onEdit} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-text-secondary hover:text-primary hover:bg-primary/10 transition-colors">
-          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>edit</span>Edit
+          <Pencil size={15} />Edit
         </button>
         <button onClick={onDelete} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-error hover:bg-error/10 transition-colors">
-          <span className="material-symbols-outlined" style={{ fontSize: 15 }}>delete</span>Delete
+          <Trash2 size={15} />Delete
         </button>
       </div>
     </div>
@@ -440,7 +442,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-24 px-8 text-center">
       <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-5">
-        <span className="material-symbols-outlined text-primary" style={{ fontSize: 30, fontVariationSettings: '"FILL" 1' }}>network_node</span>
+        <Network size={30} className="text-primary" />
       </div>
       <h2 className="text-base font-semibold text-text-primary mb-2">No environments yet</h2>
       <p className="text-sm text-text-secondary max-w-xs mb-6 leading-relaxed">
@@ -450,7 +452,7 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
         onClick={onCreate}
         className="inline-flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors"
       >
-        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>
+        <Plus size={18} />
         Add Environment
       </button>
     </div>
@@ -482,7 +484,7 @@ export default function Environments() {
           onClick={openCreate}
           className="inline-flex items-center gap-2 bg-primary text-white px-4 py-2.5 rounded-lg text-sm font-semibold shadow-sm hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-md hover:shadow-primary/20 active:translate-y-0"
         >
-          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>add</span>
+          <Plus size={18} />
           Add Environment
         </button>
       </div>
@@ -513,7 +515,7 @@ export default function Environments() {
             className="rounded-xl border-2 border-dashed border-border-subtle p-5 flex flex-col items-center justify-center gap-2 min-h-[180px] hover:border-primary/40 hover:bg-primary/5 transition-all group"
           >
             <div className="w-10 h-10 rounded-xl bg-surface-muted group-hover:bg-primary/10 flex items-center justify-center transition-colors">
-              <span className="material-symbols-outlined text-text-secondary group-hover:text-primary transition-colors" style={{ fontSize: 20 }}>add</span>
+              <Plus size={20} className="text-text-secondary group-hover:text-primary transition-colors" />
             </div>
             <span className="text-sm font-medium text-text-secondary group-hover:text-primary transition-colors">
               Add environment

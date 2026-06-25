@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { ApiResponse, Collection, Test, Environment } from '../types';
+import { PlayCircle, X, AlertTriangle, Play } from 'lucide-react';
 
 export default function RunSuiteModal({ onClose, onRun }: { onClose: () => void; onRun: () => void }) {
   const [collectionId, setCollectionId] = useState('');
@@ -45,7 +46,7 @@ export default function RunSuiteModal({ onClose, onRun }: { onClose: () => void;
         <div className="flex items-center justify-between px-6 py-4 border-b border-border-subtle">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
-              <span className="material-symbols-outlined text-primary" style={{ fontSize: 18, fontVariationSettings: '"FILL" 1' }}>play_circle</span>
+              <PlayCircle size={18} className="text-primary" />
             </div>
             <div>
               <h2 className="font-semibold text-text-primary text-sm">Run a Suite</h2>
@@ -53,7 +54,7 @@ export default function RunSuiteModal({ onClose, onRun }: { onClose: () => void;
             </div>
           </div>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors">
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+            <X size={20} />
           </button>
         </div>
         <form
@@ -102,7 +103,7 @@ export default function RunSuiteModal({ onClose, onRun }: { onClose: () => void;
               <div className="h-10 bg-surface-muted rounded-xl animate-pulse" />
             ) : environments.length === 0 ? (
               <p className="text-sm text-warning flex items-center gap-1.5">
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>warning</span>
+                <AlertTriangle size={14} />
                 No active environments. <a href="/environments" className="underline" onClick={onClose}>Create one.</a>
               </p>
             ) : (
@@ -125,7 +126,7 @@ export default function RunSuiteModal({ onClose, onRun }: { onClose: () => void;
             >
               {runMut.isPending
                 ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                : <span className="material-symbols-outlined" style={{ fontSize: 16, fontVariationSettings: '"FILL" 1' }}>play_arrow</span>}
+                : <Play size={16} />}
               {runMut.isPending ? 'Starting…' : 'Run'}
             </button>
           </div>

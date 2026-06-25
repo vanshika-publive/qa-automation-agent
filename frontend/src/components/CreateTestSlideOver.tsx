@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
+import { Check, X, ChevronDown, AlertTriangle, XCircle, CheckCircle2, ArrowRight, ArrowLeft, ExternalLink, FlaskConical, Lightbulb } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { ApiResponse, Collection, Environment, StepName, StepStatus } from '../types';
-import { EDITOR_BG, FONT_VARIATION_FILLED, sseStreamUrl } from '../constants';
+import { EDITOR_BG, sseStreamUrl } from '../constants';
 
 interface StepState {
   name: StepName;
@@ -35,18 +36,14 @@ function StepCircle({ status }: { status: StepStatus }) {
   if (status === 'passed') {
     return (
       <div className="w-8 h-8 rounded-full bg-success flex items-center justify-center flex-shrink-0 ring-4 ring-success/10">
-        <span className="material-symbols-outlined text-white" style={{ fontSize: 16, fontVariationSettings: '"FILL" 1, "wght" 600' }}>
-          check
-        </span>
+        <Check size={16} className="text-white" />
       </div>
     );
   }
   if (status === 'failed') {
     return (
       <div className="w-8 h-8 rounded-full bg-error flex items-center justify-center flex-shrink-0 ring-4 ring-error/10">
-        <span className="material-symbols-outlined text-white" style={{ fontSize: 16, fontVariationSettings: FONT_VARIATION_FILLED }}>
-          close
-        </span>
+        <X size={16} className="text-white" />
       </div>
     );
   }
@@ -124,12 +121,11 @@ function StepRow({
                 className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:bg-surface-muted transition-colors"
                 title={expanded ? 'Hide log' : 'Show log'}
               >
-                <span
-                  className="material-symbols-outlined transition-transform duration-200"
-                  style={{ fontSize: 14, transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
-                >
-                  expand_more
-                </span>
+                <ChevronDown
+                  size={14}
+                  className="transition-transform duration-200"
+                  style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                />
               </button>
             )}
           </div>
@@ -301,9 +297,7 @@ export default function CreateTestSlideOver({
         <div className="flex items-center justify-between px-6 py-5 border-b border-border-subtle flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-              <span className="material-symbols-outlined text-primary" style={{ fontSize: 20 }}>
-                science
-              </span>
+              <FlaskConical size={20} className="text-primary" />
             </div>
             <div>
               <h2 className="font-semibold text-text-primary text-headline-sm">Create New Test</h2>
@@ -320,7 +314,7 @@ export default function CreateTestSlideOver({
             disabled={phase === 'running'}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+            <X size={20} />
           </button>
         </div>
 
@@ -387,12 +381,7 @@ export default function CreateTestSlideOver({
 
             {/* Pro tip */}
             <div className="flex gap-3 bg-surface-container-low rounded-xl p-4 border border-surface-container">
-              <span
-                className="material-symbols-outlined text-primary flex-shrink-0 mt-0.5"
-                style={{ fontSize: 18, fontVariationSettings: FONT_VARIATION_FILLED }}
-              >
-                lightbulb
-              </span>
+              <Lightbulb size={18} className="text-primary flex-shrink-0 mt-0.5" />
               <div className="text-xs text-text-secondary leading-relaxed">
                 <span className="font-semibold text-text-primary">Pro tip: </span>
                 Be specific about what to click, fill in, and verify. For example: "Navigate to posts,
@@ -408,7 +397,7 @@ export default function CreateTestSlideOver({
               </label>
               {activeEnvs.length === 0 ? (
                 <div className="flex items-center gap-2 text-xs text-warning p-3 bg-warning/5 border border-warning/20 rounded-xl">
-                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>warning</span>
+                  <AlertTriangle size={14} />
                   No active environments. Go to{' '}
                   <a href="/environments" className="underline font-medium">Environments</a>{' '}
                   to create one.
@@ -425,9 +414,7 @@ export default function CreateTestSlideOver({
                       <option key={env.id} value={env.id}>{env.name} — {env.baseUrl}</option>
                     ))}
                   </select>
-                  <span className="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-text-secondary" style={{ fontSize: 20 }}>
-                    expand_more
-                  </span>
+                  <ChevronDown size={20} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-text-secondary" />
                 </div>
               )}
             </div>
@@ -516,12 +503,10 @@ export default function CreateTestSlideOver({
                   style={{ animation: 'slideDown 0.3s ease-out both' }}
                 >
                   <div className="flex items-center gap-2 mb-1">
-                    <span
-                      className={`material-symbols-outlined ${pipelineFailed ? 'text-error' : 'text-success'}`}
-                      style={{ fontSize: 18, fontVariationSettings: FONT_VARIATION_FILLED }}
-                    >
-                      {pipelineFailed ? 'cancel' : 'check_circle'}
-                    </span>
+                    {pipelineFailed
+                      ? <XCircle size={18} className="text-error" />
+                      : <CheckCircle2 size={18} className="text-success" />
+                    }
                     <span className={`text-sm font-semibold ${pipelineFailed ? 'text-error' : 'text-success'}`}>
                       {pipelineFailed ? 'Pipeline failed' : 'All tests generated and run!'}
                     </span>
@@ -538,7 +523,7 @@ export default function CreateTestSlideOver({
                     }`}
                   >
                     View Results
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>arrow_forward</span>
+                    <ArrowRight size={14} />
                   </button>
                 </div>
               )}
@@ -553,7 +538,7 @@ export default function CreateTestSlideOver({
             disabled={phase === 'running'}
             className="inline-flex items-center gap-2 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+            <ArrowLeft size={18} />
             {phase === 'done' ? 'Close' : 'Back'}
           </button>
 
@@ -570,7 +555,7 @@ export default function CreateTestSlideOver({
               className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-primary/90 transition-colors"
             >
               View Results
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>open_in_new</span>
+              <ExternalLink size={16} />
             </button>
           )}
         </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Collection } from '../types';
+import { ListFilter, X } from 'lucide-react';
 
 export interface FilterState {
   collectionId: string;
@@ -75,14 +76,14 @@ export default function FilterDrawer({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle flex-shrink-0">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-text-secondary" style={{ fontSize: 20 }}>filter_list</span>
+            <ListFilter size={20} className="text-text-secondary" />
             <span className="font-semibold text-text-primary text-sm">Filter Executions</span>
           </div>
           <button
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+            <X size={20} />
           </button>
         </div>
 

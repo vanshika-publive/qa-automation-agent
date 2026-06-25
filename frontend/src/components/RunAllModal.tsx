@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { collectionsService } from '../services/collections';
 import { environmentsService } from '../services/environments';
+import { X } from 'lucide-react';
 
 export default function RunAllModal({ collectionIds, onClose }: { collectionIds: string[]; onClose: () => void }) {
   const navigate = useNavigate();
@@ -27,7 +28,7 @@ export default function RunAllModal({ collectionIds, onClose }: { collectionIds:
         <div className="px-6 py-4 border-b border-border-subtle flex items-center justify-between">
           <h2 className="font-semibold text-text-primary">{collectionIds.length > 1 ? `Run ${collectionIds.length} Collections` : 'Run All Specs'}</h2>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors">
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+            <X size={20} />
           </button>
         </div>
         <div className="px-6 py-5 space-y-4">

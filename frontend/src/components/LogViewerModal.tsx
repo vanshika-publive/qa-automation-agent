@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import { Check, X, ChevronDown, Terminal } from 'lucide-react';
 import { StepName, StepStatus } from '../types';
-import { EDITOR_BG, FONT_VARIATION_FILLED } from '../constants';
+import { EDITOR_BG } from '../constants';
 
 interface StepState {
   name: StepName;
@@ -21,14 +22,14 @@ function StepCircle({ status }: { status: StepStatus }) {
   if (status === 'passed') {
     return (
       <div className="w-8 h-8 rounded-full bg-success flex items-center justify-center flex-shrink-0 ring-4 ring-success/10">
-        <span className="material-symbols-outlined text-white" style={{ fontSize: 16, fontVariationSettings: '"FILL" 1, "wght" 600' }}>check</span>
+        <Check size={16} className="text-white" />
       </div>
     );
   }
   if (status === 'failed') {
     return (
       <div className="w-8 h-8 rounded-full bg-error flex items-center justify-center flex-shrink-0 ring-4 ring-error/10">
-        <span className="material-symbols-outlined text-white" style={{ fontSize: 16, fontVariationSettings: FONT_VARIATION_FILLED }}>close</span>
+        <X size={16} className="text-white" />
       </div>
     );
   }
@@ -86,7 +87,7 @@ function StepRow({ step, isLast, expanded, onToggle }: { step: StepState; isLast
             <span className={`text-xs font-medium ${labelColor}`}>{statusText}</span>
             {step.log && (
               <button onClick={onToggle} className="w-6 h-6 flex items-center justify-center rounded text-text-secondary hover:bg-surface-muted transition-colors" title={expanded ? 'Hide log' : 'Show log'}>
-                <span className="material-symbols-outlined transition-transform duration-200" style={{ fontSize: 14, transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>expand_more</span>
+                <ChevronDown size={14} className="transition-transform duration-200" style={{ transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }} />
               </button>
             )}
           </div>
@@ -158,7 +159,7 @@ export default function LogViewerModal({ executionId, testName, onClose }: Props
           <div className="flex items-center justify-between px-6 py-4 border-b border-border-subtle flex-shrink-0">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-                <span className="material-symbols-outlined text-primary" style={{ fontSize: 20 }}>terminal</span>
+                <Terminal size={20} className="text-primary" />
               </div>
               <div>
                 <h2 className="font-semibold text-text-primary text-sm">Pipeline Log</h2>
@@ -166,7 +167,7 @@ export default function LogViewerModal({ executionId, testName, onClose }: Props
               </div>
             </div>
             <button onClick={onClose} className="w-8 h-8 rounded-lg flex items-center justify-center text-text-secondary hover:bg-surface-muted transition-colors">
-              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>close</span>
+              <X size={18} />
             </button>
           </div>
 

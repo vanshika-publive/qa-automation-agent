@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
+import { CheckCircle2, XCircle, SkipForward, RefreshCw, ExternalLink, Circle, HelpCircle, type LucideIcon } from 'lucide-react';
 import { Execution } from '../types';
 import { formatDuration } from '../utils/formatters';
 
@@ -23,6 +24,14 @@ interface ExecutionStep {
 interface TestsResponse { data: TestResult[]; pending: boolean; error: string | null }
 interface ExecutionDetailResponse { data: Execution & { steps: ExecutionStep[] }; error: string | null }
 
+const STATUS_ICON_MAP: Record<string, LucideIcon> = {
+  check_circle: CheckCircle2,
+  cancel: XCircle,
+  sync: RefreshCw,
+  radio_button_unchecked: Circle,
+  skip_next: SkipForward,
+};
+
 export function StatusPill({ status }: { status: Execution['status'] }) {
   const cfgMap: Record<Execution['status'], { cls: string; icon: string; label: string; spin: boolean }> = {
     passed:  { cls: 'bg-success/10 text-success border-success/20',               icon: 'check_circle', label: 'Passed',  spin: false },
@@ -32,11 +41,10 @@ export function StatusPill({ status }: { status: Execution['status'] }) {
   };
   const cfg = cfgMap[status] ?? cfgMap.failed;
 
+  const StatusIcon = STATUS_ICON_MAP[cfg.icon] ?? HelpCircle;
   return (
     <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-xs font-semibold ${cfg.cls}`}>
-      <span className={`material-symbols-outlined ${cfg.spin ? 'animate-spin' : ''}`} style={{ fontSize: 12, fontVariationSettings: '"FILL" 1' }}>
-        {cfg.icon}
-      </span>
+      <StatusIcon size={12} className={cfg.spin ? 'animate-spin' : ''} />
       {cfg.label}
     </span>
   );
@@ -45,17 +53,17 @@ export function StatusPill({ status }: { status: Execution['status'] }) {
 function TestStatusBadge({ status }: { status: TestResult['status'] }) {
   if (status === 'passed') return (
     <span className="inline-flex items-center gap-1 text-xs font-semibold text-success">
-      <span className="material-symbols-outlined" style={{ fontSize: 14, fontVariationSettings: '"FILL" 1' }}>check_circle</span>Passed
+      <CheckCircle2 size={14} />Passed
     </span>
   );
   if (status === 'skipped') return (
     <span className="inline-flex items-center gap-1 text-xs font-medium text-text-secondary">
-      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>skip_next</span>Skipped
+      <SkipForward size={14} />Skipped
     </span>
   );
   return (
     <span className="inline-flex items-center gap-1 text-xs font-semibold text-error">
-      <span className="material-symbols-outlined" style={{ fontSize: 14, fontVariationSettings: '"FILL" 1' }}>cancel</span>Failed
+      <XCircle size={14} />Failed
     </span>
   );
 }
@@ -100,13 +108,13 @@ export default function ExpandedTestResults({ execution, colSpan = 7 }: { execut
                     <span className="font-semibold text-text-primary">{tests.length} test{tests.length !== 1 ? 's' : ''}</span>
                     {execution.passCount > 0 && (
                       <span className="inline-flex items-center gap-1 text-success font-medium">
-                        <span className="material-symbols-outlined" style={{ fontSize: 14, fontVariationSettings: '"FILL" 1' }}>check_circle</span>
+                        <CheckCircle2 size={14} />
                         {execution.passCount} passed
                       </span>
                     )}
                     {execution.failCount > 0 && (
                       <span className="inline-flex items-center gap-1 text-error font-medium">
-                        <span className="material-symbols-outlined" style={{ fontSize: 14, fontVariationSettings: '"FILL" 1' }}>cancel</span>
+                        <XCircle size={14} />
                         {execution.failCount} failed
                       </span>
                     )}
@@ -127,7 +135,7 @@ export default function ExpandedTestResults({ execution, colSpan = 7 }: { execut
               {reportUrl && execution.status !== 'running' && tests.length > 0 && (
                 <a href={reportUrl} target="_blank" rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/20 transition-colors">
-                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>open_in_new</span>
+                  <ExternalLink size={14} />
                   Playwright Report
                 </a>
               )}
@@ -176,11 +184,11 @@ export default function ExpandedTestResults({ execution, colSpan = 7 }: { execut
                   const isPassed = step.status === 'passed';
                   const borderCls = isFailed ? 'border-error/30 bg-error/5' : isPassed ? 'border-success/20 bg-success/5' : 'border-border-subtle bg-surface-muted';
                   const labelCls = isFailed ? 'text-error' : isPassed ? 'text-success' : 'text-text-secondary';
-                  const icon = isFailed ? 'cancel' : isPassed ? 'check_circle' : 'radio_button_unchecked';
+                  const StepIcon = isFailed ? XCircle : isPassed ? CheckCircle2 : Circle;
                   return (
                     <div key={step.id} className={`rounded-xl border p-3 ${borderCls}`}>
                       <div className="flex items-center gap-2 mb-1">
-                        <span className={`material-symbols-outlined ${labelCls}`} style={{ fontSize: 14, fontVariationSettings: '"FILL" 1' }}>{icon}</span>
+                        <StepIcon size={14} className={labelCls} />
                         <span className={`text-xs font-semibold uppercase tracking-wider ${labelCls}`}>{step.stepName}</span>
                       </div>
                       {step.log && (

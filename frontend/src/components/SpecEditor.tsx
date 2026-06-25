@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { ApiResponse, Environment } from '../types';
-import { EDITOR_BG, EDITOR_BORDER, EDITOR_FONT_FAMILY, EDITOR_LINE_HEIGHT, FONT_VARIATION_FILLED, sseStreamUrl } from '../constants';
+import { EDITOR_BG, EDITOR_BORDER, EDITOR_FONT_FAMILY, EDITOR_LINE_HEIGHT, sseStreamUrl } from '../constants';
+import { Play, Save, CheckCircle2, XCircle, X, FileText } from 'lucide-react';
 
 // Page-local types
 
@@ -300,7 +301,7 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
             {isRunning ? (
               <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             ) : (
-              <span className="material-symbols-outlined" style={{ fontSize: 15, fontVariationSettings: FONT_VARIATION_FILLED }}>play_arrow</span>
+              <Play size={15} />
             )}
             {isRunning ? 'Running…' : 'Run Spec'}
           </button>
@@ -313,12 +314,12 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
           >
             {savedRecently ? (
               <>
-                <span className="material-symbols-outlined text-success" style={{ fontSize: 14, fontVariationSettings: FONT_VARIATION_FILLED }}>check_circle</span>
+                <CheckCircle2 size={14} className="text-success" />
                 Saved
               </>
             ) : (
               <>
-                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>save</span>
+                <Save size={14} />
                 Save
               </>
             )}
@@ -329,7 +330,7 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
             onClick={onClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors ml-1"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+            <X size={20} />
           </button>
         </div>
       </div>
@@ -350,7 +351,7 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
         ) : specError ? (
           /* No spec yet */
           <div className="flex-1 flex flex-col items-center justify-center gap-4 text-slate-400 p-8">
-            <span className="material-symbols-outlined text-slate-600" style={{ fontSize: 56 }}>description</span>
+            <FileText size={56} className="text-slate-600" />
             <p className="text-white font-medium text-base">No spec file generated yet</p>
             <p className="text-slate-400 text-sm text-center max-w-xs leading-relaxed">
               Run the full pipeline first from the Collections page to generate a .spec.ts file for this test.
@@ -433,7 +434,7 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
               onClick={() => setRunPanelVisible(false)}
               className="text-slate-500 hover:text-white transition-colors"
             >
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+              <X size={16} />
             </button>
           </div>
 
@@ -447,14 +448,9 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
               {runnerStep?.status === 'running' ? (
                 <div className="w-3 h-3 border-2 border-warning/40 border-t-warning rounded-full animate-spin" />
               ) : (
-                <span
-                  className={`material-symbols-outlined ${
-                    runnerStep?.status === 'passed' ? 'text-success' : 'text-error'
-                  }`}
-                  style={{ fontSize: 14, fontVariationSettings: FONT_VARIATION_FILLED }}
-                >
-                  {runnerStep?.status === 'passed' ? 'check_circle' : 'cancel'}
-                </span>
+                runnerStep?.status === 'passed'
+                  ? <CheckCircle2 size={14} className="text-success" />
+                  : <XCircle size={14} className="text-error" />
               )}
             </div>
             <span className="text-slate-300 text-[13px] font-medium">Test Runner</span>

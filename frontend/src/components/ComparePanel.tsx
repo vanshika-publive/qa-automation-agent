@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
+import { CheckCircle2, XCircle, SkipForward, RefreshCw, ArrowLeftRight, X, Info } from 'lucide-react';
 import { Execution } from '../types';
-import { COMPARE_PANEL_WIDTH, FONT_VARIATION_FILLED } from '../constants';
+import { COMPARE_PANEL_WIDTH } from '../constants';
 import { fmtMSS } from '../utils/formatters';
 
 interface CompareStep {
@@ -43,17 +44,17 @@ function RunHeader({ exec, steps }: { exec: Execution; steps: CompareStep[] }) {
 }
 
 function StatusChip({ status }: { status: string }) {
-  const cfgMap: Record<string, { cls: string; icon: string }> = {
-    passed:  { cls: 'bg-success/10 text-success',            icon: 'check_circle' },
-    failed:  { cls: 'bg-error/10 text-error',                icon: 'cancel' },
-    running: { cls: 'bg-warning/10 text-warning',            icon: 'sync' },
-    queued:  { cls: 'bg-surface-muted text-text-secondary',  icon: 'schedule' },
-    skipped: { cls: 'bg-surface-muted text-text-secondary',  icon: 'skip_next' },
+  const cfgMap: Record<string, { cls: string; icon: React.ReactNode }> = {
+    passed:  { cls: 'bg-success/10 text-success',            icon: <CheckCircle2 size={12} /> },
+    failed:  { cls: 'bg-error/10 text-error',                icon: <XCircle size={12} /> },
+    running: { cls: 'bg-warning/10 text-warning',            icon: <RefreshCw size={12} /> },
+    queued:  { cls: 'bg-surface-muted text-text-secondary',  icon: <SkipForward size={12} /> },
+    skipped: { cls: 'bg-surface-muted text-text-secondary',  icon: <SkipForward size={12} /> },
   };
   const cfg = cfgMap[status] ?? cfgMap.failed;
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${cfg.cls}`}>
-      <span className="material-symbols-outlined" style={{ fontSize: 12, fontVariationSettings: FONT_VARIATION_FILLED }}>{cfg.icon}</span>
+      {cfg.icon}
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
   );
@@ -63,16 +64,9 @@ function StepStatusIcon({ status }: { status: 'passed' | 'failed' | 'skipped' | 
   if (!status) {
     return <span className="text-sm text-text-secondary font-mono-code">—</span>;
   }
-  const cfg = {
-    passed:  { cls: 'text-success', icon: 'check_circle' },
-    failed:  { cls: 'text-error',   icon: 'cancel' },
-    skipped: { cls: 'text-text-secondary', icon: 'skip_next' },
-  }[status];
-  return (
-    <span className={`material-symbols-outlined ${cfg.cls}`} style={{ fontSize: 16, fontVariationSettings: FONT_VARIATION_FILLED }}>
-      {cfg.icon}
-    </span>
-  );
+  if (status === 'passed') return <CheckCircle2 size={16} className="text-success" />;
+  if (status === 'failed') return <XCircle size={16} className="text-error" />;
+  return <SkipForward size={16} className="text-text-secondary" />;
 }
 
 export default function ComparePanel({ executionIds, executions, onClose }: ComparePanelProps) {
@@ -139,14 +133,14 @@ export default function ComparePanel({ executionIds, executions, onClose }: Comp
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle flex-shrink-0">
           <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary" style={{ fontSize: 20 }}>compare_arrows</span>
+            <ArrowLeftRight size={20} className="text-primary" />
             <span className="font-semibold text-text-primary">Compare runs</span>
           </div>
           <button
             onClick={handleClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors"
           >
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+            <X size={20} />
           </button>
         </div>
 
@@ -168,7 +162,7 @@ export default function ComparePanel({ executionIds, executions, onClose }: Comp
             </div>
           ) : mergedNames.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center px-6">
-              <span className="material-symbols-outlined text-border-subtle mb-3" style={{ fontSize: 40 }}>info</span>
+              <Info size={40} className="text-border-subtle mb-3" />
               <p className="text-sm text-text-secondary">No test results available for these runs.</p>
             </div>
           ) : (

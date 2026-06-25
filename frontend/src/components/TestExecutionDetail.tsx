@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api/client';
+import { CheckCircle2, XCircle, RefreshCw, HelpCircle, SkipForward, ChevronDown, ChevronRight, type LucideIcon } from 'lucide-react';
 import { formatDuration, fmtDatetime } from '../utils/formatters';
 
 interface ExecSummary {
@@ -23,22 +24,27 @@ interface TestResult {
   durationMs: number; error: string | null;
 }
 
+const STATUS_ICON_MAP: Record<string, LucideIcon> = {
+  check_circle: CheckCircle2,
+  cancel: XCircle,
+  sync: RefreshCw,
+  help: HelpCircle,
+  skip_next: SkipForward,
+};
+
 const STEP_ORDER = ['orchestrator', 'planner', 'generator', 'runner'] as const;
 
 function StatusBadge({ status }: { status: ExecSummary['status'] }) {
   const cfg = {
-    passed:  { bg: 'bg-success/10 text-success border-success/20',   icon: 'check_circle' },
-    failed:  { bg: 'bg-error/10 text-error border-error/20',         icon: 'cancel'       },
-    running: { bg: 'bg-warning/10 text-warning border-warning/20',   icon: 'sync'         },
-  }[status];
+    passed:  { bg: 'bg-success/10 text-success border-success/20',                        icon: 'check_circle' },
+    failed:  { bg: 'bg-error/10 text-error border-error/20',                              icon: 'cancel'       },
+    running: { bg: 'bg-warning/10 text-warning border-warning/20',                        icon: 'sync'         },
+    queued:  { bg: 'bg-surface-muted text-text-secondary border-border-subtle',           icon: 'schedule'     },
+  }[status] ?? { bg: 'bg-surface-muted text-text-secondary border-border-subtle', icon: 'help' };
+  const StatusIcon = STATUS_ICON_MAP[cfg.icon] ?? HelpCircle;
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${cfg.bg}`}>
-      <span
-        className={`material-symbols-outlined ${status === 'running' ? 'animate-spin' : ''}`}
-        style={{ fontSize: 11, fontVariationSettings: '"FILL" 1' }}
-      >
-        {cfg.icon}
-      </span>
+      <StatusIcon size={11} className={status === 'running' ? 'animate-spin' : ''} />
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
   );
@@ -89,9 +95,8 @@ export default function TestExecutionDetail({ testId, colSpan, asPanel }: { test
         </div>
       ) : (
         <div className="divide-y divide-border-subtle">
-          {allRuns.map((run, idx) => {
+          {allRuns.map((run) => {
             const isOpen = run.id === openId;
-            const runNum = allRuns.length - idx;
 
             return (
               <div key={run.id}>
@@ -115,12 +120,10 @@ export default function TestExecutionDetail({ testId, colSpan, asPanel }: { test
                     </span>
                   )}
                   <span className="text-xs text-text-secondary ml-1">{run.environmentName}</span>
-                  <span
-                    className={`material-symbols-outlined text-text-secondary ml-auto transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
-                    style={{ fontSize: 16 }}
-                  >
-                    expand_more
-                  </span>
+                  <ChevronDown
+                    size={16}
+                    className={`text-text-secondary ml-auto transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+                  />
                 </button>
 
                 {/* Step detail for this run */}
@@ -162,9 +165,7 @@ export default function TestExecutionDetail({ testId, colSpan, asPanel }: { test
                                   </div>
                                 </div>
                                 {!isLast && (
-                                  <span className="material-symbols-outlined text-border-subtle flex-shrink-0 mx-1" style={{ fontSize: 16 }}>
-                                    chevron_right
-                                  </span>
+                                  <ChevronRight size={16} className="text-border-subtle flex-shrink-0 mx-1" />
                                 )}
                               </div>
                             );
@@ -195,9 +196,7 @@ export default function TestExecutionDetail({ testId, colSpan, asPanel }: { test
                                       <span className={`inline-flex items-center gap-1 text-xs font-semibold ${
                                         t.status === 'passed' ? 'text-success' : t.status === 'skipped' ? 'text-text-secondary' : 'text-error'
                                       }`}>
-                                        <span className="material-symbols-outlined" style={{ fontSize: 13, fontVariationSettings: '"FILL" 1' }}>
-                                          {t.status === 'passed' ? 'check_circle' : t.status === 'skipped' ? 'skip_next' : 'cancel'}
-                                        </span>
+                                        {t.status === 'passed' ? <CheckCircle2 size={13} /> : t.status === 'skipped' ? <SkipForward size={13} /> : <XCircle size={13} />}
                                         {t.status.charAt(0).toUpperCase() + t.status.slice(1)}
                                       </span>
                                     </td>
