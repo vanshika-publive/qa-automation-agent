@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: publive_tester
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    env_file:
+      - backend/.env
+    environment:
+      # Overrides the host-Postgres value from backend/.env to point at the db service.
+      DATABASE_URL: postgres://postgres:postgres@db:5432/publive_tester
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      # Generated specs/tests/reports and the MFA session must survive restarts.
+      # capture_session.py needs a headed browser + human OTP entry, so it is run
+      # on the host, not in this container — it writes into this same data/ dir.
+      - ./data:/app/data
+    # Headless Chromium needs more than the default 64MB /dev/shm or it crashes.
+    shm_size: '1gb'
+
+  frontend:
+    build: ./frontend
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  pgdata:
