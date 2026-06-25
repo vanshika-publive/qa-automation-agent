@@ -1,4 +1,8 @@
+import logging
+
 from django.apps import AppConfig
+
+logger = logging.getLogger(__name__)
 
 
 class CoreConfig(AppConfig):
@@ -35,4 +39,4 @@ class CoreConfig(AppConfig):
                     created_at=now,
                 )
         except Exception:
-            pass
+            logger.exception('CoreConfig.ready() startup tasks failed')

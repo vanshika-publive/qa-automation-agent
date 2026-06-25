@@ -1,18 +1,5 @@
 import { api } from '../api/client';
-import { ApiResponse } from '../types';
-
-export interface EnvironmentDetail {
-  id: string;
-  name: string;
-  baseUrl: string;
-  description: string;
-  isActive: boolean;
-  createdAt: string;
-  loginEmail: string;
-  publisher: string;
-  publisherId: string;
-  hasPassword: boolean;
-}
+import { ApiResponse, Environment } from '../types';
 
 export interface EnvironmentSaveBody {
   name: string;
@@ -25,13 +12,13 @@ export interface EnvironmentSaveBody {
 
 export const environmentsService = {
   getAll: () =>
-    api.get<ApiResponse<EnvironmentDetail[]>>('/environments'),
+    api.get<ApiResponse<Environment[]>>('/environments'),
 
   create: (body: EnvironmentSaveBody) =>
-    api.post<ApiResponse<EnvironmentDetail>>('/environments', body),
+    api.post<ApiResponse<Environment>>('/environments', body),
 
   update: (id: string, body: EnvironmentSaveBody) =>
-    api.put<ApiResponse<EnvironmentDetail>>(`/environments/${id}`, body),
+    api.put<ApiResponse<Environment>>(`/environments/${id}`, body),
 
   delete: (id: string) =>
     api.del<ApiResponse<{ id: string }>>(`/environments/${id}`),

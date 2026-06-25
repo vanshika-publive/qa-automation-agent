@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Check, X, ChevronDown, AlertTriangle, XCircle, CheckCircle2, ArrowRight, ArrowLeft, ExternalLink, FlaskConical, Lightbulb } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '../api/client';
-import { ApiResponse, Collection, Environment, StepName, StepStatus } from '../types';
+import { Check, X, ChevronDown, AlertTriangle, XCircle, CheckCircle2, ArrowRight, ArrowLeft, ExternalLink, FlaskConical, Lightbulb } from 'lucide-react';
+import { Collection, StepName, StepStatus } from '../types';
+import { collectionsService } from '../services/collections';
+import { executionsService } from '../services/executions';
+import { useEnvironments } from '../hooks/useEnvironments';
 import { EDITOR_BG, sseStreamUrl } from '../constants';
 
 interface StepState {
@@ -30,7 +31,7 @@ const INITIAL_STEPS: StepState[] = [
   { name: 'runner',       label: 'Test Runner',     description: 'Executing tests & collecting results',  status: 'pending', log: '' },
 ];
 
-// Sub-components 
+// Sub-components
 
 function StepCircle({ status }: { status: StepStatus }) {
   if (status === 'passed') {
@@ -144,7 +145,7 @@ function StepRow({
   );
 }
 
-// Main Component 
+// Main Component
 
 export default function CreateTestSlideOver({
   collections,
@@ -168,11 +169,8 @@ export default function CreateTestSlideOver({
   const sseRef = useRef<EventSource | null>(null);
 
   // Environments (for the run call)
-  const { data: envData } = useQuery({
-    queryKey: ['environments'],
-    queryFn: () => api.get<ApiResponse<Environment[]>>('/environments'),
-  });
-  const activeEnvs = (envData?.data ?? []).filter((e) => e.isActive);
+  const { environments } = useEnvironments();
+  const activeEnvs = environments.filter((e) => e.isActive);
   const [environmentId, setEnvironmentId] = useState('');
 
   // Slide-in animation on mount
@@ -218,19 +216,13 @@ export default function CreateTestSlideOver({
 
     try {
       // 1. Create the test
-      const testRes = await api.post<ApiResponse<{ id: string }>>(
-        `/collections/${collectionId}/tests`,
-        { name: name.trim(), prompt: prompt.trim() }
-      );
+      const testRes = await collectionsService.createTest(collectionId, { name: name.trim(), prompt: prompt.trim() });
       if (!testRes.data?.id) throw new Error('Failed to create test');
       const testId = testRes.data.id;
       onTestCreated(); // refresh sidebar/table
 
       // 2. Start the execution
-      const runRes = await api.post<ApiResponse<{ executionId: string }>>(
-        `/executions/tests/${testId}/run`,
-        { environmentId }
-      );
+      const runRes = await executionsService.retry({ testId, environmentId });
       if (!runRes.data?.executionId) throw new Error('Failed to start execution');
       const executionId = runRes.data.executionId;
 
@@ -505,8 +497,7 @@ export default function CreateTestSlideOver({
                   <div className="flex items-center gap-2 mb-1">
                     {pipelineFailed
                       ? <XCircle size={18} className="text-error" />
-                      : <CheckCircle2 size={18} className="text-success" />
-                    }
+                      : <CheckCircle2 size={18} className="text-success" />}
                     <span className={`text-sm font-semibold ${pipelineFailed ? 'text-error' : 'text-success'}`}>
                       {pipelineFailed ? 'Pipeline failed' : 'All tests generated and run!'}
                     </span>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { EnvironmentDetail, EnvironmentSaveBody } from '../services/environments';
+import { EnvironmentSaveBody } from '../services/environments';
+import { Environment } from '../types';
 import { useEnvironments } from '../hooks/useEnvironments';
 import {
   AlertCircle, Link, Mail, Key, Eye, EyeOff, CheckCircle2,
@@ -27,7 +28,7 @@ function envDotColor(name: string): string {
 // ── Inline page-local components ─────────────────────────────────────────────
 
 interface ModalProps {
-  initial?: EnvironmentDetail;
+  initial?: Environment;
   onClose: () => void;
   onSave: (data: EnvironmentSaveBody) => void;
   isPending: boolean;
@@ -305,7 +306,7 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
 function DeleteConfirmModal({
   env, onClose, onConfirm, isPending,
 }: {
-  env: EnvironmentDetail;
+  env: Environment;
   onClose: () => void;
   onConfirm: () => void;
   isPending: boolean;
@@ -344,7 +345,7 @@ function DeleteConfirmModal({
 function EnvironmentCard({
   env, onEdit, onDelete,
 }: {
-  env: EnvironmentDetail;
+  env: Environment;
   onEdit: () => void;
   onDelete: () => void;
 }) {

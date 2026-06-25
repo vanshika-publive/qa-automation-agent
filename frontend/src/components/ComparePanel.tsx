@@ -1,23 +1,19 @@
-import React, { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '../api/client';
-import { CheckCircle2, XCircle, SkipForward, RefreshCw, ArrowLeftRight, X, Info } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { CheckCircle2, XCircle, RefreshCw, Clock, SkipForward, ArrowLeftRight, X, Info, type LucideIcon } from 'lucide-react';
 import { Execution } from '../types';
+import { useComparePanel } from '../hooks/useComparePanel';
+
+type CompareStep = NonNullable<Awaited<ReturnType<typeof useComparePanel>>['stepsA']>[number];
 import { COMPARE_PANEL_WIDTH } from '../constants';
 import { fmtMSS } from '../utils/formatters';
 
-interface CompareStep {
-  id: string;
-  test_name: string;
-  status: 'passed' | 'failed' | 'skipped';
-  duration_ms: number;
-  error_message: string | null;
-}
-
-interface StepsResponse {
-  data: CompareStep[];
-  error: string | null;
-}
+const STATUS_ICON_MAP: Record<string, LucideIcon> = {
+  check_circle: CheckCircle2,
+  cancel: XCircle,
+  sync: RefreshCw,
+  schedule: Clock,
+  skip_next: SkipForward,
+};
 
 interface ComparePanelProps {
   executionIds: string[];
@@ -44,17 +40,18 @@ function RunHeader({ exec, steps }: { exec: Execution; steps: CompareStep[] }) {
 }
 
 function StatusChip({ status }: { status: string }) {
-  const cfgMap: Record<string, { cls: string; icon: React.ReactNode }> = {
-    passed:  { cls: 'bg-success/10 text-success',            icon: <CheckCircle2 size={12} /> },
-    failed:  { cls: 'bg-error/10 text-error',                icon: <XCircle size={12} /> },
-    running: { cls: 'bg-warning/10 text-warning',            icon: <RefreshCw size={12} /> },
-    queued:  { cls: 'bg-surface-muted text-text-secondary',  icon: <SkipForward size={12} /> },
-    skipped: { cls: 'bg-surface-muted text-text-secondary',  icon: <SkipForward size={12} /> },
+  const cfgMap: Record<string, { cls: string; icon: string }> = {
+    passed:  { cls: 'bg-success/10 text-success',            icon: 'check_circle' },
+    failed:  { cls: 'bg-error/10 text-error',                icon: 'cancel' },
+    running: { cls: 'bg-warning/10 text-warning',            icon: 'sync' },
+    queued:  { cls: 'bg-surface-muted text-text-secondary',  icon: 'schedule' },
+    skipped: { cls: 'bg-surface-muted text-text-secondary',  icon: 'skip_next' },
   };
   const cfg = cfgMap[status] ?? cfgMap.failed;
+  const StatusIcon = STATUS_ICON_MAP[cfg.icon] ?? Info;
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${cfg.cls}`}>
-      {cfg.icon}
+      <StatusIcon size={12} />
       {status.charAt(0).toUpperCase() + status.slice(1)}
     </span>
   );
@@ -64,9 +61,13 @@ function StepStatusIcon({ status }: { status: 'passed' | 'failed' | 'skipped' | 
   if (!status) {
     return <span className="text-sm text-text-secondary font-mono-code">—</span>;
   }
-  if (status === 'passed') return <CheckCircle2 size={16} className="text-success" />;
-  if (status === 'failed') return <XCircle size={16} className="text-error" />;
-  return <SkipForward size={16} className="text-text-secondary" />;
+  const cfg = {
+    passed:  { cls: 'text-success', icon: 'check_circle' },
+    failed:  { cls: 'text-error',   icon: 'cancel' },
+    skipped: { cls: 'text-text-secondary', icon: 'skip_next' },
+  }[status];
+  const StatusIcon = STATUS_ICON_MAP[cfg.icon] ?? Info;
+  return <StatusIcon size={16} className={cfg.cls} />;
 }
 
 export default function ComparePanel({ executionIds, executions, onClose }: ComparePanelProps) {
@@ -81,21 +82,7 @@ export default function ComparePanel({ executionIds, executions, onClose }: Comp
   const execA = executions[0];
   const execB = executions[1];
 
-  const { data: dataA, isLoading: loadingA } = useQuery({
-    queryKey: ['exec-steps', idA],
-    queryFn: () => api.get<StepsResponse>(`/executions/${idA}/steps`),
-    staleTime: 30_000,
-  });
-
-  const { data: dataB, isLoading: loadingB } = useQuery({
-    queryKey: ['exec-steps', idB],
-    queryFn: () => api.get<StepsResponse>(`/executions/${idB}/steps`),
-    staleTime: 30_000,
-  });
-
-  const stepsA = dataA?.data ?? [];
-  const stepsB = dataB?.data ?? [];
-  const isLoading = loadingA || loadingB;
+  const { stepsA, stepsB, isLoading } = useComparePanel(idA, idB);
 
   // Merge test names from both runs, preserving run A order first
   const mergedNames: string[] = [];

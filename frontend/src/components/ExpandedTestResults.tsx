@@ -1,28 +1,7 @@
-import { useQuery } from '@tanstack/react-query';
-import { api } from '../api/client';
 import { CheckCircle2, XCircle, SkipForward, RefreshCw, ExternalLink, Circle, HelpCircle, type LucideIcon } from 'lucide-react';
-import { Execution } from '../types';
+import { useExpandedTestResults } from '../hooks/useExpandedTestResults';
+import { Execution, TestResult } from '../types';
 import { formatDuration } from '../utils/formatters';
-
-interface TestResult {
-  title: string;
-  file: string;
-  status: 'passed' | 'failed' | 'skipped';
-  durationMs: number;
-  error: string | null;
-}
-
-interface ExecutionStep {
-  id: string;
-  stepName: string;
-  status: 'running' | 'passed' | 'failed';
-  log: string;
-  startedAt: string;
-  completedAt: string | null;
-}
-
-interface TestsResponse { data: TestResult[]; pending: boolean; error: string | null }
-interface ExecutionDetailResponse { data: Execution & { steps: ExecutionStep[] }; error: string | null }
 
 const STATUS_ICON_MAP: Record<string, LucideIcon> = {
   check_circle: CheckCircle2,
@@ -31,6 +10,7 @@ const STATUS_ICON_MAP: Record<string, LucideIcon> = {
   radio_button_unchecked: Circle,
   skip_next: SkipForward,
 };
+
 
 export function StatusPill({ status }: { status: Execution['status'] }) {
   const cfgMap: Record<Execution['status'], { cls: string; icon: string; label: string; spin: boolean }> = {
@@ -69,25 +49,7 @@ function TestStatusBadge({ status }: { status: TestResult['status'] }) {
 }
 
 export default function ExpandedTestResults({ execution, colSpan = 7 }: { execution: Execution; colSpan?: number }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ['execution-tests', execution.id],
-    queryFn: () => api.get<TestsResponse>(`/executions/${execution.id}/tests`),
-    refetchInterval: execution.status === 'running' ? 3000 : false,
-    staleTime: 0,
-  });
-
-  const tests = data?.data ?? [];
-  const isPending = data?.pending ?? execution.status === 'running';
-  const showStepDetails = execution.status === 'failed' && !isLoading && tests.length === 0;
-
-  const { data: detailData } = useQuery({
-    queryKey: ['execution-detail', execution.id],
-    queryFn: () => api.get<ExecutionDetailResponse>(`/executions/${execution.id}`),
-    enabled: showStepDetails,
-    staleTime: 30_000,
-  });
-
-  const steps = detailData?.data?.steps ?? [];
+  const { tests, isLoading, isPending, showStepDetails, steps } = useExpandedTestResults(execution);
   const reportUrl = execution.reportDir ? `/reports/${execution.reportDir}/html/index.html` : null;
 
   return (

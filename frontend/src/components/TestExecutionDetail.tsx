@@ -1,28 +1,8 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '../api/client';
 import { CheckCircle2, XCircle, RefreshCw, HelpCircle, SkipForward, ChevronDown, ChevronRight, type LucideIcon } from 'lucide-react';
 import { formatDuration, fmtDatetime } from '../utils/formatters';
-
-interface ExecSummary {
-  id: string; testId: string; environmentId: string;
-  status: 'running' | 'passed' | 'failed';
-  startedAt: string; completedAt: string | null;
-  durationMs: number | null;
-  passCount: number; failCount: number; totalCount: number;
-  testName: string; environmentName: string; reportDir: string | null;
-}
-interface ExecStep {
-  id: string; stepName: string;
-  status: 'running' | 'passed' | 'failed';
-  log: string; startedAt: string; completedAt: string | null;
-}
-interface ExecDetail extends ExecSummary { steps: ExecStep[] }
-interface TestResult {
-  title: string; file: string;
-  status: 'passed' | 'failed' | 'skipped';
-  durationMs: number; error: string | null;
-}
+import type { Execution } from '../types';
+import { useTestExecutionHistory } from '../hooks/useTestExecutionHistory';
 
 const STATUS_ICON_MAP: Record<string, LucideIcon> = {
   check_circle: CheckCircle2,
@@ -34,7 +14,7 @@ const STATUS_ICON_MAP: Record<string, LucideIcon> = {
 
 const STEP_ORDER = ['orchestrator', 'planner', 'generator', 'runner'] as const;
 
-function StatusBadge({ status }: { status: ExecSummary['status'] }) {
+function StatusBadge({ status }: { status: Execution['status'] }) {
   const cfg = {
     passed:  { bg: 'bg-success/10 text-success border-success/20',                        icon: 'check_circle' },
     failed:  { bg: 'bg-error/10 text-error border-error/20',                              icon: 'cancel'       },
@@ -53,38 +33,15 @@ function StatusBadge({ status }: { status: ExecSummary['status'] }) {
 export default function TestExecutionDetail({ testId, colSpan, asPanel }: { testId: string; colSpan: number; asPanel?: boolean }) {
   const [expandedExecId, setExpandedExecId] = useState<string | null>(null);
 
-  const execsQ = useQuery({
-    queryKey: ['test-executions', testId],
-    queryFn: () => api.get<{ data: ExecSummary[]; error: string | null }>(`/executions?testId=${testId}`),
-    staleTime: 10_000,
-  });
+  const { allRuns, openId, isLoadingRuns, steps, isLoadingDetail, testResults } =
+    useTestExecutionHistory(testId, expandedExecId);
 
-  const allRuns = execsQ.data?.data ?? [];
-  const openId = expandedExecId ?? allRuns[0]?.id ?? null;
-  const selectedRun = allRuns.find((e) => e.id === openId) ?? null;
-
-  const detailQ = useQuery({
-    queryKey: ['execution-detail', openId],
-    queryFn: () => api.get<{ data: ExecDetail; error: string | null }>(`/executions/${openId}`),
-    enabled: !!openId,
-    staleTime: 10_000,
-    refetchInterval: selectedRun?.status === 'running' ? 2000 : false,
-  });
-  const resultsQ = useQuery({
-    queryKey: ['execution-tests', openId],
-    queryFn: () => api.get<{ data: TestResult[]; pending: boolean; error: string | null }>(`/executions/${openId}/tests`),
-    enabled: !!openId,
-    staleTime: 10_000,
-  });
-
-  const steps       = detailQ.data?.data?.steps ?? [];
-  const testResults = resultsQ.data?.data ?? [];
-  const stepMap     = new Map(steps.map((s) => [s.stepName, s]));
+  const stepMap = new Map(steps.map((s) => [s.stepName, s]));
 
   const panelContent = (
     <div className="rounded-xl border border-border-subtle bg-surface-muted/40 overflow-hidden">
 
-      {execsQ.isLoading ? (
+      {isLoadingRuns ? (
         <div className="flex items-center gap-2 px-5 py-4 text-sm text-text-secondary">
           <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
           Loading run history…
@@ -129,7 +86,7 @@ export default function TestExecutionDetail({ testId, colSpan, asPanel }: { test
                 {/* Step detail for this run */}
                 {isOpen && (
                   <div className="px-5 py-4 bg-surface-main/60 border-t border-border-subtle">
-                    {detailQ.isLoading ? (
+                    {isLoadingDetail ? (
                       <div className="flex items-center gap-2 text-sm text-text-secondary">
                         <div className="w-3 h-3 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
                         Loading details…
