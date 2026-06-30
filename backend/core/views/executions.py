@@ -45,9 +45,13 @@ class ExecutionDetailView(APIView):
             execution, steps, run_number = ExecutionService.get_detail(pk)
         except Execution.DoesNotExist:
             return Response({'error': 'Execution not found'}, status=status.HTTP_404_NOT_FOUND)
+        failure = None
+        if execution.status == 'failed' and execution.report_dir:
+            failure = ExecutionService.failure_summary(execution.report_dir, PROJECT_ROOT)
         return Response(
             ExecutionDetailSerializer(
-                execution, context={'run_number': run_number, 'steps': steps}
+                execution,
+                context={'run_number': run_number, 'steps': steps, 'failure': failure},
             ).data
         )
 

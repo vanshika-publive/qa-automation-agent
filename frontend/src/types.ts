@@ -83,6 +83,9 @@ export interface TestResult {
 
 export interface ExecutionDetail extends Execution {
   steps: ExecStep[];
+  failureCategory?: string | null;
+  failureReason?: string | null;
+  failureLocator?: string | null;
 }
 
 export interface ExecutionFiles {

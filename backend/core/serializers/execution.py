@@ -62,8 +62,24 @@ class ExecutionListSerializer(_ExecutionJoinedSerializer):
 
 
 class ExecutionDetailSerializer(_ExecutionJoinedSerializer):
-    """Single execution with its pipeline steps. Pass context={'run_number', 'steps'}."""
+    """Single execution with its pipeline steps and (when failed) a classified reason.
+
+    Pass context={'run_number', 'steps', 'failure'} where 'failure' is the
+    {category, summary, locator} dict from ExecutionService.failure_summary, or None.
+    """
     steps = serializers.SerializerMethodField()
+    failureCategory = serializers.SerializerMethodField()
+    failureReason = serializers.SerializerMethodField()
+    failureLocator = serializers.SerializerMethodField()
 
     def get_steps(self, obj):
         return ExecutionStepSerializer(self.context.get('steps', []), many=True).data
+
+    def get_failureCategory(self, obj):
+        return (self.context.get('failure') or {}).get('category')
+
+    def get_failureReason(self, obj):
+        return (self.context.get('failure') or {}).get('summary')
+
+    def get_failureLocator(self, obj):
+        return (self.context.get('failure') or {}).get('locator')
