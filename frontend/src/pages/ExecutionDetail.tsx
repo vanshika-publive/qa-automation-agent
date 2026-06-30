@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useExecutionDetail } from '../hooks/useExecutionDetail';
-import { ExecStep, TestResult, Execution } from '../types';
+import { ExecStep, TestResult, Execution, ExecutionDetail as ExecutionDetailData } from '../types';
 import { relTime, fmtDatetime, fmtMSS } from '../utils/formatters';
 import {
   CheckCircle2, XCircle, RefreshCw, Clock, HelpCircle, MinusCircle,
   ArrowRight, Code2, FileText, ChevronDown, ArrowLeft, ChevronRight,
-  RotateCcw, Timer, Network, Trash2, ExternalLink,
+  RotateCcw, Timer, Network, Trash2, ExternalLink, AlertTriangle,
 } from 'lucide-react';
 
 const STEP_ORDER = ['orchestrator', 'planner', 'generator', 'runner'] as const;
@@ -352,6 +352,35 @@ function RunHistory({ history, currentId, retryMutation, deleteMutation }: {
   );
 }
 
+function FailureBanner({ exec }: { exec: ExecutionDetailData }) {
+  if (exec.status !== 'failed' || !exec.failureReason) return null;
+  return (
+    <section className="bg-error/5 border border-error/20 rounded-2xl p-5 mb-5">
+      <div className="flex items-start gap-3">
+        <AlertTriangle size={18} className="text-error flex-shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-semibold uppercase tracking-wider text-error">
+              Failure reason
+            </span>
+            {exec.failureCategory && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full border border-error/20 bg-error/10 text-error text-xs font-semibold">
+                {exec.failureCategory}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-text-primary">{exec.failureReason}</p>
+          {exec.failureLocator && (
+            <pre className="mt-2 text-xs text-error bg-error/5 border border-error/15 rounded-lg px-3 py-2 whitespace-pre-wrap font-mono overflow-x-auto">
+              {exec.failureLocator}
+            </pre>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function ExecutionDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -446,6 +475,7 @@ export default function ExecutionDetail() {
         </div>
       </div>
 
+      <FailureBanner exec={exec} />
       <PipelineSteps steps={steps} />
       <TestResultsTable results={testResults} pending={testResultsPending} />
       {files?.planContent && steps.some(s => s.stepName === 'planner' && s.status === 'passed') && (

@@ -9,6 +9,7 @@ from core.constants import PaginationDefaults, ExecutionStatus
 from core.models import Collection, Test, Environment, Execution, ExecutionStep
 from pipeline.constants import ERROR_TRUNCATE_LENGTH
 from utils.datetime_utils import DateTimeUtils
+from utils.failure_classifier import classify_failure
 from utils.slug import to_collection_slug
 
 
@@ -86,11 +87,25 @@ class ExecutionService:
             return None
         try:
             report = json.loads(Path(results_path).read_text(encoding='utf-8'))
-            results = []
-            ExecutionService._flatten_suites(report.get('suites', []), results)
-            return results
         except Exception:
             return None
+        results = []
+        ExecutionService._collect_pytest_results(report.get('tests', []), results)
+        return results
+
+    @staticmethod
+    def failure_summary(report_dir: str, project_root: str):
+        """Classified reason for an execution's failure, from the first failed test.
+
+        Returns {category, summary, locator} or None when nothing failed / no results.
+        """
+        results = ExecutionService.parse_results_json(report_dir, project_root) or []
+        first_failed = next(
+            (r for r in results if r['status'] == 'failed' and r.get('error')), None
+        )
+        if not first_failed:
+            return None
+        return classify_failure(first_failed['error'])
 
     @staticmethod
     def results_as_steps(report_dir: str, project_root: str) -> list:
@@ -108,38 +123,64 @@ class ExecutionService:
         ]
 
     @staticmethod
-    def _flatten_suites(suites: list, results: list, file: str = '') -> None:
-        for suite in suites:
-            current_file = suite.get('file', file)
-            if 'suites' in suite:
-                ExecutionService._flatten_suites(suite['suites'], results, current_file)
-            for spec in suite.get('specs', []):
-                test = (spec.get('tests') or [{}])[0] if spec.get('tests') else {}
-                test_results = test.get('results', [{}])
-                first_result = test_results[0] if test_results else {}
-                raw_status = (
-                    first_result.get('status')
-                    or test.get('status')
-                    or ('expected' if spec.get('ok') else 'unexpected')
-                )
-                if raw_status in ('expected', 'passed'):
-                    s = 'passed'
-                elif raw_status == 'skipped':
-                    s = 'skipped'
-                else:
-                    s = 'failed'
-                duration_ms = first_result.get('duration') or test.get('duration', 0)
-                errors = first_result.get('errors') or test.get('errors', [])
-                err_msg = errors[0].get('message', '') if errors else None
-                if err_msg:
-                    err_msg = err_msg[:ERROR_TRUNCATE_LENGTH]
-                results.append({
-                    'title': spec.get('title', 'Unnamed test'),
-                    'file': os.path.basename(current_file) if current_file else '',
-                    'status': s,
-                    'durationMs': duration_ms,
-                    'error': err_msg,
-                })
+    def _collect_pytest_results(tests: list, results: list) -> None:
+        """Read pytest-json-report `tests[]` into the /tests output contract.
+
+        results.json is written by pytest-json-report — schema is `tests[]`, each with
+        setup/call/teardown phases — NOT a Playwright `suites` report. Reading it as the
+        latter (the old `_flatten_suites`) silently returned nothing, so the UI showed
+        "No results" and the actual failure never reached the page. Read the phase that
+        actually failed so the locator/stack trace surfaces.
+        """
+        for item in tests:
+            nodeid = item.get('nodeid', '')
+            outcome = item.get('outcome', '')
+            if outcome == 'passed':
+                status_value = 'passed'
+            elif outcome in ('skipped', 'xfailed', 'xpassed'):
+                status_value = 'skipped'
+            else:
+                status_value = 'failed'
+
+            phases = [item.get('setup'), item.get('call'), item.get('teardown')]
+            failing_phase = next(
+                (p for p in phases if p and p.get('outcome') not in (None, 'passed')),
+                item.get('call') or {},
+            )
+
+            error = None
+            if status_value == 'failed':
+                error = ExecutionService._phase_error_text(failing_phase)
+
+            call = item.get('call') or {}
+            duration_s = call.get('duration')
+            if duration_s is None:
+                duration_s = sum((p or {}).get('duration', 0) for p in phases)
+
+            results.append({
+                'title': nodeid.split('::')[-1] if nodeid else 'Unnamed test',
+                'file': os.path.basename(nodeid.split('::')[0]) if nodeid else '',
+                'status': status_value,
+                'durationMs': int((duration_s or 0) * 1000),
+                'error': error,
+            })
+
+    @staticmethod
+    def _phase_error_text(phase: dict):
+        """Concise failure text from a pytest phase: prefer the exception message
+        (`crash.message`, e.g. 'TimeoutError: ... waiting for locator(...)') over the
+        verbose source-included longrepr."""
+        crash = phase.get('crash') or {}
+        longrepr = phase.get('longrepr')
+        if isinstance(longrepr, dict):
+            longrepr = (
+                longrepr.get('longrepr')
+                or longrepr.get('reprcrash', {}).get('message', '')
+            )
+        msg = crash.get('message') or longrepr or 'Unknown error'
+        if not isinstance(msg, str):
+            msg = str(msg)
+        return msg[:ERROR_TRUNCATE_LENGTH]
 
     @staticmethod
     def create_execution(test_id: str, environment_id: str) -> str:
