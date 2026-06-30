@@ -168,10 +168,24 @@ def validate_plan_content(
         for f in [*facts.required_for_draft, *facts.required_for_publish, *facts.optional_fields]:
             known_fields_across_pages.add(normalize_field_name(f.field))
 
+    # Edit journeys reach a form by CLICKING a row's Edit control, not by a goto URL — that form
+    # (/<resource>/edit/<id>) is never in visited_paths_in_plan and never in PAGE_FACTS, so its fields
+    # MUST NOT be validated against the list page's (empty) facts. If the plan clicks an Edit control,
+    # the fills target a page the validator cannot see; only reject a fill label if it is BOTH absent
+    # from facts AND absent from every live snapshot the planner captured.
+    reaches_clicked_edit_form = bool(re.search(
+        r"(?:get_by_role|getByRole)\(\s*['\"](?:button|link)['\"]\s*,\s*(?:name\s*=\s*|\{\s*name:\s*)['\"]Edit\b",
+        content, flags=re.IGNORECASE
+    ))
+    snapshots_text = '\n'.join(snapshot_cache.values())
     plan_fill_labels = extract_fill_labels(content)
     unknown_fill_labels = (
-        [l for l in plan_fill_labels if normalize_field_name(l) not in known_fields_across_pages]
-        if all_visited_have_facts else []
+        [
+            l for l in plan_fill_labels
+            if normalize_field_name(l) not in known_fields_across_pages
+            and not _is_field_referenced(l, snapshots_text)
+        ]
+        if (all_visited_have_facts and not reaches_clicked_edit_form) else []
     )
 
     # A get_by_title() value counts as verified if it appears in a live snapshot, in the system

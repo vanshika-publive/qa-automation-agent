@@ -24,7 +24,7 @@ from pipeline.transforms.spec_validator import validate_spec_semantics, validate
 
 class GeneratorService:
 
-    ALLOWED_MCP = {'browser_navigate', 'browser_snapshot'}
+    ALLOWED_MCP = {'browser_navigate', 'browser_snapshot', 'browser_click', 'browser_wait_for'}
     MAX_NO_TOOL_NUDGES = 3
 
     @staticmethod

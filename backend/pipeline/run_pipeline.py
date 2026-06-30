@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 import time
@@ -38,6 +39,22 @@ class PipelineRunner:
 
         Execution.all_objects.filter(id=execution_id).update(report_dir=report_dir)
 
+        # Pre-create all 4 steps as 'pending' so the SSE stream can report them
+        # immediately — before _prepare_environment even starts.  The loop below
+        # flips each one to 'running' when it actually begins.
+        pre_step_ids: dict = {}
+        for sn in ['orchestrator', 'planner', 'generator', 'runner']:
+            sid = str(uuid.uuid4())
+            ExecutionStep.all_objects.create(
+                id=sid,
+                execution_id=execution_id,
+                step_name=sn,
+                status='pending',
+                log='',
+                started_at=DateTimeUtils.now_iso(),
+            )
+            pre_step_ids[sn] = sid
+
         start_ms = int(time.time() * 1000)
         overall_status = 'passed'
         summary = None
@@ -59,9 +76,12 @@ class PipelineRunner:
             generated_specs = []
 
             for step_name in ['orchestrator', 'planner', 'generator', 'runner']:
-                step_id = str(uuid.uuid4())
+                step_id = pre_step_ids[step_name]
                 started_at = DateTimeUtils.now_iso()
-                StepManager.insert(execution_id, step_name, step_id, started_at)
+                ExecutionStep.all_objects.filter(id=step_id).update(
+                    status='running',
+                    started_at=started_at,
+                )
                 on_step({'step_name': step_name, 'status': 'running'})
 
                 capture.start()
@@ -93,9 +113,28 @@ class PipelineRunner:
                             except SyntaxError as e:
                                 raise RuntimeError(f'Generated spec has Python syntax error:\n{spec_file}: {e}')
 
+                        if not generated_specs:
+                            raise RuntimeError(
+                                'Generator produced no spec files for the plan scenarios. '
+                                'Every generator_write_test attempt was rejected by the validators — '
+                                'see the rejection messages in the generator step log above. '
+                                'No test was written, so the run is aborted rather than silently '
+                                'falling back to the collection\'s pre-existing specs. '
+                                'Fix the validator rejection (or the plan) and re-run.'
+                            )
+                        basenames = [os.path.basename(p) for p in generated_specs]
+                        Test.all_objects.filter(id=test_id).update(
+                            generated_spec_filenames=json.dumps(basenames)
+                        )
+
                     else:
                         from pipeline.services.runner_service import RunnerService
-                        run_target = generated_specs if generated_specs else tests_dir
+                        if not generated_specs:
+                            raise RuntimeError(
+                                'No generated specs to run — the generator stage produced nothing. '
+                                'Refusing to run the entire collection directory as a fallback.'
+                            )
+                        run_target = generated_specs
                         summary = RunnerService.run(reports_dir, run_target, {
                             'dashboard_url': env_row['base_url'],
                             'dashboard_email': env_row['login_email'],
@@ -129,17 +168,26 @@ class PipelineRunner:
             err_msg = f'{outer_err}\n{traceback.format_exc()}'
             print(f'[pipeline pre-step error] {err_msg}', file=sys.stderr)
             try:
-                diag_id = str(uuid.uuid4())
+                # The orchestrator step was pre-created as 'pending'; mark it failed.
                 now = DateTimeUtils.now_iso()
-                ExecutionStep.all_objects.create(
-                    id=diag_id,
-                    execution_id=execution_id,
-                    step_name='orchestrator',
-                    status='failed',
-                    log=f'Pipeline failed before tests ran:\n\n{err_msg}',
-                    started_at=now,
-                    completed_at=now,
-                )
+                orch_id = pre_step_ids.get('orchestrator')
+                if orch_id:
+                    ExecutionStep.all_objects.filter(id=orch_id).update(
+                        status='failed',
+                        log=f'Pipeline failed before tests ran:\n\n{err_msg}',
+                        completed_at=now,
+                    )
+                else:
+                    diag_id = str(uuid.uuid4())
+                    ExecutionStep.all_objects.create(
+                        id=diag_id,
+                        execution_id=execution_id,
+                        step_name='orchestrator',
+                        status='failed',
+                        log=f'Pipeline failed before tests ran:\n\n{err_msg}',
+                        started_at=now,
+                        completed_at=now,
+                    )
                 on_step({'step_name': 'orchestrator', 'status': 'failed', 'log': err_msg})
             except Exception:
                 pass

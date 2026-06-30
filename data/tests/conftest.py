@@ -68,8 +68,8 @@ def _report_active_publisher():
     try:
         import sys
         sys.path.insert(0, BACKEND_ROOT)
-        from pipeline.publisher import detect_active_publisher
-        pub = detect_active_publisher(base_url, SESSION_PATH)
+        from pipeline.infrastructure.publisher import PublisherDetector
+        pub = PublisherDetector.detect(base_url, SESSION_PATH)
     except Exception:
         pub = None
     if pub and pub.get('name'):

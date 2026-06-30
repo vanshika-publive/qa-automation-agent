@@ -52,8 +52,9 @@ export default function TestExecutionDetail({ testId, colSpan, asPanel }: { test
         </div>
       ) : (
         <div className="divide-y divide-border-subtle">
-          {allRuns.map((run) => {
+          {allRuns.map((run, idx) => {
             const isOpen = run.id === openId;
+            const runNumber = allRuns.length - idx;
 
             return (
               <div key={run.id}>
@@ -65,6 +66,7 @@ export default function TestExecutionDetail({ testId, colSpan, asPanel }: { test
                     isOpen ? 'bg-primary/5' : 'hover:bg-surface-muted/60'
                   }`}
                 >
+                  <span className="font-mono-code text-sm font-semibold text-primary w-8 shrink-0">#{runNumber}</span>
                   <StatusBadge status={run.status} />
                   <span className="text-sm font-medium text-text-primary">{run.testName}</span>
                   <span className="text-xs text-text-secondary">{fmtDatetime(run.startedAt)}</span>

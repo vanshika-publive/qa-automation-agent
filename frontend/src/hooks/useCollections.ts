@@ -1,4 +1,5 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { CollectionFilterState, DEFAULT_COLLECTION_FILTERS } from '../components/CollectionFilterDrawer';
 import { collectionsService } from '../services/collections';
@@ -8,7 +9,15 @@ const PAGE_SIZE = 10;
 
 export function useCollections() {
   const qc = useQueryClient();
-  const [search, setSearch] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const search = searchParams.get('q') ?? '';
+  const setSearch = useCallback((value: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      value ? next.set('q', value) : next.delete('q');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
   const [colFilters, setColFilters] = useState<CollectionFilterState>(DEFAULT_COLLECTION_FILTERS);
   const [page, setPage] = useState(1);
 

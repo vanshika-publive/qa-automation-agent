@@ -1,5 +1,4 @@
-from rest_framework.renderers import JSONRenderer
-
+from rest_framework.renderers import BaseRenderer, JSONRenderer
 
 class EnvelopeRenderer(JSONRenderer):
     def render(self, data, accepted_media_type=None, renderer_context=None):
@@ -24,3 +23,16 @@ class EnvelopeRenderer(JSONRenderer):
             envelope = {'data': data, 'error': None}
 
         return super().render(envelope, accepted_media_type, renderer_context)
+
+
+class EventStreamRenderer(BaseRenderer):
+    """Lets SSE views pass DRF content negotiation. A real browser's EventSource
+    always sends `Accept: text/event-stream`, which the JSON-only EnvelopeRenderer
+    doesn't declare, so DRF 406s before the view body runs. The view returns a raw
+    StreamingHttpResponse, so .render() is never actually called — this only needs
+    to exist so select_renderer() has a renderer whose media_type matches."""
+    media_type = 'text/event-stream'
+    format = 'txt'
+
+    def render(self, data, accepted_media_type=None, renderer_context=None):
+        return data

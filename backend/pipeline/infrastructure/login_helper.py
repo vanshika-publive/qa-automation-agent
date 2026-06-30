@@ -62,7 +62,7 @@ class SessionManager:
 
                 check = json.loads(Path(session_path).read_text(encoding='utf-8'))
                 if not any(
-                    c.get('name') in ('session', 'publisher_agency')
+                    c.get('name') in SessionManager.AUTH_COOKIE_NAMES
                     for c in check.get('cookies', [])
                 ):
                     raise RuntimeError(
@@ -87,11 +87,7 @@ class SessionManager:
         bridge.call_tool('browser_navigate', {'url': base_url})
         snapshot = bridge.call_tool('browser_snapshot', {})
 
-        on_login = (
-            bool(re.search(r'sign in|log in|forgot password|enter your (email|password)', snapshot, re.I))
-            and not bool(re.search(r'dashboard|posts|article|categories|tags|home', snapshot, re.I))
-        )
-        if not on_login:
+        if not SessionManager._is_login_snapshot(snapshot):
             return
 
         print('[ensureMCPAuthenticated] MCP browser on login page — logging in via MCP tools')
@@ -115,17 +111,20 @@ class SessionManager:
         for _ in range(15):
             time.sleep(1)
             after = bridge.call_tool('browser_snapshot', {})
-            still_on_login = (
-                bool(re.search(r'sign in|log in|forgot password', after, re.I))
-                and not bool(re.search(r'dashboard|posts|article|categories|tags|home', after, re.I))
-            )
-            if not still_on_login:
+            if not SessionManager._is_login_snapshot(after):
                 print('[ensureMCPAuthenticated] Login successful')
                 return
 
         raise RuntimeError(
             'MCP browser login timed out — still on login page after 15 s.\n'
             'Check dashboard credentials in your Environment settings.'
+        )
+
+    @staticmethod
+    def _is_login_snapshot(snapshot: str) -> bool:
+        return (
+            bool(re.search(r'sign in|log in|forgot password|enter your (email|password)', snapshot, re.I))
+            and not bool(re.search(r'dashboard|posts|article|categories|tags|home', snapshot, re.I))
         )
 
     @staticmethod

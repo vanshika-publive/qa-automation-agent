@@ -12,7 +12,6 @@ from django.conf import settings
 from pipeline.constants import MCP_TIMEOUT_MS, MCP_PROTOCOL_VERSION, PLAYWRIGHT_BROWSER
 from pipeline.utils.credential_manager import CredentialManager
 
-
 @dataclass
 class _PendingRequest:
     event: threading.Event = field(default_factory=threading.Event)
@@ -22,7 +21,7 @@ class _PendingRequest:
 
 class MCPBridge:
 
-    def __init__(self, project_root: Optional[str] = None, extra_args: Optional[list] = None):
+    def __init__(self, project_root: Optional[str] = None):
         self._project_root = project_root or settings.PLAYWRIGHT_PROJECT_ROOT
         cli_path = MCPBridge._find_cli()
 
@@ -30,8 +29,6 @@ class MCPBridge:
         session_args = ['--storage-state', session_path] if os.path.isfile(session_path) else []
 
         args = ['--browser', PLAYWRIGHT_BROWSER] + session_args
-        if extra_args:
-            args += extra_args
 
         self.proc = subprocess.Popen(
             ['node', cli_path] + args,
@@ -55,61 +52,43 @@ class MCPBridge:
     @staticmethod
     def _find_cli() -> str:
         backend_root = settings.BACKEND_ROOT
-        pkg_dir = os.path.join(backend_root, 'node_modules', '@playwright', 'mcp')
-        pkg_json_path = os.path.join(pkg_dir, 'package.json')
-
-        if not os.path.isfile(pkg_json_path):
+        cli_path = os.path.join(backend_root, 'node_modules', '@playwright', 'mcp', 'cli.js')
+        if not os.path.isfile(cli_path):
             raise RuntimeError(
-                '@playwright/mcp is not installed.\n'
-                f'Run: cd {backend_root} && npm install'
+                '@playwright/mcp CLI not found at expected path:\n'
+                f'  {cli_path}\n'
+                f'Run: cd {backend_root} && npm install\n'
+                '(If the package updated, check its package.json "bin" field for a renamed entry.)'
             )
-
-        with open(pkg_json_path, encoding='utf-8') as f:
-            pkg = json.load(f)
-
-        candidates = []
-        bin_field = pkg.get('bin')
-        if isinstance(bin_field, str):
-            candidates.append(os.path.join(pkg_dir, bin_field))
-        elif isinstance(bin_field, dict):
-            for rel in bin_field.values():
-                candidates.append(os.path.join(pkg_dir, rel))
-
-        for c in candidates:
-            if os.path.isfile(c):
-                return c
-
-        raise RuntimeError(
-            'Found @playwright/mcp but could not locate its CLI entry.\n'
-            f'Checked: {", ".join(candidates)}\n'
-            'Inspect node_modules/@playwright/mcp/package.json -> "bin" field.'
-        )
+        return cli_path
 
     def _read_loop(self):
         try:
             for line in self.proc.stdout:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    msg = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                msg_id = msg.get('id')
-                if msg_id is None:
-                    continue
-                with self._lock:
-                    pending = self._pending.pop(msg_id, None)
-                if pending is None:
-                    continue
-                if msg.get('error'):
-                    err = msg['error']
-                    pending.error = f"MCP error {err.get('code', '?')}: {err.get('message', '')}"
-                else:
-                    pending.result = msg.get('result')
-                pending.event.set()
+                self._handle_line(line.strip())
         except Exception:
             pass
+
+    def _handle_line(self, line: str):
+        if not line:
+            return
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            return
+        msg_id = msg.get('id')
+        if msg_id is None:
+            return
+        with self._lock:
+            pending = self._pending.pop(msg_id, None)
+        if pending is None:
+            return
+        if msg.get('error'):
+            err = msg['error']
+            pending.error = f"MCP error {err.get('code', '?')}: {err.get('message', '')}"
+        else:
+            pending.result = msg.get('result')
+        pending.event.set()
 
     def _send(self, method: str, params=None, timeout_s: Optional[float] = None):
         if timeout_s is None:

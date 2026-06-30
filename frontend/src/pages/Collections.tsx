@@ -5,10 +5,11 @@ import CollectionFilterDrawer from '../components/CollectionFilterDrawer';
 import RunAllModal from '../components/RunAllModal';
 import PaginationBar from '../components/PaginationBar';
 import { useCollections } from '../hooks/useCollections';
+import { useRunAllCollections } from '../hooks/useRunAllCollections';
 import {
   Sparkles, Check, ArrowRight, CheckCircle2, FlaskConical,
   X, FolderPlus, Search, Calendar, Play, Trash2, Folder,
-  Pencil, ListFilter,
+  Pencil, ListFilter, PlayCircle,
 } from 'lucide-react';
 
 // ── Empty state ───────────────────────────────────────────────────────────────
@@ -222,6 +223,7 @@ export default function Collections() {
   const [runAllColIds,   setRunAllColIds]   = useState<string[] | null>(null);
   const [colFilterOpen,  setColFilterOpen]  = useState(false);
   const selectAllRef = useRef<HTMLInputElement>(null);
+  const runAllCollectionsMutation = useRunAllCollections();
 
   const {
     collections, filteredCollections, pagedCollections,
@@ -314,13 +316,26 @@ export default function Collections() {
             {filtersActive ? ' matching filters' : ''}
           </p>
         </div>
-        <button
-          onClick={() => { setCreateOpen(true); createMutation.reset(); }}
-          className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0 active:scale-[0.98]"
-        >
-          <FolderPlus size={18} />
-          New Collection
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => runAllCollectionsMutation.mutate(filteredCollections)}
+            disabled={filteredCollections.length === 0 || runAllCollectionsMutation.isPending}
+            title={filteredCollections.length === 0 ? 'No collections to run' : undefined}
+            className="inline-flex items-center gap-2 border border-primary/30 bg-primary/5 text-primary rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/10 transition-all hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+          >
+            {runAllCollectionsMutation.isPending
+              ? <span className="w-[18px] h-[18px] border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+              : <PlayCircle size={18} />}
+            {runAllCollectionsMutation.isPending ? 'Launching…' : 'Run All Collections'}
+          </button>
+          <button
+            onClick={() => { setCreateOpen(true); createMutation.reset(); }}
+            className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0 active:scale-[0.98]"
+          >
+            <FolderPlus size={18} />
+            New Collection
+          </button>
+        </div>
       </div>
 
       {/* Filter bar */}

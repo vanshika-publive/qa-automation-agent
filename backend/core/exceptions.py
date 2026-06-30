@@ -1,6 +1,5 @@
 from rest_framework.views import exception_handler
 
-
 def _first_error_message(data):
     """
     Pull the first human-readable string out of a DRF error payload, which may be
@@ -9,7 +8,7 @@ def _first_error_message(data):
     if isinstance(data, dict):
         if 'detail' in data:
             return str(data['detail'])
-        for value in data.values():
+        for value in data.values(): #validation errors
             msg = _first_error_message(value)
             if msg:
                 return msg

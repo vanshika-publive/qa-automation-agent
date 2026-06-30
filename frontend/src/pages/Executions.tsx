@@ -440,8 +440,8 @@ export default function Executions() {
             <div className="flex items-start gap-2">
               {isRunning && <span className="mt-[3px] w-1.5 h-1.5 rounded-full bg-primary animate-pulse flex-shrink-0 inline-block" />}
               <div>
-                <div className="font-medium text-sm text-text-primary">{e.collectionName} · #{e.runNumber}</div>
-                <div className="text-sm text-text-secondary mt-0.5">{relTime(e.startedAt)} · {e.environmentUrl}</div>
+                <div className="font-medium text-sm text-text-primary">{e.testName}</div>
+                <div className="text-sm text-text-secondary mt-0.5">{relTime(e.startedAt)} · #{e.runNumber}</div>
                 {isRunning && (
                   <div className="mt-1.5 w-32 h-1 rounded overflow-hidden bg-surface-muted" style={{ borderRadius: 2 }}>
                     <div className="h-full" style={{ width: `${progressPct}%`, backgroundColor: '#3525cd', borderRadius: 2 }} />
@@ -459,6 +459,12 @@ export default function Executions() {
           </td>
 
           <td className="px-[14px] py-[11px]" style={{ width: 100 }}><StatusPill status={e.status} /></td>
+
+          <td className="px-[14px] py-[11px]" style={{ width: 140 }}>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface-muted border border-border-subtle text-xs font-medium text-text-secondary max-w-[120px] truncate">
+              <span className="truncate">{e.environmentName}</span>
+            </span>
+          </td>
 
           <td className="px-[14px] py-[11px]" style={{ width: 110 }}>
             {e.status === 'queued' ? (
@@ -573,19 +579,20 @@ export default function Executions() {
                   <th className="text-left px-[14px] py-[11px] text-[11px] font-medium uppercase tracking-wider text-text-secondary">Run</th>
                   <th className="text-left px-[14px] py-[11px] text-[11px] font-medium uppercase tracking-wider text-text-secondary" style={{ width: 140 }}>Collection</th>
                   <th className="text-left px-[14px] py-[11px] text-[11px] font-medium uppercase tracking-wider text-text-secondary" style={{ width: 100 }}>Status</th>
+                  <th className="text-left px-[14px] py-[11px] text-[11px] font-medium uppercase tracking-wider text-text-secondary" style={{ width: 140 }}>Environment</th>
                   <th className="text-left px-[14px] py-[11px] text-[11px] font-medium uppercase tracking-wider text-text-secondary" style={{ width: 110 }}>Tests</th>
                   <th className="text-left px-[14px] py-[11px] text-[11px] font-medium uppercase tracking-wider text-text-secondary" style={{ width: 72 }}>Duration</th>
                   <th className="px-[14px] py-[11px]" style={{ width: 96 }} />
                 </tr>
               </thead>
               <tbody>
-                {liveRows.length > 0 && <tr><td colSpan={7} className={sectionHeaderCls}>Live</td></tr>}
+                {liveRows.length > 0 && <tr><td colSpan={8} className={sectionHeaderCls}>Live</td></tr>}
                 {liveRows.map(renderRow)}
-                {historyRows.length > 0 && <tr><td colSpan={7} className={sectionHeaderCls}>History</td></tr>}
+                {historyRows.length > 0 && <tr><td colSpan={8} className={sectionHeaderCls}>History</td></tr>}
                 {historyRows.map(renderRow)}
                 {exec.tableExecs.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-[14px] py-12 text-center text-sm text-text-secondary">
+                    <td colSpan={8} className="px-[14px] py-12 text-center text-sm text-text-secondary">
                       {exec.activeFilterCount > 0
                         ? 'No executions match your filters.'
                         : 'No executions yet. Run a suite to see results here.'}

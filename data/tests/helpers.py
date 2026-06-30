@@ -65,6 +65,11 @@ def safe_sequential_fill(page, label, text, delay=0, exact=False):
         locator = page.get_by_role('textbox', name=label)
     locator.wait_for(state='visible')
     locator.click()
+    # Clear any existing value with real key events (React-tracked) so this is a true REPLACE, not an
+    # append. fill('') is avoided on purpose — React-controlled inputs ignore it. On empty create-form
+    # fields the select-all+delete is a harmless no-op; on pre-filled edit/rename fields it erases first.
+    locator.press('ControlOrMeta+a')
+    locator.press('Delete')
     max_len = locator.evaluate('(el) => el.maxLength')
     value = text[:max_len] if max_len > 0 else text
     locator.press_sequentially(value, delay=delay)

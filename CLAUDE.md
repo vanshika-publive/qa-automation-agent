@@ -116,22 +116,35 @@ Key rules:
 
 ## AI pipeline (`backend/pipeline/`)
 
-Entry point: `pipeline/run_pipeline.py:run_pipeline()`, called from a **daemon thread** (no Celery/RQ). Four stages run sequentially; one `ExecutionStep` row per stage captures stdout/stderr via a `LogCapture`/`_TeeWriter` redirect. A stage failure aborts remaining stages.
+Entry point: `pipeline/run_pipeline.py:PipelineRunner.run()`, called from a **daemon thread** (no Celery/RQ). Four stages run sequentially; one `ExecutionStep` row per stage captures stdout/stderr via a `LogCapture`/`_TeeWriter` redirect. A stage failure aborts remaining stages.
 
-Before any stage: resolves prompt + collection slug, refreshes the stored session, detects the active publisher (thread-locally via `pipeline/credential_manager.py`).
+Before any stage: resolves prompt + collection slug, refreshes the stored session, detects the active publisher (thread-locally via `pipeline/utils/credential_manager.py`).
+
+Pipeline subpackage layout:
+```
+pipeline/
+├── services/        # one class per stage: OrchestratorService, PlannerService, GeneratorService, RunnerService
+├── infrastructure/  # ai_client.py, mcp_bridge.py, login_helper.py, publisher.py
+├── utils/           # agent_utils.py, credential_manager.py, log_capture.py, step_manager.py
+├── tools/           # planner_tools.py, generator_tools.py — OpenAI tool schemas
+├── prompts/         # orchestrator_prompt.py, planner_prompt.py, generator_prompt.py
+├── transforms/      # plan_parser.py, plan_validator.py, spec_validator.py, spec_sanitizer.py
+├── knowledge/       # dashboard_facts.py, heuristics_loader.py
+└── run_pipeline.py  # PipelineRunner entry point
+```
 
 | Stage | File | What it does |
 |---|---|---|
-| **Orchestrator** | `pipeline/orchestrator.py` | Pure LLM (`gpt-4o`). Turns user's prompt → structured `TestPlan` JSON. Injects `dashboard_facts.py` knowledge. Then deterministically expands missing precondition steps (no LLM). |
-| **Planner** | `pipeline/planner_agent.py` | Agentic loop (max 20 iters). Drives a **real headless browser** via `MCPBridge` to discover the actual UI. Read-only Playwright MCP tools (navigate/snapshot/click/hover). Writes `plan.md` + `plan-snapshots.json`. Plans are validated by `transforms/plan_validator.py` before acceptance; rejections feed back as retries. |
-| **Generator** | `pipeline/generator_agent.py` | Agentic loop per scenario (max 20 iters). Writes Python pytest-playwright code. Gated by `transforms/spec_validator.py` before write, then deterministically cleaned up by `transforms/spec_sanitizer.py`. Skips if spec already on disk (idempotent). |
-| **Runner** | `pipeline/runner.py` | No LLM. Shells out to `pytest` with `--json-report --html --timeout=30`. 4-minute hard kill with `SIGKILL` on the process group. |
+| **Orchestrator** | `pipeline/services/orchestrator_service.py` | Pure LLM (`gpt-4o`). Turns user's prompt → structured `TestPlan` JSON. Injects `dashboard_facts.py` knowledge. Then deterministically expands missing precondition steps (no LLM). |
+| **Planner** | `pipeline/services/planner_service.py` | Agentic loop (max 20 iters). Drives a **real headless browser** via `MCPBridge` to discover the actual UI. Read-only Playwright MCP tools (navigate/snapshot/click/hover). Writes `plan.md` + `plan-snapshots.json`. Plans are validated by `transforms/plan_validator.py` before acceptance; rejections feed back as retries. |
+| **Generator** | `pipeline/services/generator_service.py` | Agentic loop per scenario (max 20 iters). Writes Python pytest-playwright code. Gated by `transforms/spec_validator.py` before write, then deterministically cleaned up by `transforms/spec_sanitizer.py`. Skips if spec already on disk (idempotent). |
+| **Runner** | `pipeline/services/runner_service.py` | No LLM. Shells out to `pytest` with `--json-report --html --timeout=30`. 4-minute hard kill with `SIGKILL` on the process group. |
 
-The pipeline is **OpenAI-powered** (`gpt-4o`), not Claude. `pipeline/ai_client.py` holds the single `AI_MODEL = 'gpt-4o'` constant (`pipeline/constants.py`).
+The pipeline is **OpenAI-powered** (`gpt-4o`), not Claude. `pipeline/infrastructure/ai_client.py` holds the single `AI_MODEL = 'gpt-4o'` constant (`pipeline/constants.py`).
 
-`pipeline/mcp_bridge.py` spawns `backend/node_modules/@playwright/mcp`'s CLI as a child process and speaks raw JSON-RPC 2.0 over stdin/stdout. A fresh `MCPBridge` (= a fresh real browser) is spawned per planner run and per generator scenario.
+`pipeline/infrastructure/mcp_bridge.py` spawns `backend/node_modules/@playwright/mcp`'s CLI as a child process and speaks raw JSON-RPC 2.0 over stdin/stdout. A fresh `MCPBridge` (= a fresh real browser) is spawned per planner run and per generator scenario.
 
-`pipeline/agent_utils.py` is shared plumbing for both agentic loops: MCP-tool→OpenAI-tool-schema conversion, tool-result truncation (8000 chars), conversation history pruning (keep last N assistant turns + first 2 system/user messages), and `call_with_retry` (exponential backoff on 429/502/503/connection errors).
+`pipeline/utils/agent_utils.py` is shared plumbing for both agentic loops: MCP-tool→OpenAI-tool-schema conversion, tool-result truncation (8000 chars), conversation history pruning (keep last N assistant turns + first 2 system/user messages), and `call_with_retry` (exponential backoff on 429/502/503/connection errors).
 
 ---
 
@@ -149,7 +162,7 @@ Two hand-maintained sources injected into every LLM prompt:
 The dashboard enforces email-OTP MFA that can't be scripted. Auth strategy:
 
 1. `capture_session.py` — run manually once; opens a headed browser, waits for human OTP entry, saves `data/.auth/session.json`. Sessions expire ~24h.
-2. Every pipeline run reuses the single stored session. `pipeline/login_helper.py:refresh_session()` checks cookie validity (only `session`/`publisher_agency` cookies count) and fails loudly on `/mfa` redirect rather than saving a broken session.
+2. Every pipeline run reuses the single stored session. `pipeline/infrastructure/login_helper.py:SessionManager.refresh()` checks cookie validity (only `session`/`publisher_agency` cookies count) and fails loudly on `/mfa` redirect rather than saving a broken session.
 3. Re-run `python capture_session.py [EnvName]` from `backend/` to refresh after expiry.
 
 ---
@@ -222,6 +235,28 @@ New Relic APM is wired in via `backend/newrelic.ini` (Python agent). The license
 ## Known type mismatch
 
 `frontend/src/types.ts`'s `Environment` interface declares a `publisherId: string` field that `core/views/environments.py` never serializes (it only returns `publisher`, the name string). Nothing currently reads `publisherId` so it's harmless, but don't write code that depends on it.
+
+---
+
+## Backend layout
+
+```
+backend/
+├── config/          # Django project package: settings.py, urls.py, wsgi/asgi
+├── core/            # CRUD app: models/, serializers/, views/, services/, decorators, managers
+├── pipeline/        # AI pipeline (see above) — no DB models of its own
+├── utils/           # Shared helpers: datetime_utils.py, slug.py, errors.py, json_utils.py, markdown.py
+├── capture_session.py
+└── manage.py
+```
+
+`config/settings.py` defines two important path constants used throughout:
+- `BACKEND_ROOT` — the `backend/` dir (where `node_modules/@playwright/mcp` lives)
+- `PLAYWRIGHT_PROJECT_ROOT` — the `data/` dir (overridable via env var; where all generated/runtime artifacts live)
+
+`core/models/` is a **package** (not a single file): `collection.py`, `environment.py`, `execution.py`, `test.py`, with `__init__.py` re-exporting all models.
+
+`core/services/` is the business logic layer sitting between views and models: `collection_service.py`, `environment_service.py`, `execution_service.py`, `test_service.py`. Views call services; services call ORM. Do not put ORM logic directly in views.
 
 ---
 
