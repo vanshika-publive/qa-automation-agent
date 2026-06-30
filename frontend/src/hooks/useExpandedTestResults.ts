@@ -26,6 +26,6 @@ export function useExpandedTestResults(execution: Execution) {
     isLoading: resultsQuery.isLoading,
     isPending,
     showStepDetails,
-    steps: detailQuery.data?.steps ?? [],
+    steps: detailQuery.data?.data?.steps ?? [],
   };
 }
