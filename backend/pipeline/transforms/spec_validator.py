@@ -67,6 +67,21 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             'page.get_by_role("heading", name="..."), or page.locator("h2", has_text="...").'
         )
 
+    # [^)]* ensures name= is inside the get_by_role() parens, not in a chained method call
+    if re.search(r"get_by_role\(['\"]row['\"][^)]*\bname\s*=", code):
+        issues.append(
+            "get_by_role('row', name=...) detected — Ant Design tr elements have NO accessible name. "
+            "This locator always times out on the live dashboard. "
+            "Replace with: row = page.locator('tr').filter(has_text=title) then row.wait_for(state='visible', timeout=15000)"
+        )
+
+    if re.search(r"get_by_role\(['\"]dialog['\"][^)]*\bname\s*=", code):
+        issues.append(
+            "get_by_role('dialog', name=...) detected — dialog titles vary by content type and are unreliable. "
+            "This locator will fail on any content type other than the one it was written for. "
+            "Replace with: page.get_by_role('dialog').get_by_role('button', name='Delete').click()"
+        )
+
     if re.search(r'page\.evaluate\([^)]*document\.querySelector', code):
         issues.append(
             'page.evaluate(() => document.querySelector(...)) detected -- this pattern is forbidden. '
@@ -128,6 +143,21 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             'other field.'
         )
 
+    # Detect false-positive URL traps: the spec navigates to a /XYZ/new page and then asserts
+    # to_have_url with r'/XYZ/' — which matches the creation URL itself, so the assertion passes
+    # even if the save fails and the page never leaves /XYZ/new.
+    new_url_match = re.search(r"page\.goto\(['\"]([^'\"]+/new)['\"]", code)
+    if new_url_match:
+        base = new_url_match.group(1).rsplit('/new', 1)[0]
+        prefix_with_slash = re.escape(base + '/')
+        if re.search(r"to_have_url\(re\.compile\(r'" + prefix_with_slash + r"'\)", code):
+            issues.append(
+                f"to_have_url assertion r'{base}/' matches the creation URL '{base}/new' itself — "
+                "the assertion passes even when the save fails and the page stays on /new. "
+                f"Use a negative lookahead anchored after the path base: re.compile(r'{base}(?!/new)') "
+                f"(NOT r'{base}/(?!new)' — that form requires a trailing slash and fails when the redirect goes to {base} without one)"
+            )
+
     if re.search(r'details\s+(omitted|not\s+specified)|omitted\s+(as|because)', code, flags=re.IGNORECASE):
         issues.append(
             'spec contains a "details omitted" comment, indicating one or more '
@@ -149,9 +179,30 @@ def validate_spec_semantics(code: str) -> Optional[str]:
 def validate_spec_data_uniqueness(code: str) -> Optional[str]:
     if re.search(r'time\.time\(\)', code):
         return None
+
+    # Edit- and delete-of-existing-item flows target a pre-existing named item whose exact name the
+    # user's prompt supplies (e.g. "rename the category to 'I am not cat'", "delete the tag 'Sports'").
+    # Those literals MUST stay literal — appending a timestamp makes the locator unmatchable — so no
+    # timestamp is required. Signal: no navigation to a create/new URL, but the spec acts on an
+    # existing row via an Edit or Delete control (either get_by_role('button', name=...) or
+    # get_by_title(...), since list pages vary in which form the control takes).
+    is_edit_or_delete_existing = (
+        not re.search(r"page\.goto\(['\"][^'\"]*(?:create|/new|/add)[^'\"]*['\"]\)", code) and
+        bool(
+            re.search(r"get_by_role\('button',\s*name=['\"](?:Edit|Delete)['\"]\)", code) or
+            re.search(r"get_by_title\(['\"](?:Edit|Delete)['\"]", code)
+        )
+    )
+    if is_edit_or_delete_existing:
+        return None
+
+    # Scan a copy with Playwright locator calls stripped out, so that name=/exact= keyword arguments
+    # (e.g. get_by_role('button', name='Save Category')) are never mistaken for hardcoded test data.
+    scan = re.sub(r"get_by_(?:role|title|text|label|placeholder)\([^)]*\)", '', code)
+
     m = re.search(
         r"\w*(?:name|title|tag|category|article|slug)\w*\s*=\s*['\"][^'\"]{4,}['\"]",
-        code, flags=re.IGNORECASE
+        scan, flags=re.IGNORECASE
     )
     if m:
         return (
@@ -161,4 +212,24 @@ def validate_spec_data_uniqueness(code: str) -> Optional[str]:
             "Then replace the hardcoded string with an f-string, e.g.: "
             "category_name = f'QA Category {ts}'"
         )
+
+    # Catch hardcoded literals passed directly to safe_fill / safe_sequential_fill when the spec
+    # is a create flow (navigates to a /new or /create URL). Edit/delete flows that target a
+    # pre-existing named item are exempt (they have no /new or /create navigation).
+    is_create_url_flow = bool(
+        re.search(r"page\.goto\(['\"][^'\"]*(?:/new|/create)[^'\"]*['\"]\)", code)
+    )
+    if is_create_url_flow:
+        m2 = re.search(
+            r"safe_(?:sequential_)?fill\s*\(\s*page\s*,\s*[^,]+,\s*'([^']{4,})'",
+            code
+        )
+        if m2:
+            return (
+                f"SPEC REJECTED -- hardcoded test data passed directly to safe_fill on a create flow: '{m2.group(1)}'\n"
+                'Every value created by the test MUST include a millisecond timestamp for uniqueness.\n'
+                'Add: ts = int(time.time() * 1000)\n'
+                "Then replace the literal with an f-string: f'QA Name {ts}'"
+            )
+
     return None

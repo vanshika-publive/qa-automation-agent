@@ -26,7 +26,7 @@ function RunHeader({ exec, steps }: { exec: Execution; steps: CompareStep[] }) {
   return (
     <div className="p-4 border-b border-border-subtle">
       <div className="font-semibold text-sm text-text-primary mb-1">
-        {exec.collectionName} #{exec.runNumber}
+        {exec.testName} <span className="font-normal text-text-secondary">#{exec.runNumber}</span>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
         <StatusChip status={exec.status} />

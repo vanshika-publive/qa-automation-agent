@@ -19,6 +19,7 @@ class Test(models.Model):
     prompt = models.TextField(default='')
     status = models.TextField(default='active')
     environment_ids = models.TextField(default='[]')
+    generated_spec_filenames = models.TextField(default='[]')
     created_at = models.TextField()
     deleted_at = models.TextField(null=True, blank=True)
 

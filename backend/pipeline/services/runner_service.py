@@ -40,9 +40,17 @@ class RunnerService:
                 args.append(test_target)
 
         env = dict(os.environ)
-        env.pop('HEADED', None)  # always headless in the pipeline; set HEADED=true manually for local debug
         env['PLAYWRIGHT_PROJECT_ROOT'] = PROJECT_ROOT
         env['BACKEND_ROOT'] = settings.BACKEND_ROOT
+
+        # Re-read HEADED directly from .env so it takes effect without a server restart.
+        _env_file = Path(settings.BASE_DIR) / '.env'
+        if _env_file.exists():
+            for _line in _env_file.read_text().splitlines():
+                _line = _line.strip()
+                if _line.startswith('HEADED=') and not _line.startswith('#'):
+                    env['HEADED'] = _line.split('=', 1)[1].strip()
+                    break
         if credentials:
             env['DASHBOARD_URL'] = credentials.get('dashboard_url', '')
             env['DASHBOARD_EMAIL'] = credentials.get('dashboard_email', '')

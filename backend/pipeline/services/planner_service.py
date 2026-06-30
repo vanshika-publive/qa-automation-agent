@@ -73,6 +73,7 @@ class PlannerService:
             last_setup_url = ''
             plan_rejection_count = 0
             plan_just_rejected = False
+            snapshot_call_count = 0
 
             for iteration in range(MAX_PLANNER_ITERATIONS):
                 response = AgentUtils.call_with_retry(lambda: openai.chat.completions.create(
@@ -119,6 +120,8 @@ class PlannerService:
                     name = call.function.name
                     args = AgentUtils.parse_tool_args(call.function.arguments)
                     print(f'Planner calling: {name}({json.dumps(args)[:120]})')
+                    if name == 'browser_snapshot':
+                        snapshot_call_count += 1
                     result = PlannerService._handle_tool(
                         name, args, bridge, test_plan, plan_path, snapshot_cache,
                         planner_system_prompt, setup_page_count, last_setup_url,
@@ -138,6 +141,19 @@ class PlannerService:
                     })
 
                 messages.extend(tool_results)
+
+                # Hard stop against snapshot loops: repeatedly calling browser_snapshot wastes API
+                # iterations and never advances the plan. After a few, force the plan to be written.
+                if not plan_saved and snapshot_call_count >= 4:
+                    messages.append({
+                        'role': 'user',
+                        'content': (
+                            'STOP calling browser_snapshot — you have snapshotted enough and are wasting '
+                            'iterations. Call planner_save_plan NOW with the complete markdown plan, using the '
+                            'Verified Page Facts for field labels (for an edit flow: the create-page fields plus '
+                            'the "Save Changes" button). Do not call any tool other than planner_save_plan.'
+                        ),
+                    })
 
                 if plan_just_rejected:
                     messages.append({
@@ -212,9 +228,10 @@ class PlannerService:
                     result = (
                         f'Already on {target_url} — this IS a known target page '
                         f'(it has Verified Page Facts in your system prompt). '
-                        f'Do NOT call planner_setup_page again. '
-                        f'Write the plan now by calling planner_save_plan with concrete steps '
-                        f'using the field labels from the Verified Page Facts.\n\n'
+                        f'Do NOT call planner_setup_page or browser_snapshot again. '
+                        f'Write the plan NOW by calling planner_save_plan with concrete steps '
+                        f'using the field labels from the Verified Page Facts (for an edit flow, use the '
+                        f'create-page fields plus the "Save Changes" button).\n\n'
                         f'Current snapshot:\n{current_snapshot[:2000]}'
                     )
                 else:

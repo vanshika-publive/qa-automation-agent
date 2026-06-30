@@ -49,6 +49,14 @@ export function useExecutionDetail(id: string) {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (executionId: string) => executionsService.delete(executionId),
+    onSuccess: (_res, executionId) => {
+      qc.invalidateQueries({ queryKey: ['executions'] });
+      if (executionId === id) navigate('/executions');
+    },
+  });
+
   return {
     exec,
     steps: exec?.steps ?? [],
@@ -59,5 +67,6 @@ export function useExecutionDetail(id: string) {
     isLoading: detailQ.isLoading,
     isError: detailQ.isError,
     retryMutation,
+    deleteMutation,
   };
 }

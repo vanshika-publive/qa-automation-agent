@@ -3,7 +3,7 @@ from functools import wraps
 from rest_framework.exceptions import NotFound
 
 
-def validate_body(serializer_class):
+def validate_body(serializer_class):    #create
     """
     Validate request.data with an input serializer before the view body runs, and
     pass the cleaned values in as a `data` keyword argument.

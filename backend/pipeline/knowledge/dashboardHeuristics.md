@@ -95,6 +95,54 @@ safe_sequential_fill(page, 'Title *', title, delay=50)
 
 ---
 
+## Ant Design Table Row Locators
+
+**Never** use `get_by_role('row', name=...)` to locate a specific row in an Ant Design table. Ant Design `<tr>` elements do not have an accessible name derived from cell text — this locator always resolves to nothing and times out.
+
+**Always** use `locator('tr').filter(has_text='...')` to find a row by its content:
+```python
+row = page.locator('tr').filter(has_text=tag_name)
+row.wait_for(state='visible', timeout=15000)
+row.locator('.published-action-dropdown').click()
+```
+
+**Never** select a row by index (`page.locator('tr').first`, `.nth(1)`, etc.). Ant Design tables contain **two non-data `<tr>`s**: the header row (column titles) and a hidden `<tr class="ant-table-measure-row" aria-hidden="true">` used for column measurement. So `tr.first` is the header and `tr.nth(1)` is the (invisible) measure row — both have no action controls and time out. For "the most recent / first / latest item" with no known name, select the first row that actually contains the action control you need (only real data rows do), then capture its name from the row text so the post-action assertion can re-query by name:
+```python
+row = page.locator('tr').filter(has=page.get_by_title('Delete')).first
+row.wait_for(state='visible', timeout=15000)
+name = row.inner_text().strip().split('\n')[0].strip()
+# ...delete/edit via row...
+expect(page.locator('tr').filter(has_text=name)).to_have_count(0, timeout=15000)
+```
+**Never** assert deletion against an index handle (`tr.first`/`.nth(...)`) — those indices always re-resolve to a surviving row (header + measure row always exist), so the count is never 0. Re-query by the captured `name`.
+
+**EDIT forms are NOT create forms — the dashboard_facts only describe `/.../new` create pages.** When a scenario edits an existing item, clicking the row's Edit control routes to `/<resource>/edit/<id>` (a dynamic id, e.g. `/categories/edit/156951`), which is a *different page* with different button labels from the create page. Specifically: the **category edit form saves with `get_by_role('button', name='Save Changes')`** — NOT `'Save Category'` (that label only exists on `/categories/new`). The KNOWN DASHBOARD FACTS injected for a "category" scenario describe the CREATE page; do not copy its `Save Category` button onto an edit flow. The `Name *` field label is the same on both. When in doubt about an edit-page control, browse the edit page (`generator_setup_page` + `browser_snapshot`) rather than reusing create-page facts.
+
+**Row action buttons are icon buttons whose accessible name comes from their `title` — and `name=` is a SUBSTRING match.** A category/tag row has several inline icon buttons (`Edit`, `Edit Permalink`, `Delete`, …). `get_by_role('button', name='Edit')` matches **both** `Edit` and `Edit Permalink` → strict-mode violation. **Always** pass `exact=True` for short row-action names, in both the row filter and the click:
+```python
+row = page.locator('tr').filter(has=page.get_by_role('button', name='Edit', exact=True)).first
+row.get_by_role('button', name='Edit', exact=True).click()
+```
+
+**Categories list specifically has NO kebab menu** — the per-row Delete control is an icon with `title="Delete"`, not a kebab dropdown and not a `<button>` with accessible name "Delete". Click it **scoped to the row** (one match, so `exact`/`.last` are unnecessary):
+```python
+row.get_by_title('Delete').click()
+```
+**Never** use `get_by_role('button', name='Delete')` or `.published-action-dropdown` for category rows — the former matches nothing (it is a titled icon, not a named button) and the latter is the *tags* list's affordance.
+
+---
+
+## Deletion Confirmation Dialogs
+
+**Never** match a deletion confirmation dialog by title (`get_by_role('dialog', name='Delete Article')`). The dialog title varies by content type (`'Delete Tag'`, `'Delete Article'`, `'Delete Category'`, etc.) and is frequently wrong when the LLM guesses it.
+
+**Always** locate the dialog by role only and find the confirm button inside it:
+```python
+page.get_by_role('dialog').get_by_role('button', name='Delete').click()
+```
+
+---
+
 ## Locator Strategy
 
 **Only** use semantic locators: `get_by_role()`, `get_by_text()`, `get_by_title()`.
@@ -105,13 +153,43 @@ safe_sequential_fill(page, 'Title *', title, delay=50)
 
 ## Test Data Uniqueness
 
-**Always** append a millisecond timestamp to every test data string:
+**Always** append a millisecond timestamp to every test data string that the test itself creates:
 ```python
 ts = int(time.time() * 1000)
 title = f'QA Article {ts}'
 ```
 
-**Never** use hardcoded strings for names, titles, or slugs — they cause cross-run conflicts when tests are re-run.
+**Never** use hardcoded strings for names, titles, or slugs that the test creates — they cause cross-run conflicts when tests are re-run.
+
+**Exception — operating on pre-existing named items:** When the user's prompt explicitly targets a specific item that already exists in the dashboard (e.g. "delete the tag named 'I am tag'", "edit the category called 'Sports'"), use the exact name as given — do NOT append a timestamp. The timestamp rule is for test-created data only. A delete/edit flow targeting a pre-existing item must use the literal name; appending a timestamp makes the locator unmatchable.
+
+---
+
+## Category & Tag Create Pages
+
+**Never** assert `to_have_url(re.compile(r'/categories/'))` after saving on `/categories/new`. The pattern `/categories/` is a substring of the creation URL `/categories/new` itself — if the save fails and the page stays on `/categories/new`, the assertion still passes (false positive).
+
+**Always** use a negative lookahead anchored directly after `/categories` (NOT after the slash):
+```python
+expect(page).to_have_url(re.compile(r'/categories(?!/new)'), timeout=15000)
+```
+This matches `/categories` and `/categories/` but NOT `/categories/new`. Do NOT write `r'/categories/(?!new)'` (with the slash before the lookahead) — that requires a trailing slash in the URL and will fail when the redirect goes to `/categories` without one.
+
+**Always** verify the created category appears in the table after save. After the redirect, navigate to the categories list and assert the name row is visible:
+```python
+page.goto('/categories/')
+row = page.locator('tr').filter(has_text=category_name)
+row.wait_for(state='visible', timeout=15000)
+```
+
+The same false-positive trap applies to tags: `/tags/create` → assert `r'/tags(?!/create)'` (not `r'/tags/'`).
+
+**Never** hardcode a category name as a literal string directly in a `safe_sequential_fill` call. Even if the user's prompt names a specific category to create (e.g. "create a category called cat/dog"), always use a timestamp suffix so cross-run conflicts and silent validation failures are detectable:
+```python
+ts = int(time.time() * 1000)
+category_name = f'cat-dog-{ts}'   # derive from the requested name, slug-safe, timestamp-suffixed
+safe_sequential_fill(page, 'Name *', category_name, delay=50)
+```
 
 ---
 

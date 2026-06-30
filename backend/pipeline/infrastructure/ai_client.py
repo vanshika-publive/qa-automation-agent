@@ -1,10 +1,7 @@
 import os
-
 from openai import OpenAI
 
 from pipeline.constants import AI_MODEL
-
-
 class AiClientFactory:
 
     @staticmethod
@@ -15,4 +12,5 @@ class AiClientFactory:
                 'Missing credential: OPENAI_API_KEY\n'
                 'Set it in .env (local dev) or environment variables.'
             )
-        return {'client': OpenAI(api_key=api_key), 'model': AI_MODEL}
+        return {'client': OpenAI(api_key=api_key), 
+                'model': AI_MODEL}

@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useExecutionDetail } from '../hooks/useExecutionDetail';
 import { ExecStep, TestResult, Execution } from '../types';
 import { relTime, fmtDatetime, fmtMSS } from '../utils/formatters';
 import {
   CheckCircle2, XCircle, RefreshCw, Clock, HelpCircle, MinusCircle,
   ArrowRight, Code2, FileText, ChevronDown, ArrowLeft, ChevronRight,
-  RotateCcw, Timer, Network,
+  RotateCcw, Timer, Network, Trash2, ExternalLink,
 } from 'lucide-react';
 
 const STEP_ORDER = ['orchestrator', 'planner', 'generator', 'runner'] as const;
@@ -231,7 +231,13 @@ function SpecFileView({ filename, content }: { filename: string | null; content:
   );
 }
 
-function RunHistory({ history, currentId }: { history: Execution[]; currentId: string }) {
+function RunHistory({ history, currentId, retryMutation, deleteMutation }: {
+  history: Execution[];
+  currentId: string;
+  retryMutation: { mutate: () => void; isPending: boolean };
+  deleteMutation: { mutate: (id: string) => void; isPending: boolean; variables?: string };
+}) {
+  const navigate = useNavigate();
   if (history.length === 0) return null;
 
   function HistoryStatusIcon({ status }: { status: Execution['status'] }) {
@@ -256,24 +262,24 @@ function RunHistory({ history, currentId }: { history: Execution[]; currentId: s
             <th className="text-left px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-text-secondary w-24">Failed</th>
             <th className="text-left px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-text-secondary w-24">Duration</th>
             <th className="text-left px-4 py-2.5 text-[11px] font-medium uppercase tracking-wider text-text-secondary">Started</th>
+            <th className="text-right px-5 py-2.5 text-[11px] font-medium uppercase tracking-wider text-text-secondary w-28">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-border-subtle">
           {history.map((e) => {
             const isCurrent = e.id === currentId;
+            const isDeleting = deleteMutation.isPending && deleteMutation.variables === e.id;
             return (
               <tr
                 key={e.id}
-                className={`transition-colors ${isCurrent ? 'bg-primary/5' : 'hover:bg-surface-muted/40'}`}
+                onClick={() => navigate(`/executions/${e.id}`)}
+                className={`cursor-pointer transition-colors ${isCurrent ? 'bg-primary/5' : 'hover:bg-surface-muted/40'}`}
               >
                 <td className="px-5 py-3">
-                  <Link
-                    to={`/executions/${e.id}`}
-                    className="font-mono text-sm font-semibold text-primary hover:underline"
-                  >
+                  <span className="font-mono text-sm font-semibold text-primary">
                     #{e.runNumber}
                     {isCurrent && <span className="ml-1.5 text-[10px] font-normal text-text-secondary">(this)</span>}
-                  </Link>
+                  </span>
                 </td>
                 <td className="px-4 py-3">
                   <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${
@@ -302,6 +308,41 @@ function RunHistory({ history, currentId }: { history: Execution[]; currentId: s
                     {relTime(e.startedAt)}
                   </span>
                 </td>
+                <td className="px-5 py-3" onClick={(ev) => ev.stopPropagation()}>
+                  <div className="flex items-center justify-end gap-1">
+                    {e.reportDir && e.totalCount > 0 && (
+                      <a
+                        href={`/reports/${e.reportDir}/html/index.html`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="View report"
+                        className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-primary hover:bg-primary/10 transition-colors"
+                      >
+                        <ExternalLink size={15} />
+                      </a>
+                    )}
+                    <button
+                      onClick={() => retryMutation.mutate()}
+                      disabled={e.status === 'running' || retryMutation.isPending}
+                      title="Re-run"
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      {retryMutation.isPending
+                        ? <span className="w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin block" />
+                        : <RotateCcw size={15} />}
+                    </button>
+                    <button
+                      onClick={() => deleteMutation.mutate(e.id)}
+                      disabled={e.status === 'running' || isDeleting}
+                      title="Delete"
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-error hover:bg-error/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      {isDeleting
+                        ? <span className="w-3.5 h-3.5 border-2 border-error/30 border-t-error rounded-full animate-spin block" />
+                        : <Trash2 size={15} />}
+                    </button>
+                  </div>
+                </td>
               </tr>
             );
           })}
@@ -317,7 +358,7 @@ export default function ExecutionDetail() {
 
   const {
     exec, steps, testResults, testResultsPending,
-    files, history, isLoading, isError, retryMutation,
+    files, history, isLoading, isError, retryMutation, deleteMutation,
   } = useExecutionDetail(id!);
 
   if (isLoading) {
@@ -407,11 +448,16 @@ export default function ExecutionDetail() {
 
       <PipelineSteps steps={steps} />
       <TestResultsTable results={testResults} pending={testResultsPending} />
-      {files?.planContent && <PlanView content={files.planContent} />}
+      {files?.planContent && steps.some(s => s.stepName === 'planner' && s.status === 'passed') && (
+        <PlanView content={files.planContent} />
+      )}
       {files?.specContent && (
+        steps.some(s => s.stepName === 'generator' && s.status === 'passed') ||
+        steps.some(s => s.stepName === 'runner')
+      ) && (
         <SpecFileView filename={files.specFilename} content={files.specContent} />
       )}
-      <RunHistory history={history} currentId={id!} />
+      <RunHistory history={history} currentId={id!} retryMutation={retryMutation} deleteMutation={deleteMutation} />
     </div>
   );
 }

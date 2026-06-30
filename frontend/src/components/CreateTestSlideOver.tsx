@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Check, X, ChevronDown, AlertTriangle, XCircle, CheckCircle2, ArrowRight, ArrowLeft, ExternalLink, FlaskConical, Lightbulb } from 'lucide-react';
 import { Collection, StepName, StepStatus } from '../types';
 import { collectionsService } from '../services/collections';
@@ -144,6 +145,7 @@ export default function CreateTestSlideOver({
   onTestCreated,
 }: Props) {
   const navigate = useNavigate();
+  const qc = useQueryClient();
 
   const [name, setName] = useState('');
   const [collectionId, setCollectionId] = useState(defaultCollectionId ?? collections[0]?.id ?? '');
@@ -155,6 +157,7 @@ export default function CreateTestSlideOver({
   const [expandedStep, setExpandedStep] = useState<StepName | null>(null);
   const [pipelineFailed, setPipelineFailed] = useState(false);
   const sseRef = useRef<EventSource | null>(null);
+  const unmountedRef = useRef(false);
 
   const { environments } = useEnvironments();
   const activeEnvs = environments.filter((e) => e.isActive);
@@ -162,8 +165,10 @@ export default function CreateTestSlideOver({
 
   const [visible, setVisible] = useState(false);
   useEffect(() => {
+    unmountedRef.current = false;
     requestAnimationFrame(() => setVisible(true));
     return () => {
+      unmountedRef.current = true;
       if (sseRef.current) { sseRef.current.close(); sseRef.current = null; }
     };
   }, []);
@@ -189,6 +194,30 @@ export default function CreateTestSlideOver({
           : s
       )
     );
+  }
+
+  async function reconcileStepsFromServer(executionId: string) {
+    try {
+      const detail = await executionsService.getDetail(executionId);
+      detail.data?.steps.forEach((s) => applyStepUpdate(s.stepName, s.status, s.log));
+      return detail.data?.status;
+    } catch {
+      return undefined;
+    }
+  }
+
+  async function pollUntilFinished(executionId: string) {
+    const POLL_MS = 2000;
+    while (!unmountedRef.current) {
+      const status = await reconcileStepsFromServer(executionId);
+      if (status && status !== 'running') {
+        if (status === 'failed') setPipelineFailed(true);
+        qc.invalidateQueries({ queryKey: ['specs', collectionId] });
+        setPhase('done');
+        return;
+      }
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    }
   }
 
   async function handleGenerate() {
@@ -224,11 +253,14 @@ export default function CreateTestSlideOver({
             applyStepUpdate(s.stepName, s.status, s.log);
           });
 
-          if (!payload.execution || payload.execution.status !== 'running') {
-            if (payload.execution?.status === 'failed') setPipelineFailed(true);
+          if (payload.execution && payload.execution.status !== 'running') {
+            if (payload.execution.status === 'failed') setPipelineFailed(true);
             es.close();
             sseRef.current = null;
-            setPhase('done');
+            reconcileStepsFromServer(executionId).then(() => {
+              qc.invalidateQueries({ queryKey: ['specs', collectionId] });
+              setPhase('done');
+            });
           }
         } catch { /* ignore parse errors */ }
       };
@@ -236,7 +268,10 @@ export default function CreateTestSlideOver({
       es.onerror = () => {
         es.close();
         sseRef.current = null;
-        setPhase('done');
+        // The connection may have dropped mid-run (proxy/network hiccup) — keep
+        // polling the execution detail until it actually finishes rather than
+        // declaring the pipeline done prematurely.
+        pollUntilFinished(executionId);
       };
     } catch (err) {
       setFormError((err as Error).message);

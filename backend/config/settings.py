@@ -14,7 +14,6 @@ ALLOWED_HOSTS = ['*']
 BACKEND_ROOT = str(BASE_DIR)
 
 # data/ dir — where runtime artifacts land (generated tests, specs, reports, .auth session)
-# Override with PLAYWRIGHT_PROJECT_ROOT env var in production (e.g. a Docker volume mount)
 PLAYWRIGHT_PROJECT_ROOT = os.getenv(
     'PLAYWRIGHT_PROJECT_ROOT',
     str(BASE_DIR.parent / 'data'),

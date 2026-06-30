@@ -8,6 +8,7 @@ from pathlib import Path
 from core.models import Collection, Test
 from pipeline.constants import EXCLUDED_SPEC_FILES, MIN_SLUG_WORD_LENGTH
 from utils.datetime_utils import DateTimeUtils
+from utils.json_utils import safe_json_parse
 from utils.slug import to_collection_slug
 
 
@@ -25,7 +26,7 @@ class TestService:
         result = []
         for test in tests:
             data = dict(TestSerializer(test).data)
-            spec_path = TestService.find_spec_file(test.name, slug, tests_root)
+            spec_path = TestService.resolve_spec_file(test, slug, tests_root)
             if spec_path:
                 basename = os.path.basename(spec_path)
                 data['specFile'] = {'basename': basename, 'filename': f'{slug}/{basename}'}
@@ -80,6 +81,17 @@ class TestService:
     @staticmethod
     def soft_delete(test_id: str) -> int:
         return Test.objects.filter(id=test_id).update(deleted_at=DateTimeUtils.now_iso())
+
+    @staticmethod
+    def resolve_spec_file(test: Test, collection_slug: str, tests_root: str):
+        """Prefer the filename(s) persisted at generation time; fall back to the
+        fuzzy find_spec_file() matcher for legacy tests or deleted/renamed specs."""
+        basenames = safe_json_parse(test.generated_spec_filenames, [])
+        for basename in basenames:
+            candidate = os.path.join(tests_root, collection_slug, basename)
+            if os.path.isfile(candidate):
+                return candidate
+        return TestService.find_spec_file(test.name, collection_slug, tests_root)
 
     @staticmethod
     def find_spec_file(test_name: str, collection_slug: str, tests_root: str):

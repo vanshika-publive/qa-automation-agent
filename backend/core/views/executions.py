@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from core.constants import SSEConstants
 from core.decorators import fetch_object
 from core.models import Execution, ExecutionStep
+from core.renderers import EventStreamRenderer
 from core.serializers import (
     ExecutionSerializer,
     ExecutionListSerializer,
@@ -90,7 +91,7 @@ class ExecutionFilesView(APIView):
         slug = to_collection_slug(obj.test.collection.name)
         tests_root = os.path.join(PROJECT_ROOT, 'tests')
         specs_root = os.path.join(PROJECT_ROOT, 'specs')
-        abs_path = TestService.find_spec_file(obj.test.name, slug, tests_root)
+        abs_path = TestService.resolve_spec_file(obj.test, slug, tests_root)
         spec_filename = spec_content = None
         if abs_path:
             spec_filename = os.path.relpath(abs_path, tests_root).replace('\\', '/')
@@ -110,6 +111,8 @@ class ExecutionFilesView(APIView):
 
 class ExecutionStreamView(APIView):
     """/executions/<pk>/stream — Server-Sent Events"""
+
+    renderer_classes = [EventStreamRenderer]
 
     def get(self, request, pk=None):
         def _event_stream():

@@ -52,15 +52,16 @@ ARTICLE_CREATE = PageFacts(
     path='/posts/article/create',
     title='Article Create',
     required_for_draft=[
-        FieldConstraint(field='Title *', react_controlled=True, note='React-controlled — MUST use safe_sequential_fill, not safe_fill'),
-        FieldConstraint(field='English Title ( Permalink ) *', note="fill() works; use a UNIQUE slug every run, e.g. f'qa-{ts}' — never reuse a permalink"),
+        FieldConstraint(field='Title *', min=10, react_controlled=True, note='React-controlled — MUST use safe_sequential_fill, not safe_fill. Dashboard shows "Title is too short" warning under 10 chars and blocks publish.'),
+        FieldConstraint(field='English Title ( Permalink ) *', react_controlled=True, note="MUST use safe_sequential_fill, not safe_fill — the async permalink-uniqueness check only reacts to real keystroke events, so plain fill() leaves Publish permanently disabled even with a valid unique value. Use a UNIQUE slug every run, e.g. f'qa-{ts}' — never reuse a permalink."),
     ],
-    # Nothing beyond the required fields is needed to publish. Summary/Meta Description are
-    # SEO-only (they only affect the SEO score), NOT gates on the Publish button.
-    required_for_publish=[],
+    # Summary and Meta Description ARE publish gates despite being framed as "SEO" fields —
+    # the dashboard blocks Publish until both clear their minimum length.
+    required_for_publish=[
+        FieldConstraint(field='Summary', min=140, note='Dashboard shows "Summary is too short" warning under 140 chars and blocks publish.'),
+        FieldConstraint(field='Meta Description', min=140, max=170, note='Dashboard shows "Description is too short" warning under 140 chars; blocks publish. Keep under 170 too.'),
+    ],
     optional_fields=[
-        FieldConstraint(field='Summary', note='SEO only — NOT required to publish'),
-        FieldConstraint(field='Meta Description', note='SEO only — NOT required to publish'),
         FieldConstraint(field='Banner Description'),
         FieldConstraint(field='Focus Keyphrase', max=60),
     ],
@@ -78,8 +79,9 @@ ARTICLE_CREATE = PageFacts(
     ],
     published_list_path='/posts/published',
     draft_list_path='/posts/draft',
-    note=('Articles PUBLISH DIRECTLY from this page. Fill Title + English Title (Permalink) + Primary Category '
-          '(Credits auto-fills with the logged-in user), then click "Publish" — the article goes straight to '
+    note=('Articles PUBLISH DIRECTLY from this page. Fill Title (>=10 chars) + English Title (Permalink) + '
+          'Primary Category (Credits auto-fills with the logged-in user) + Summary (>=140 chars) + '
+          'Meta Description (140-170 chars), then click "Publish" — the article goes straight to '
           '/posts/published. The Publish button is briefly disabled right after the fields are filled (async '
           'permalink validation), so wait for expect(get_by_role("button", name="Publish")).to_be_enabled(timeout=15000) '
           'before clicking — never click immediately. There is NO "Save as Draft -> Edit -> Publish" detour. '
@@ -122,7 +124,13 @@ DRAFT_LIST = PageFacts(
     title='Draft List',
     save_button='',
     after_save_url_pattern='/posts/draft',
-    note='Table header: "Title Content Type Created By Updated By Timeline Actions". Row actions: link "Edit", link "Preview", button "Discard". Discard dialog: get_by_role("dialog", name="Discard Article") with button "Discard".',
+    note=('Table header: "Title Content Type Created By Updated By Timeline Actions". '
+          'Row actions: link "Edit", link "Preview", button "Discard". '
+          'CRITICAL — Ant Design <tr> elements have NO accessible name. NEVER use get_by_role("row", name=...). '
+          'Find the row with: row = page.locator("tr").filter(has_text=title) then row.wait_for(state="visible", timeout=15000). '
+          'Discard: row.get_by_role("button", name="Discard").click() -> '
+          'page.get_by_role("dialog").get_by_role("button", name="Discard").click(). '
+          'NEVER use get_by_role("dialog", name="Discard Article") — dialog title varies by content type.'),
 )
 
 PUBLISHED_LIST = PageFacts(
@@ -133,13 +141,18 @@ PUBLISHED_LIST = PageFacts(
     note=('List of published posts (verified live on OdishaTv - Khabar, 2026-06-22). To see only articles use '
           '/posts/published?page_type=Article&ptype=Article&create=article. Columns: Title, Categories, Credits, '
           'Page Views, Word Count, SEO Score, Timeline, Actions. Per-row Actions: link "Edit", link "View", '
-          'button "Copy url to clipboard", and a kebab (more-actions) icon button with NO accessible name — open it '
-          'by scoping to the row: page.get_by_role("row", name=re.compile(re.escape(title))).first.locator(".published-action-dropdown"). '
+          'button "Copy url to clipboard", and a kebab (more-actions) icon button with NO accessible name. '
+          'CRITICAL — Ant Design <tr> elements have NO accessible name. NEVER use get_by_role("row", name=...) — '
+          'it always times out. ALWAYS find the row with: row = page.locator("tr").filter(has_text=title) '
+          'then row.wait_for(state="visible", timeout=15000) before interacting. '
+          'Open the kebab: row.locator(".published-action-dropdown").click(). '
           'Kebab menu items: Edit Permalink, Duplicate Page, Push Notification, Distribute Post, Unpublish, Delete. '
-          'DELETE flow: open the row kebab -> click the open menu\'s menuitem "Delete" '
-          '(scope to page.locator(".ant-dropdown:not(.ant-dropdown-hidden)").last) -> confirm dialog '
-          'get_by_role("dialog", name="Delete Article") -> click button "Delete" -> assert the row is gone '
-          '(to_have_count(0, timeout=15000)). NOTE: "Unpublish" is a DIFFERENT menu item (sends back to draft), NOT Delete.'),
+          'DELETE flow: row.locator(".published-action-dropdown").click() -> '
+          'page.locator(".ant-dropdown:not(.ant-dropdown-hidden)").last.get_by_role("menuitem", name="Delete").click() -> '
+          'page.get_by_role("dialog").get_by_role("button", name="Delete").click() -> '
+          'assert row gone: expect(page.locator("tr").filter(has_text=title)).to_have_count(0, timeout=15000). '
+          'NEVER use get_by_role("dialog", name="Delete Article") — dialog title varies by content type. '
+          'NOTE: "Unpublish" is a DIFFERENT menu item (sends back to draft), NOT Delete.'),
 )
 
 TAG_CREATE = PageFacts(
@@ -187,6 +200,12 @@ CATEGORIES_LIST = PageFacts(
     title='Categories List',
     save_button='',
     after_save_url_pattern='/categories',
+    note=('No kebab/dropdown menu on this list, unlike the Posts Published list. Each row has direct inline '
+          'buttons: Edit, Edit Permalink, Delete. To delete: row = page.locator("tr").filter(has_text=name); '
+          'row.get_by_title("Delete").click(); then confirm with '
+          'page.get_by_role("dialog").get_by_role("button", name="Delete").click() (dialog title "Delete Category"). '
+          'NEVER use .published-action-dropdown or an .ant-dropdown menuitem here — that selector is specific to '
+          'the Posts Published list and does not exist on this page.'),
 )
 
 GEOGRAPHY_CREATE = PageFacts(

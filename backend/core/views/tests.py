@@ -44,7 +44,7 @@ class TestSpecView(APIView):
     def get(self, request, obj=None, pk=None):
         slug = to_collection_slug(obj.collection.name)
         tests_root = os.path.join(PROJECT_ROOT, 'tests')
-        abs_path = TestService.find_spec_file(obj.name, slug, tests_root)
+        abs_path = TestService.resolve_spec_file(obj, slug, tests_root)
         if not abs_path:
             return Response({
                 'data': {'filename': None, 'content': None, 'lastModified': None},

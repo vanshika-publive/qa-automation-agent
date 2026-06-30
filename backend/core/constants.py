@@ -17,4 +17,4 @@ class TestStatus:
 
 
 class SSEConstants:
-    POLL_INTERVAL_S = 0.8
+    POLL_INTERVAL_S = 1
