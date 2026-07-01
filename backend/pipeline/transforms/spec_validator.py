@@ -2,7 +2,7 @@ import re
 from typing import List, Optional, Set
 
 from pipeline.knowledge.dashboard_facts import PAGE_FACTS
-from .plan_validator import extract_fill_labels, normalize_field_name
+from .plan_validator import extract_fill_labels, find_hardcoded_virtualized_titles, normalize_field_name
 
 
 def validate_spec_semantics(code: str) -> Optional[str]:
@@ -164,6 +164,18 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             'plan steps were dropped instead of translated to code. EVERY step in the plan must produce code. '
             'For value comboboxes with "first available option", use '
             "page.locator('.ant-select-dropdown').last.locator('.ant-select-item-option').first.click()."
+        )
+
+    hardcoded_virtualized_titles = find_hardcoded_virtualized_titles(code)
+    if len(hardcoded_virtualized_titles) > 0:
+        quoted = ', '.join(f'{name} -> "{title}"' for name, title in hardcoded_virtualized_titles)
+        issues.append(
+            f'spec hardcodes a get_by_title() option for a virtualized, per-publisher combobox: {quoted}. '
+            'The option list is virtualized (only ~9 of 65+ options render at once) and the option set changes '
+            'per publisher and over time, so a hardcoded title that exists now can time out on a later run. '
+            "Replace with: page.locator('.ant-select-dropdown').last.locator('.ant-select-item-option').first"
+            ".wait_for(state='visible') then .click() -- or, if a specific option is required, "
+            "cb.fill('<name>') to filter first, then click the first .ant-select-item-option match."
         )
 
     if len(issues) == 0:

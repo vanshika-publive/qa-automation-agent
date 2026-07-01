@@ -34,6 +34,24 @@ page.get_by_title('Matches', exact=True).last.click()
 
 **Never** call `get_by_title('X')` without both `exact=True` and `.last`. Sidebar links share titles with common option names, so omitting either causes a strict-mode violation.
 
+### Ant Upload buttons resolve to TWO elements — always use `.last`
+
+Ant Design's `<Upload>` wraps its trigger in a hidden `<span class="ant-upload" role="button">` that exposes the **same accessible name** as the real styled `<button class="ant-btn-primary">` next to it. So `get_by_role('button', name='Upload Media').click()` is a strict-mode violation ("resolved to 2 elements"). Always select the real button with `.last`:
+```python
+page.get_by_role('button', name='Upload Media').last.click()
+```
+The `ant-upload` span is always element 1; the real button is element 2 (`.last`). This applies to any "Upload …" button on the dashboard, not just Media Library.
+
+### "Upload Media" opens a NATIVE FILE CHOOSER, not a modal — and the submit "Upload" button doesn't exist until a file is picked
+
+Clicking "Upload Media" on `/media` fires the OS-level file picker directly — there is no intermediate dialog. If a test clicks it without intercepting the chooser, the page never advances and stays on the original media grid, where **"Upload" is a substring of "Upload Media"** — so a later `get_by_role('button', name='Upload').click()` re-resolves to the same two `ant-upload`/"Upload Media" elements from the heuristic above, producing the exact same strict-mode violation one step later. Always intercept the chooser first:
+```python
+with page.expect_file_chooser() as fc_info:
+    page.get_by_role('button', name='Upload Media').last.click()
+fc_info.value.set_files(random_desktop_png())
+```
+Only once `set_files()` runs does the grid get replaced by the "Upload Files" panel (`File name *`, `Alt text *`, `Caption`, `Source`), which is the first point at which `get_by_role('button', name='Upload')` is unique. `random_desktop_png()` (in `helpers.py`) picks a real `.png` at random from the Desktop folder — never pass a fake or empty path, the chooser silently no-ops on one.
+
 ### The option list is VIRTUALIZED — never hardcode a category, choose from live options
 
 The Primary Category dropdown (and every long Ant Select) uses `rc-virtual-list`: **only the ~9 options currently scrolled into view exist in the DOM** (verified live — 65+ categories, 9 rendered). So `get_by_title('<name>')` for any option not currently rendered waits the full timeout and the test dies — even when that category genuinely exists. On top of that, the category set is **per-publisher and changes over time** (e.g. Crictoday has `Cricket`, `F1`, `Stadium…` and no `National`; another publisher has `National`, `Sports…`). There is **no safe hardcoded default** — `'National ( national )'` does NOT exist on every publisher.

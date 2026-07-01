@@ -81,6 +81,33 @@ DRAFT LIST (/posts/draft) — only for "save as draft" / "discard" flows:
     page.get_by_role('row', name=re.compile(title)).get_by_role('button', name='Discard').click()
     page.get_by_role('dialog', name='Discard Article').get_by_role('button', name='Discard').click()
 
+MEDIA LIBRARY (/media):
+- Clicking "Upload Media" fires a NATIVE OS FILE CHOOSER, not a modal. It MUST be intercepted with
+  page.expect_file_chooser() BEFORE the click, or the chooser hangs open forever and every subsequent
+  locator on the page is ambiguous (see next bullet):
+    with page.expect_file_chooser() as fc_info:
+        page.get_by_role('button', name='Upload Media').last.click()
+    fc_info.value.set_files(random_desktop_png())
+  random_desktop_png() picks a real .png at random from the Desktop — import it from helpers (see RULE 4).
+  NEVER call page.set_input_files() directly (no <input type="file"> is addressable) and NEVER pass a
+  fake/hardcoded path — the file must actually exist on disk or the chooser silently no-ops.
+- Only AFTER set_files() does the media grid get replaced by an "Upload Files" panel. Fill its required fields
+  (React-controlled, pre-filled from the filename — use safe_sequential_fill to actually replace them):
+    ts = int(time.time() * 1000)
+    safe_sequential_fill(page, 'File name *', f'qa-media-{ts}')
+    safe_sequential_fill(page, 'Alt text *', f'QA alt text {ts}')
+- Submit — get_by_role('button', name='Upload') is ONLY unambiguous AFTER the Upload Files panel has rendered
+  (i.e. after set_files()). If this locator is clicked BEFORE a file is chosen, it is a STRICT-MODE VIOLATION:
+  "Upload" is a substring of "Upload Media", so it also matches the ant-upload span and the "Upload Media"
+  button still visible on the original page. NEVER write this click as a standalone step disconnected from
+  the file-chooser interception above — they must appear in this exact order in the generated test:
+    page.get_by_role('button', name='Upload').click()
+- Verify: the panel closes and the uploaded file's name becomes visible in the grid. CRITICAL: right after upload,
+  the new file auto-selects, so its name briefly renders in TWO places — the persistent grid card AND the
+  "Selected File" detail side-panel — so a bare get_by_text(filename) is a STRICT-MODE VIOLATION (matches both).
+  Scope the assertion to the grid container to disambiguate (documented CSS exception, like .ant-select-dropdown):
+    expect(page.locator('.media-listing-grid').get_by_text(f'qa-media-{ts}')).to_be_visible(timeout=15000)
+
 TAG CREATION (/tags/create):
 - Required: safe_sequential_fill(page, 'Name *', tag_name, delay=50)
 - Optional: safe_fill(page, 'Meta Title', ...), safe_fill(page, 'Meta Description', ...)
@@ -180,6 +207,9 @@ RULE 3 — LOCATORS:
   EXCEPTION: the Published-list row kebab is an icon-only button with NO accessible name, so
   row.locator('.published-action-dropdown') and page.locator('.ant-dropdown:not(.ant-dropdown-hidden)') are allowed
   ONLY for the published-list delete flow (see PUBLISHED LIST above). Everywhere else, semantic locators only.
+  EXCEPTION: page.locator('.media-listing-grid') is allowed ONLY to scope the post-upload filename visibility
+  check in Media Library tests — the uploaded file's name renders in two places with no distinguishing role
+  (the grid card and the "Selected File" side panel), see MEDIA LIBRARY above.
   FORBIDDEN even though it looks tempting: page.locator('text=...') — Playwright's text engine substring-matches and
   blows up under strict mode (text=Content matched 6 elements in a real run). Use page.get_by_text('exact', exact=True)
   or page.get_by_role('heading', name='exact') instead.
@@ -205,6 +235,8 @@ RULE 4 — IMPORTS:
   import time
   from playwright.sync_api import expect
   from helpers import safe_fill, safe_sequential_fill
+  For Media Library upload tests specifically, also import the fixture helper:
+  from helpers import safe_fill, safe_sequential_fill, random_desktop_png
 
 RULE 5 — STRUCTURE:
   import re

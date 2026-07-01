@@ -124,9 +124,11 @@ class GeneratorService:
             ) if snapshot_entries else ''
 
             goto_paths = re.findall(
-                r"page\.goto\(['\"`](\/[^'\"`]+)['\"`]\)", '\n'.join(scenario.steps)
+                r"page\.goto\(['\"`](https?:\/\/[^'\"`]+|\/[^'\"`]+)['\"`]\)", '\n'.join(scenario.steps)
             )
-            pages_to_browse = [f'{url}{p}' for p in goto_paths] if goto_paths else [scenario_url]
+            pages_to_browse = (
+                [p if p.startswith('http') else f'{url}{p}' for p in goto_paths] if goto_paths else [scenario_url]
+            )
 
             workflow_lines = []
             for i, p in enumerate(pages_to_browse):

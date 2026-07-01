@@ -1,4 +1,15 @@
+import glob
+import os
+import random
 import re
+
+
+def random_desktop_png():
+    desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
+    pngs = glob.glob(os.path.join(desktop, '*.png')) + glob.glob(os.path.join(desktop, '*.PNG'))
+    if not pngs:
+        raise FileNotFoundError(f'No .png files found on Desktop ({desktop}) — add one to run media upload tests.')
+    return random.choice(pngs)
 
 
 def get_max_limits(page):

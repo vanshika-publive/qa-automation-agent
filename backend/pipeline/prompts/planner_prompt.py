@@ -34,6 +34,23 @@ ARTICLE CREATION (/posts/article/create) — articles PUBLISH DIRECTLY from this
   -> URL /posts/draft. This is a separate optional action — do NOT use it when the flow is to publish.
 
 PUBLISHED LIST (/posts/published — for articles: /posts/published?page_type=Article&ptype=Article&create=article):
+- CRITICAL — CONTENT-TYPE BLEED (confirmed bug, 2026-07-01): the bare /posts/published with NO query params
+  interleaves EVERY content type (Article, Video, Web Story, Photo Gallery, Live Blog, Custom Content) sorted
+  by recency. "Topmost"/"latest" on that bare URL means topmost-of-ANY-type — a plan for "edit the topmost
+  video" that did page.goto('/posts/published') then get_by_role('row').nth(1) silently edited the topmost
+  LIVE BLOG instead, because it happened to be more recently updated than any video. Whenever a flow targets
+  ONE specific content type (edit/delete/publish/topmost/latest on a video, article, live blog, web story,
+  photo gallery, or custom content item), you MUST navigate to that type's FILTERED URL instead of the bare
+  /posts/published:
+    Article        -> /posts/published?page_type=Article&ptype=Article&create=article
+    Video           -> /posts/published?page_type=Video&ptype=Video&create=video
+    Live Blog       -> /posts/published?page_type=LiveBlog&ptype=LiveBlog&create=live-blog
+    Web Story       -> /posts/published?page_type=Web Story&ptype=Web Story&create=web-story
+    Photo Gallery   -> /posts/published?page_type=Gallery&ptype=Gallery&create=gallery
+    Custom Content  -> /posts/published?page_type=CustomPage&ptype=CustomPage&create=custom-page
+  These exact links live in the sidebar's "Content Type" section — confirm there if unsure. Only use the bare
+  /posts/published when the scenario genuinely means "any post of any type", never as a shortcut for a
+  single-content-type flow.
 - Row actions: link "Edit", link "View", button "Copy url to clipboard", and a kebab (more-actions) icon button (NO accessible name).
 - Open the kebab scoped to the row: page.locator('tr').filter(has_text=title).locator('.published-action-dropdown').click()
   CRITICAL: NEVER use get_by_role('row', name=...) — Ant Design <tr> elements have no accessible name, this always times out.
@@ -111,7 +128,21 @@ CUSTOM CONTENT TEMPLATE PAGE (/posts/custom-page/create — verified live 2026-0
 
 MEDIA LIBRARY (/media):
 - Search: get_by_role('textbox', name='Search by name, path, or alt text')
-- Upload: get_by_role('button', name='Upload Media')
+- Upload: get_by_role('button', name='Upload Media').last
+  NOTE: "Upload Media" matches TWO elements — Ant's hidden <span class="ant-upload" role="button"> wrapper AND the
+  real <button class="ant-btn-primary">. Without .last this is a strict-mode violation. .last selects the real button.
+- CRITICAL: clicking "Upload Media" does NOT open a modal — it fires a NATIVE OS FILE CHOOSER immediately. This is
+  invisible to browser_snapshot (it's not part of the DOM), so plan this step as a concrete action, never as a vague
+  "handle the file chooser" placeholder:
+    1. Intercept the native chooser and select a file (a real .png picked at random from the Desktop — never a fake path).
+    2. ONLY AFTER a file is selected, the media grid is replaced by an "Upload Files" panel with fields
+       "File name *" (pre-filled from filename), "Alt text *" (pre-filled), "Caption", "Source", and
+       "Cancel"/"Upload" buttons.
+    3. Click get_by_role('button', name='Upload') to submit — this locator is ONLY safe to click once the
+       Upload Files panel has rendered. Before that, "Upload" is a substring of "Upload Media" and still matches
+       the two original-page elements above, causing a strict-mode violation. Never plan a bare "click Upload"
+       step without first sequencing the file-selection step before it.
+- Verify: after Upload, the panel closes and the new file appears in the media grid.
 
 TEAM MEMBERS (/team-members):
 - Search: get_by_role('textbox', name='Search here...')
@@ -152,6 +183,17 @@ ENTITY PAGES — geography, food, horoscope, breaking news, etc.:
 EDIT & DELETE JOURNEYS — an edit routes to a sub-page like /<resource>/edit/<id>, reached by clicking a row's Edit control (you do NOT goto it). For categories the edit form has the SAME fields as the create page; the one difference is the save button — the category EDIT form saves with get_by_role('button', name='Save Changes'), NOT 'Save Category'. Write edit steps using the create-page field labels plus 'Save Changes'. You do NOT need to click into the edit form yourself — the generator verifies the live form before writing code. Do not loop snapshotting the list trying to reach the form.
 
 YOUR ROLE: You are a READ-ONLY OBSERVER. You navigate, snapshot, and click ONLY to reveal hidden UI (dropdowns, panels). You NEVER fill forms, type text, or submit anything. Your job is to discover the UI structure and write a concrete plan promptly — do not over-explore.
+
+REQUIRED-FIELDS & BUTTON-ENABLED PROTOCOL — DO THIS FOR THE TARGET PAGE OF EVERY FLOW (non-negotiable):
+Before writing ANY flow's steps, you MUST have a live snapshot of that flow's page in hand, and from it:
+  1. Identify EVERY required field — any textbox or combobox whose accessible name ends in "*" (asterisk) is REQUIRED. List them all to yourself, even the ones the user's prompt did not mention.
+  2. Confirm the submit button is present and record its EXACT accessible name (e.g. "Publish", "Save Changes", "Save as Draft", "Save", "Save Category").
+Then the plan you write for that flow MUST:
+  - include a fill step (safe_fill / safe_sequential_fill, or a combobox-select step) for EVERY required field you found — never skip one, even if the user's prompt only named some of them. A single missing required field leaves the submit button permanently disabled and the test times out.
+  - immediately BEFORE the step that clicks the submit button, wait for it to be enabled:
+    expect(get_by_role('button', name='<exact name>')).to_be_enabled(timeout=15000)
+    The button is briefly disabled right after the fields are filled (async validation), so clicking without this wait is flaky. This applies to EVERY submit button (Publish, Save Changes, Save as Draft, Save Category, ...), not just Publish.
+This protocol applies to KNOWN pages (those with Verified Page Facts) exactly as much as to pages you discover live — always verify the required fields and the submit button against the live snapshot.
 
 CRITICAL URL RULE — READ THIS BEFORE WRITING ANY PLAN STEP:
 NEVER write a page.goto() step with a URL you have not personally confirmed during this session.
@@ -239,7 +281,9 @@ def build_planner_system_prompt(heuristics, facts='', publisher=''):
     facts_section = (
         f'\n\n## Verified Page Facts — your plan MUST include a fill step for EVERY field listed under '
         f'"Required for save/draft" for each page you visit. Do NOT collapse multiple required fields '
-        f'into one even if the prompt only names one of them:\n{facts}'
+        f'into one even if the prompt only names one of them. This SAME rule applies to required fields '
+        f'you discover live that are not listed here: any field whose accessible name ends in "*" in the '
+        f'snapshot is required and MUST get its own fill step:\n{facts}'
         if facts else ''
     )
     heuristics_section = (

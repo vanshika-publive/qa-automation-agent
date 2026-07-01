@@ -2,14 +2,17 @@ import re
 from typing import Dict, List, Optional, Set
 from urllib.parse import urlparse
 
-from pipeline.knowledge.dashboard_facts import KNOWN_PATH_PREFIXES, PAGE_FACTS
+from pipeline.knowledge.dashboard_facts import KNOWN_PATH_PREFIXES, PAGE_FACTS, VIRTUALIZED_COMBOBOX_NAMES
 
 
 def _extract_goto_paths(content: str) -> List[str]:
-    """Extracts paths from both code form (page.goto('/path')) and prose form."""
+    """Extracts paths from both code form (page.goto('/path') or page.goto('https://host/v2/path')) and prose form."""
     paths: List[str] = []
-    for m in re.finditer(r"page\.goto\(['\"`](\/[^'\"`\)]+)['\"`]\)", content):
-        paths.append(m.group(1))
+    for m in re.finditer(r"page\.goto\(['\"`](https?:\/\/[^'\"`\)]+|\/[^'\"`\)]+)['\"`]\)", content):
+        raw = m.group(1)
+        if raw.startswith('http'):
+            raw = re.sub(r'^/v2(?=/|$)', '', urlparse(raw).path) or '/'
+        paths.append(raw)
     for line in content.split('\n'):
         if not re.search(r'page\.goto\s*\(\s*\)', line):
             continue
@@ -74,6 +77,49 @@ def extract_fill_labels(text: str) -> List[str]:
     return unique
 
 
+def find_hardcoded_virtualized_titles(content: str) -> List[tuple]:
+    """Flags get_by_title() option selections made right after opening a combobox known to be
+    virtualized + per-publisher (e.g. Primary Category). Even when the title text was genuinely
+    visible during planning/generation, the option list re-renders differently (only ~9 of 65+
+    options are in the DOM at once) and varies per publisher and over time, so a hardcoded title
+    that passed live verification at plan time can still time out at test-run time. These fields
+    must always use the dynamic '.ant-select-item-option' pattern instead.
+    """
+    findings: List[tuple] = []
+    for name in VIRTUALIZED_COMBOBOX_NAMES:
+        for m in re.finditer(
+            rf"get_by_role\(\s*['\"]combobox['\"]\s*,\s*name\s*=\s*['\"]{re.escape(name)}['\"]\)",
+            content,
+        ):
+            window = content[m.end():m.end() + 400]
+            next_combobox = re.search(r"get_by_role\(\s*['\"]combobox['\"]", window)
+            if next_combobox:
+                window = window[:next_combobox.start()]
+            if 'ant-select-item-option' in window:
+                continue
+            title_match = re.search(r"get_by_title\(\s*['\"]([^'\"]+)['\"]", window)
+            if title_match:
+                findings.append((name, title_match.group(1)))
+    return findings
+
+
+# Maps a content-type keyword to the query-param prefix its filtered published-list URL must carry.
+# Confirmed bug (2026-07-01): a plan for "edit the topmost video" visited the bare /posts/published
+# (which interleaves every content type sorted by recency) and picked row.nth(1), which matched the
+# topmost LIVE BLOG instead of a video. Enforced here in addition to the prompt guidance, since the
+# planner has been observed to see the filtered sidebar links live and still write the bare URL.
+CONTENT_TYPE_FILTER_MAP = {
+    'live blog': 'page_type=LiveBlog',
+    'liveblog': 'page_type=LiveBlog',
+    'video': 'page_type=Video',
+    'web story': 'page_type=Web Story',
+    'photo gallery': 'page_type=Gallery',
+    'custom content': 'page_type=CustomPage',
+    'custom page': 'page_type=CustomPage',
+    'article': 'page_type=Article',
+}
+
+
 def validate_plan_content(
     content: str,
     snapshot_cache: Dict[str, str],
@@ -95,14 +141,47 @@ def validate_plan_content(
 
     # Catches "planner collapsed multiple required fields into one fill"
     visited_paths_in_plan = _extract_goto_paths(content)
+    plan_clicks_publish = bool(re.search(r"""name\s*=\s*['\"]Publish['\"]""", content))
     missing_required_fields: List[str] = []
     for visited in visited_paths_in_plan:
         facts = PAGE_FACTS.get(visited)
-        if not facts or len(facts.required_for_draft) == 0:
+        if not facts:
             continue
-        for required in facts.required_for_draft:
+        required_fields = list(facts.required_for_draft)
+        # When the flow actually publishes, the publish-only required fields (e.g. Summary,
+        # Meta Description on articles) also gate the Publish button — enforce them too.
+        if facts.save_button == 'Publish' and plan_clicks_publish:
+            required_fields += list(facts.required_for_publish)
+        for required in required_fields:
             if not _is_field_referenced(required.field, content):
                 missing_required_fields.append(f'{visited} -> "{required.field}"')
+
+    # Live-discovered required fields: for any visited page NOT in PAGE_FACTS, read the
+    # asterisk-marked required fields straight from the snapshot captured for that page and
+    # require each to be filled. Extends the required-fields guarantee to EVERY flow, not just
+    # the hand-maintained known pages.
+    for visited in visited_paths_in_plan:
+        if PAGE_FACTS.get(visited) is not None:
+            continue
+        snap = None
+        for url, snapshot in snapshot_cache.items():
+            try:
+                snap_path = urlparse(url).path
+            except Exception:
+                snap_path = url
+            if visited and snap_path.find(visited) != -1:
+                snap = snapshot
+                break
+        if not snap:
+            continue
+        live_required = re.findall(r'\b(?:textbox|combobox|spinbutton)\s+"([^"]*\*[^"]*)"', snap)
+        for raw_name in dict.fromkeys(live_required):
+            # ARIA names often embed icon text like "info-circle"; strip it before matching.
+            field_name = re.sub(r'\s*info-circle\s*', ' ', raw_name, flags=re.IGNORECASE).strip()
+            if not re.search(r'[A-Za-z]{2,}', field_name):
+                continue
+            if not _is_field_referenced(field_name, content):
+                missing_required_fields.append(f'{visited} -> "{field_name}"')
 
     has_placeholder = bool(re.search(
         r'\[PLAN VALUE\]|\[ACTUAL TEXT\]|exact-option|\[OBSERVED|\[OPTION|\[YOUR',
@@ -124,6 +203,21 @@ def validate_plan_content(
         p for p in visited_paths_in_plan
         if any(regex.search(p) for regex in forbidden_for_geography_filter)
     ]
+
+    # Single-content-type edit/delete/topmost/latest flow that visits the bare, unfiltered
+    # /posts/published — see CONTENT_TYPE_FILTER_MAP comment for the confirmed regression this guards.
+    mentioned_content_types = [
+        (label, qparam) for label, qparam in CONTENT_TYPE_FILTER_MAP.items()
+        if re.search(rf'\b{re.escape(label)}\b', content, flags=re.IGNORECASE)
+    ]
+    targets_single_item_action = bool(re.search(
+        r'topmost|latest|\bedit\b|\bdelet|\bpublish|\brename\b|\bupdate\b',
+        content, flags=re.IGNORECASE
+    ))
+    visits_bare_published_list = '/posts/published' in visited_paths_in_plan
+    content_type_bleed = (
+        visits_bare_published_list and targets_single_item_action and len(mentioned_content_types) == 1
+    )
 
     # A path passes if it starts with a known prefix OR was visited+snapshotted this session
     visited_url_paths: List[str] = []
@@ -211,11 +305,29 @@ def validate_plan_content(
         if len(snapshot_cache) > 0 else []
     )
 
+    # Every submit click MUST be preceded by an enabled-wait on the same button — the button is
+    # briefly disabled after the required fields are filled (async validation), so an immediate
+    # click is flaky and frequently fails the run.
+    submit_buttons = ('Publish', 'Save Changes', 'Save as Draft', 'Save Category')
+    missing_enabled_wait: List[str] = []
+    for btn in submit_buttons:
+        clicks_btn = bool(re.search(rf"[Cc]lick[^\n]*name\s*=\s*['\"]{re.escape(btn)}['\"]", content))
+        if not clicks_btn:
+            continue
+        has_enabled_wait = bool(re.search(
+            rf"name\s*=\s*['\"]{re.escape(btn)}['\"][^\n]*to_be_enabled", content
+        ))
+        if not has_enabled_wait:
+            missing_enabled_wait.append(btn)
+
+    hardcoded_virtualized_titles = find_hardcoded_virtualized_titles(content)
+
     if (
         not has_flow or not has_scenario or not has_steps or has_errors or
         missing_permalink or len(unvalidated_paths) > 0 or has_placeholder or
         len(unverified_titles) > 0 or len(missing_required_fields) > 0 or
-        len(forbidden_goto_matches) > 0 or wrong_save_button or len(unknown_fill_labels) > 0
+        len(forbidden_goto_matches) > 0 or wrong_save_button or len(unknown_fill_labels) > 0 or
+        len(missing_enabled_wait) > 0 or len(hardcoded_virtualized_titles) > 0 or content_type_bleed
     ):
         issues: List[str] = []
         if not has_flow:
@@ -265,10 +377,19 @@ def validate_plan_content(
         if len(missing_required_fields) > 0:
             issues.append(
                 f'plan is missing fill steps for required fields: {"; ".join(missing_required_fields)} -- '
-                'every requiredForDraft field listed for a page in the Verified Page Facts section MUST appear as a '
-                'safe_fill / safe_sequential_fill call in the plan steps. Skipping one means the Save/Publish button stays '
-                'permanently disabled at runtime and the test times out. '
+                'every required field (listed in the Verified Page Facts section, OR any field whose accessible name '
+                'ends in "*" in the live snapshot of the page) MUST appear as a safe_fill / safe_sequential_fill call '
+                'in the plan steps. Skipping one means the Save/Publish button stays permanently disabled at runtime '
+                'and the test times out. '
                 'Common offender: geography create has BOTH "Name in English ( Slug )" AND "Name" -- fill BOTH, not just one.'
+            )
+        if len(missing_enabled_wait) > 0:
+            quoted = ', '.join(f'"{b}"' for b in missing_enabled_wait)
+            issues.append(
+                f'plan clicks the {quoted} button without first waiting for it to be enabled. '
+                'The submit button is briefly DISABLED right after the required fields are filled (async validation), '
+                'so clicking immediately is flaky and frequently fails the run. Add an assertion immediately BEFORE the '
+                "click on that button: expect(get_by_role('button', name='<button>')).to_be_enabled(timeout=15000)."
             )
         if wrong_save_button:
             offenders = ', '.join(
@@ -283,6 +404,29 @@ def validate_plan_content(
                 '"Save as Draft" button and no draft list step. Replace the \'Save as Draft\' step with \'Publish\' '
                 'and remove any navigation to /posts/draft and any subsequent Edit + Publish pair. '
                 'The correct entity flow is: fill required fields -> click Publish on the create page -> assert URL change.'
+            )
+        if content_type_bleed:
+            label, qparam = mentioned_content_types[0]
+            issues.append(
+                f'plan targets a single "{label}" item (edit/delete/publish/topmost/latest) but navigates to the '
+                'bare, unfiltered /posts/published, which interleaves EVERY content type sorted by recency -- '
+                '"topmost"/"latest" there means topmost-of-ANY-type, not topmost of the type you want. This exact '
+                'pattern previously caused a "topmost video" plan to silently edit a Live Blog instead. Replace '
+                f"page.goto('/posts/published') with the content-type-filtered URL "
+                f"(?{qparam}&ptype=...&create=..., visible live in the sidebar's Content Type section) so the row "
+                f'you act on is guaranteed to be a "{label}".'
+            )
+        if len(hardcoded_virtualized_titles) > 0:
+            quoted = ', '.join(f'{name} -> "{title}"' for name, title in hardcoded_virtualized_titles)
+            issues.append(
+                f'plan hardcodes a get_by_title() option for a virtualized, per-publisher combobox: {quoted}. '
+                'Even though this option was visible when you browsed it live, the list is virtualized (only ~9 of '
+                '65+ options render at once) and the option set changes per publisher and over time, so a hardcoded '
+                'title will time out on a later run even though it passed live verification just now. Replace with '
+                "the dynamic pattern: click the combobox, then page.locator('.ant-select-dropdown').last"
+                ".locator('.ant-select-item-option').first.wait_for(state='visible') and .click() -- or, if a "
+                "specific option is required, cb.fill('<name>') to filter first, then click the first "
+                '.ant-select-item-option match. Never use get_by_title() for this combobox.'
             )
         if len(unknown_fill_labels) > 0:
             valid_per_page_parts: List[str] = []

@@ -66,9 +66,10 @@ def parse_plan_md(content: str) -> List[Scenario]:
 
 def extract_scenario_url(steps: List[str], base_url: str) -> str:
     for step in steps:
-        goto_match = re.search(r"page\.goto\(['\"`](\/[^'\"`]+)['\"`]\)", step)
+        goto_match = re.search(r"page\.goto\(['\"`](https?:\/\/[^'\"`]+|\/[^'\"`]+)['\"`]\)", step)
         if goto_match:
-            return f"{base_url}{goto_match.group(1)}"
+            matched = goto_match.group(1)
+            return matched if matched.startswith('http') else f"{base_url}{matched}"
 
         navigate_match = re.search(
             r"(?:navigate|go|visit|open)\s+(?:to\s+)?(?:the\s+)?(?:url\s+)?['\"]?(\/[a-z0-9/_?=&-]+)",

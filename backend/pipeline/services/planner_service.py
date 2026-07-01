@@ -74,6 +74,10 @@ class PlannerService:
             plan_rejection_count = 0
             plan_just_rejected = False
             snapshot_call_count = 0
+            # Each flow needs a genuine navigate+snapshot pass on its target page (plus a few
+            # combobox snapshots), so scale the snapshot budget with flow count instead of a flat
+            # cap — capped below MAX_PLANNER_ITERATIONS so a runaway snapshot loop still gets cut off.
+            snapshot_budget = min(12, 4 + 3 * max(1, len(test_plan.flows)))
 
             for iteration in range(MAX_PLANNER_ITERATIONS):
                 response = AgentUtils.call_with_retry(lambda: openai.chat.completions.create(
@@ -143,8 +147,8 @@ class PlannerService:
                 messages.extend(tool_results)
 
                 # Hard stop against snapshot loops: repeatedly calling browser_snapshot wastes API
-                # iterations and never advances the plan. After a few, force the plan to be written.
-                if not plan_saved and snapshot_call_count >= 4:
+                # iterations and never advances the plan. After the per-flow budget, force the write.
+                if not plan_saved and snapshot_call_count >= snapshot_budget:
                     messages.append({
                         'role': 'user',
                         'content': (
@@ -159,17 +163,19 @@ class PlannerService:
                     messages.append({
                         'role': 'user',
                         'content': (
-                            'Your plan was rejected. DO NOT write the plan again yet. '
-                            'You need to click through to the actual feature page first:\n'
-                            '1. Call browser_snapshot (no args) NOW to see the sidebar\n'
-                            '2. In the snapshot, find the target feature — look for its sidebar link '
-                            'or "Create" button\n'
+                            'Your plan was rejected — see the reason above. First check whether the fix is '
+                            'already available to you: a URL you already visited earlier in this conversation '
+                            '(check your own prior planner_setup_page / browser_click calls and their results), '
+                            'or a fact already stated in your system prompt (KNOWN FACTS / Verified Page Facts). '
+                            'If so, just correct the plan text to match it and call planner_save_plan again — '
+                            'do NOT re-navigate or re-explore for information you already have.\n'
+                            'Only click through the UI from scratch if the fix genuinely requires something you '
+                            'have not yet observed (a real URL, field label, or option text):\n'
+                            '1. Call browser_snapshot (no args) to see the sidebar\n'
+                            '2. Find the target feature — look for its sidebar link or "Create" button\n'
                             '3. Call browser_click on that element\n'
-                            '4. Call browser_snapshot immediately after — you are now on the real creation form\n'
-                            '5. Observe the form fields from this snapshot\n'
-                            '6. Write the plan using the URL from this page '
-                            '(check the link hrefs in the snapshot for the path)\n'
-                            'Only call planner_save_plan after you have completed all 6 steps above.'
+                            '4. Call browser_snapshot immediately after\n'
+                            '5. Write the plan using the confirmed URL/field from this page'
                         ),
                     })
 
@@ -226,12 +232,14 @@ class PlannerService:
                 is_known_target = any(p in landed_path for p in PAGE_FACTS.keys())
                 if is_known_target:
                     result = (
-                        f'Already on {target_url} — this IS a known target page '
-                        f'(it has Verified Page Facts in your system prompt). '
-                        f'Do NOT call planner_setup_page or browser_snapshot again. '
-                        f'Write the plan NOW by calling planner_save_plan with concrete steps '
-                        f'using the field labels from the Verified Page Facts (for an edit flow, use the '
-                        f'create-page fields plus the "Save Changes" button).\n\n'
+                        f'Already on {target_url} — this IS a known target page. '
+                        f'Do NOT call planner_setup_page again. Using the snapshot below, VERIFY the live '
+                        f'form before writing: (1) list EVERY required field — any textbox/combobox whose '
+                        f'accessible name ends in "*"; (2) confirm the submit button (Publish / Save Changes / '
+                        f'Save as Draft / Save / Save Category) is present and note its EXACT name. '
+                        f'Then call planner_save_plan with a plan that fills EVERY required field and waits '
+                        f'expect(get_by_role("button", name="<name>")).to_be_enabled(timeout=15000) before '
+                        f'clicking it (for an edit flow, use the create-page fields plus the "Save Changes" button).\n\n'
                         f'Current snapshot:\n{current_snapshot[:2000]}'
                     )
                 else:

@@ -19,6 +19,11 @@ class ComboboxFacts:
     known_options: list = field(default_factory=list)
     default_option: Optional[str] = None
     note: Optional[str] = None
+    # True for Ant Design Selects backed by a long, per-publisher, time-varying option list
+    # (rc-virtual-list renders only ~9 options at once). A get_by_title() value that was genuinely
+    # visible during planning/generation can still be absent at test-run time, so these fields must
+    # always be selected via the dynamic ".ant-select-item-option" pattern, never a hardcoded title.
+    virtualized: bool = False
 
 
 @dataclass
@@ -66,7 +71,7 @@ ARTICLE_CREATE = PageFacts(
         FieldConstraint(field='Focus Keyphrase', max=60),
     ],
     comboboxes=[
-        ComboboxFacts(aria_name='Primary Category', required=True, note='REQUIRED. Virtualized + per-publisher — click and snapshot, pick the first live .ant-select-item-option; never hardcode a name.'),
+        ComboboxFacts(aria_name='Primary Category', required=True, virtualized=True, note='REQUIRED. Virtualized + per-publisher — click and snapshot, pick the first live .ant-select-item-option; never hardcode a name.'),
         ComboboxFacts(aria_name='Credits', required=True, note='REQUIRED but auto-filled with the logged-in user — no action needed.'),
         ComboboxFacts(aria_name='Tags'),
         ComboboxFacts(aria_name='Additional Category'),
@@ -77,7 +82,7 @@ ARTICLE_CREATE = PageFacts(
         PublishStep(kind='click_button', button='Publish'),
         PublishStep(kind='expect_url', pattern='/posts/published'),
     ],
-    published_list_path='/posts/published',
+    published_list_path='/posts/published?page_type=Article&ptype=Article&create=article',
     draft_list_path='/posts/draft',
     note=('Articles PUBLISH DIRECTLY from this page. Fill Title (>=10 chars) + English Title (Permalink) + '
           'Primary Category (Credits auto-fills with the logged-in user) + Summary (>=140 chars) + '
@@ -103,7 +108,7 @@ CUSTOM_PAGE_CREATE = PageFacts(
         FieldConstraint(field='Banner Description'),
     ],
     comboboxes=[
-        ComboboxFacts(aria_name='Primary Category', required=True, note='REQUIRED. Virtualized + per-publisher — click and snapshot, pick the first live option; never hardcode.'),
+        ComboboxFacts(aria_name='Primary Category', required=True, virtualized=True, note='REQUIRED. Virtualized + per-publisher — click and snapshot, pick the first live option; never hardcode.'),
         ComboboxFacts(aria_name='Credits', required=True, note='REQUIRED but auto-filled with the logged-in user — no action needed.'),
     ],
     save_button='Publish',
@@ -112,7 +117,7 @@ CUSTOM_PAGE_CREATE = PageFacts(
         PublishStep(kind='click_button', button='Publish'),
         PublishStep(kind='expect_url', pattern='/posts/published'),
     ],
-    published_list_path='/posts/published',
+    published_list_path='/posts/published?page_type=CustomPage&ptype=CustomPage&create=custom-page',
     draft_list_path='/posts/draft',
     note=('Same direct-publish flow as Article Create: fill Title + English Title (Permalink) + Primary Category '
           '(Credits auto-fills), wait for the Publish button to be enabled, then click "Publish" -> /posts/published. '
@@ -126,11 +131,19 @@ DRAFT_LIST = PageFacts(
     after_save_url_pattern='/posts/draft',
     note=('Table header: "Title Content Type Created By Updated By Timeline Actions". '
           'Row actions: link "Edit", link "Preview", button "Discard". '
-          'CRITICAL — Ant Design <tr> elements have NO accessible name. NEVER use get_by_role("row", name=...). '
-          'Find the row with: row = page.locator("tr").filter(has_text=title) then row.wait_for(state="visible", timeout=15000). '
+          'CRITICAL — Ant Design <tr> elements have NO accessible name. NEVER use get_by_role("row", name=...) '
+          '(role WITH a name filter) — it always times out. Find the row with: '
+          'row = page.locator("tr").filter(has_text=title) then row.wait_for(state="visible", timeout=15000). '
           'Discard: row.get_by_role("button", name="Discard").click() -> '
           'page.get_by_role("dialog").get_by_role("button", name="Discard").click(). '
-          'NEVER use get_by_role("dialog", name="Discard Article") — dialog title varies by content type.'),
+          'NEVER use get_by_role("dialog", name="Discard Article") — dialog title varies by content type. '
+          'TOPMOST/LATEST-ITEM SCENARIOS (no specific title to filter by): use page.get_by_role("row").nth(1) '
+          '(role WITHOUT a name filter is fine — only get_by_role("row", name=...) is banned, per above). '
+          'NEVER page.locator("tr").first or page.locator("tbody tr").first — the table header is also a <tr>, '
+          'and Ant Design additionally renders a hidden aria-hidden="true" "ant-table-measure-row" as the '
+          'literal first <tr> inside <tbody>, so even "tbody tr".first grabs an invisible row, not real data. '
+          'get_by_role("row") is the only locator that skips both automatically (aria-hidden rows never get a '
+          'role), so nth(0) is the header and nth(1) is the first real data row.'),
 )
 
 PUBLISHED_LIST = PageFacts(
@@ -138,8 +151,26 @@ PUBLISHED_LIST = PageFacts(
     title='Published List',
     save_button='',
     after_save_url_pattern='/posts/published',
-    note=('List of published posts (verified live on OdishaTv - Khabar, 2026-06-22). To see only articles use '
-          '/posts/published?page_type=Article&ptype=Article&create=article. Columns: Title, Categories, Credits, '
+    note=('CRITICAL — CONTENT-TYPE BLEED (confirmed bug, 2026-07-01): the bare /posts/published with NO query '
+          'params interleaves EVERY content type (Article, Video, Web Story, Photo Gallery, Live Blog, Custom '
+          'Content) in one list sorted by recency. "Topmost"/"latest" on that bare URL means topmost-of-ANY-type, '
+          'NOT topmost of the type the scenario asked for. A plan for "edit the topmost video" that did '
+          "page.goto('/posts/published') then get_by_role('row').nth(1) silently edited the topmost LIVE BLOG "
+          'instead (it happened to be more recently updated than any video) — the test still passed because '
+          'nothing asserted the edited row was actually a video. RULE: whenever a flow targets ONE specific '
+          'content type (edit/delete/publish/topmost/latest on a video, article, live blog, web story, photo '
+          'gallery, or custom content item), you MUST navigate to that type\'s FILTERED published-list URL, '
+          'never the bare /posts/published: '
+          'Article -> /posts/published?page_type=Article&ptype=Article&create=article ; '
+          'Video -> /posts/published?page_type=Video&ptype=Video&create=video ; '
+          'Live Blog -> /posts/published?page_type=LiveBlog&ptype=LiveBlog&create=live-blog ; '
+          'Web Story -> /posts/published?page_type=Web Story&ptype=Web Story&create=web-story ; '
+          'Photo Gallery -> /posts/published?page_type=Gallery&ptype=Gallery&create=gallery ; '
+          'Custom Content -> /posts/published?page_type=CustomPage&ptype=CustomPage&create=custom-page. '
+          'These exact links are visible live in the left sidebar under the "Content Type" heading — confirm '
+          'there if unsure. Only use the bare /posts/published when the scenario genuinely means "any post of '
+          'any type" (e.g. a mixed-content smoke check), never as a shortcut for a single-content-type flow. '
+          'Columns: Title, Categories, Credits, '
           'Page Views, Word Count, SEO Score, Timeline, Actions. Per-row Actions: link "Edit", link "View", '
           'button "Copy url to clipboard", and a kebab (more-actions) icon button with NO accessible name. '
           'CRITICAL — Ant Design <tr> elements have NO accessible name. NEVER use get_by_role("row", name=...) — '
@@ -152,7 +183,19 @@ PUBLISHED_LIST = PageFacts(
           'page.get_by_role("dialog").get_by_role("button", name="Delete").click() -> '
           'assert row gone: expect(page.locator("tr").filter(has_text=title)).to_have_count(0, timeout=15000). '
           'NEVER use get_by_role("dialog", name="Delete Article") — dialog title varies by content type. '
-          'NOTE: "Unpublish" is a DIFFERENT menu item (sends back to draft), NOT Delete.'),
+          'NOTE: "Unpublish" is a DIFFERENT menu item (sends back to draft), NOT Delete. '
+          'TOPMOST/LATEST-ITEM SCENARIOS (no specific title to filter by): use page.get_by_role("row").nth(1) '
+          '— NEVER page.locator("tr").first and NEVER page.locator("tbody tr").first. Both of those are WRONG: '
+          'the table header is also a <tr> (so .first / tbody-tr[0] can hit it), AND Ant Design additionally '
+          'renders a hidden aria-hidden="true" "ant-table-measure-row" as the literal FIRST <tr> inside <tbody> '
+          '(used internally to measure column widths) — so even "tbody tr".first grabs that invisible row, not '
+          'real data. get_by_role("row") is the only locator that correctly skips both: it follows the '
+          'accessibility tree, which excludes aria-hidden elements automatically, so nth(0) is the header and '
+          'nth(1) is the first real data row. The row action is get_by_role("row").nth(1).get_by_role("link", '
+          'name="Edit") — Edit is a LINK here, not a button; get_by_role("button", name="Edit") never matches '
+          'and times out. Editing an ALREADY-PUBLISHED item also switches its save button from "Publish" to '
+          '"Update" as soon as any field is changed — wait for and click get_by_role("button", name="Update"), '
+          'not "Publish", when the flow edits an existing published item rather than creating a new one.'),
 )
 
 TAG_CREATE = PageFacts(
@@ -205,7 +248,13 @@ CATEGORIES_LIST = PageFacts(
           'row.get_by_title("Delete").click(); then confirm with '
           'page.get_by_role("dialog").get_by_role("button", name="Delete").click() (dialog title "Delete Category"). '
           'NEVER use .published-action-dropdown or an .ant-dropdown menuitem here — that selector is specific to '
-          'the Posts Published list and does not exist on this page.'),
+          'the Posts Published list and does not exist on this page. '
+          'TOPMOST/LATEST-ITEM SCENARIOS (no specific name to filter by): use page.get_by_role("row").nth(1). '
+          'NEVER page.locator("tr").first or page.locator("tbody tr").first — the table header is also a <tr>, '
+          'and Ant Design additionally renders a hidden aria-hidden="true" "ant-table-measure-row" as the '
+          'literal first <tr> inside <tbody>, so even "tbody tr".first grabs an invisible row, not real data. '
+          'get_by_role("row") is the only locator that skips both automatically (aria-hidden rows never get a '
+          'role), so nth(0) is the header and nth(1) is the first real data row.'),
 )
 
 GEOGRAPHY_CREATE = PageFacts(
@@ -230,17 +279,123 @@ GEOGRAPHY_CREATE = PageFacts(
     published_list_path='/posts/published/geographies',
 )
 
+VIDEO_CREATE = PageFacts(
+    path='/posts/video/create',
+    title='Video Create',
+    required_for_draft=[
+        FieldConstraint(field='Title *', react_controlled=True, note='React-controlled — MUST use safe_sequential_fill, not safe_fill.'),
+        FieldConstraint(field='English Title ( Permalink ) *', react_controlled=True, note="MUST use safe_sequential_fill — plain fill() leaves Publish permanently disabled even with a valid unique value. Use a UNIQUE slug every run, e.g. f'qa-video-{ts}'."),
+        FieldConstraint(field='Featured Video *', note='NOT a file upload — see NOTE below for the real "Add Featured Video" -> "Embed Media" -> "Media URL *" flow.'),
+    ],
+    optional_fields=[
+        FieldConstraint(field='Summary'),
+        FieldConstraint(field='Meta Description'),
+        FieldConstraint(field='Focus Keyphrase'),
+    ],
+    comboboxes=[
+        ComboboxFacts(aria_name='Primary Category', required=True, virtualized=True, note='REQUIRED. Virtualized + per-publisher — click and snapshot, pick the first live .ant-select-item-option; never hardcode a name.'),
+        ComboboxFacts(aria_name='Credits', required=True, note='REQUIRED but auto-filled with the logged-in user — no action needed.'),
+        ComboboxFacts(aria_name='Additional Category'),
+        ComboboxFacts(aria_name='Tags'),
+    ],
+    save_button='Publish',
+    after_save_url_pattern='/posts/published',
+    publish_flow=[
+        PublishStep(kind='click_button', button='Publish'),
+        PublishStep(kind='expect_url', pattern='/posts/published'),
+    ],
+    published_list_path='/posts/published?page_type=Video&ptype=Video&create=video',
+    note=(
+        'There is NO "Upload Video" button and NO native file chooser on this page — never write '
+        'page.expect_file_chooser() or get_by_role("button", name="Upload Video") here, both time out. '
+        'The "Featured Video *" field is filled by clicking button "Add Featured Video", which opens a dialog '
+        'titled "Embed Media" containing a single required field "Media URL *" (placeholder "Enter video URL") '
+        'plus "Cancel"/"Submit" buttons. Fill "Media URL *" with a real video URL then click "Submit" to attach '
+        'it and close the dialog — video is added by URL embed only, there is no desktop-upload path. '
+        '(Verified live 2026-07-01 on OdishaTv - Khabar.) The unrelated "Upload ( 16:9 )" button under '
+        '"Custom Thumbnail" uploads a static image thumbnail, not the video, and is optional.'
+    ),
+)
+
+LIVE_BLOG_CREATE = PageFacts(
+    path='/posts/live-blog/create',
+    title='Live Blog Create',
+    published_list_path='/posts/published?page_type=LiveBlog&ptype=LiveBlog&create=live-blog',
+    note=(
+        'Live Blog is a DISTINCT content type from Video and Article — confirmed live in the sidebar "Content '
+        'Type" section (/posts/live-blog/create to create, /posts/published?page_type=LiveBlog&ptype=LiveBlog&'
+        'create=live-blog to see only live blogs). Field-level facts for this create page are NOT yet hand-'
+        'verified — treat every asterisk-marked field in the live snapshot as required (see live-discovery '
+        'fallback) rather than assuming Article/Video field names apply. NEVER edit or delete a live blog by '
+        'landing on the bare /posts/published and picking a row by position — always use the filtered URL above '
+        'so the row you act on is actually a live blog.'
+    ),
+)
+
+MEDIA_LIBRARY = PageFacts(
+    path='/media',
+    title='Media Library',
+    required_for_draft=[
+        FieldConstraint(field='File name *', react_controlled=True, note='Pre-filled from the uploaded filename. MUST use safe_sequential_fill, not safe_fill, to actually replace it — plain fill() is ignored on this React-controlled field.'),
+        FieldConstraint(field='Alt text *', react_controlled=True, note='Pre-filled from the uploaded filename. MUST use safe_sequential_fill, not safe_fill.'),
+    ],
+    optional_fields=[
+        FieldConstraint(field='Caption'),
+        FieldConstraint(field='Source'),
+    ],
+    save_button='Upload',
+    after_save_url_pattern='/media',
+    note=(
+        'Clicking "Upload Media" (get_by_role("button", name="Upload Media").last — see Ant Upload heuristic) does '
+        'NOT open a modal or dialog. It fires a NATIVE OS FILE CHOOSER immediately, which the test MUST intercept '
+        'with Playwright\'s file-chooser API before the click resolves:\n'
+        '    with page.expect_file_chooser() as fc_info:\n'
+        '        page.get_by_role("button", name="Upload Media").last.click()\n'
+        '    fc_info.value.set_files(random_desktop_png())\n'
+        'random_desktop_png() (import from helpers) picks a real .png at random from the Desktop folder — never '
+        'pass a fake/nonexistent path or an empty string.\n'
+        'Only AFTER a file is chosen does the page replace the whole media grid with an "Upload Files" panel '
+        'containing "File name *", "Alt text *", "Caption", "Source" fields plus "Cancel" and "Upload" buttons. '
+        'BEFORE that panel renders, get_by_role("button", name="Upload") is a STRICT-MODE VIOLATION: "Upload" is '
+        'a substring of "Upload Media", so it still matches the ant-upload span AND the "Upload Media" button on '
+        'the still-visible original page. Only click get_by_role("button", name="Upload") AFTER set_files() and '
+        'after filling File name */Alt text *, at which point it uniquely matches the panel\'s submit button. '
+        'After a successful upload the panel closes and the new file appears in the media grid.'
+    ),
+)
+
 PAGE_FACTS = {
     '/posts/article/create': ARTICLE_CREATE,
     '/posts/custom-page/create': CUSTOM_PAGE_CREATE,
     '/posts/draft': DRAFT_LIST,
     '/posts/published': PUBLISHED_LIST,
+    # Content-type-filtered variants of the published list share the same row-matching/kebab/Update-button
+    # facts as the bare list — registered under their own key so facts_for_prompt/plan_validator recognize
+    # them as known pages instead of silently dropping PUBLISHED_LIST guidance for them.
+    '/posts/published?page_type=Article&ptype=Article&create=article': PUBLISHED_LIST,
+    '/posts/published?page_type=Video&ptype=Video&create=video': PUBLISHED_LIST,
+    '/posts/published?page_type=LiveBlog&ptype=LiveBlog&create=live-blog': PUBLISHED_LIST,
+    '/posts/published?page_type=CustomPage&ptype=CustomPage&create=custom-page': PUBLISHED_LIST,
     '/tags/create': TAG_CREATE,
     '/tags': TAGS_LIST,
+    '/media': MEDIA_LIBRARY,
     '/categories/new': CATEGORY_CREATE,
     '/categories': CATEGORIES_LIST,
     '/posts/entity/geographies/geography/create': GEOGRAPHY_CREATE,
+    '/posts/video/create': VIDEO_CREATE,
+    '/posts/live-blog/create': LIVE_BLOG_CREATE,
 }
+
+# Aria names of comboboxes marked virtualized=True anywhere in PAGE_FACTS. A get_by_title() value
+# for one of these is unsafe even when it was genuinely observed live -- the option must instead be
+# picked via the dynamic '.ant-select-item-option' pattern. Used by plan_validator/spec_validator to
+# enforce the rule structurally instead of relying on prompt text alone.
+VIRTUALIZED_COMBOBOX_NAMES = sorted({
+    cb.aria_name
+    for facts in PAGE_FACTS.values()
+    for cb in facts.comboboxes
+    if cb.virtualized
+})
 
 KNOWN_PATH_PREFIXES = [
     '/posts/', '/categories', '/tags', '/media', '/team',
@@ -257,6 +412,10 @@ def detect_intent(prompt):
         page = CUSTOM_PAGE_CREATE
     elif re.search(r'article', lower):
         page = ARTICLE_CREATE
+    elif re.search(r'\bvideo\b', lower):
+        page = VIDEO_CREATE
+    elif re.search(r'live\s*blog', lower):
+        page = LIVE_BLOG_CREATE
     elif re.search(r'tag', lower):
         page = TAG_CREATE
     elif re.search(r'categor', lower):
@@ -361,13 +520,13 @@ def facts_for_prompt(prompt):
     if intent:
         pages.append(intent['page'])
         verb = intent['verb']
-        # "save as draft" and "discard" act on the Draft list; "publish" and "delete"
-        # act on the Published list (articles publish directly, then delete from there).
+        # "save as draft" and "discard" act on the Draft list; "publish", "delete", and "edit"
+        # (editing an already-published item) all act on the Published list.
         if verb in ('draft', 'discard'):
             draft_path = intent['page'].draft_list_path
             if draft_path and draft_path in PAGE_FACTS:
                 pages.append(PAGE_FACTS[draft_path])
-        if verb in ('publish', 'delete'):
+        if verb in ('publish', 'delete', 'edit'):
             pub_path = intent['page'].published_list_path
             if pub_path and pub_path in PAGE_FACTS:
                 pages.append(PAGE_FACTS[pub_path])
@@ -393,6 +552,10 @@ def facts_for_all_mentioned_pages(prompt):
         push(CUSTOM_PAGE_CREATE)
     if re.search(r'article', lower) and not is_geography_filter_flow:
         push(ARTICLE_CREATE)
+    if re.search(r'\bvideo\b', lower):
+        push(VIDEO_CREATE)
+    if re.search(r'live\s*blog', lower):
+        push(LIVE_BLOG_CREATE)
     if re.search(r'\btag\b|\btags\b', lower):
         push(TAG_CREATE)
     if re.search(r'categor', lower):
@@ -400,14 +563,15 @@ def facts_for_all_mentioned_pages(prompt):
     if re.search(r'geograph', lower):
         push(GEOGRAPHY_CREATE)
 
-    article_or_custom = any(
-        p.path in ('/posts/article/create', '/posts/custom-page/create') for p in matched
-    )
-    # "save as draft" / "discard" surface the Draft list; article/custom-page "publish" and
-    # "delete" both go through the Published list (direct publish, then delete from there).
+    has_published_target = any(p.published_list_path for p in matched)
+    # "save as draft" / "discard" surface the Draft list. Any content type that publishes to a
+    # Published list also needs those facts for "publish", "delete", AND "edit an existing item"
+    # scenarios ("edit the topmost X", "rename the latest Y") — editing an already-published item
+    # means finding its row in the Published list first, so the row-finding gotchas (header <tr>,
+    # hidden measure row, Update-vs-Publish button) apply just as much as to publish/delete.
     if not is_geography_filter_flow and re.search(r'\bdraft\b|save.*as.*draft|discard', lower):
         push(DRAFT_LIST)
-    if article_or_custom and re.search(r'publish|delet', lower):
+    if has_published_target and re.search(r'publish|delet|\bedit\b|topmost|latest|rename|update', lower):
         push(PUBLISHED_LIST)
 
     if not matched:

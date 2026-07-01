@@ -26,7 +26,11 @@ class MCPBridge:
         cli_path = MCPBridge._find_cli()
 
         session_path = os.path.join(self._project_root, '.auth', 'session.json')
-        session_args = ['--storage-state', session_path] if os.path.isfile(session_path) else []
+        # @playwright/mcp only honors --storage-state when --isolated is also set ("path to the
+        # storage state file for isolated sessions"). Without --isolated it falls back to a default
+        # persistent profile and silently ignores the stored session, so every page redirects to
+        # /login. Pass both together so the captured MFA-cleared session actually authenticates.
+        session_args = ['--isolated', '--storage-state', session_path] if os.path.isfile(session_path) else []
 
         args = ['--browser', PLAYWRIGHT_BROWSER] + session_args
 
