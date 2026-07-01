@@ -7,6 +7,11 @@ from functools import wraps
 class AgentUtils:
 
     MAX_TOOL_RESULT_CHARS = 8000
+    # browser_snapshot on Ant Design pages routinely exceeds 8000 chars just from wrapper divs
+    # before reaching later form sections (e.g. Web Story's required image upload lives past
+    # char 9700 in a 16000+ char snapshot) — truncating it at the default silently hides those
+    # fields from the model, not just from the printed log. Give snapshots a much larger budget.
+    MAX_SNAPSHOT_RESULT_CHARS = 24000
     DEFAULT_KEEP_TURNS = 4
 
     @classmethod

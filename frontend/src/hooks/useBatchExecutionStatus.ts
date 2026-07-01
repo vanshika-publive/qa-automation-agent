@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { useQueries } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { executionsService } from '../services/executions';
@@ -18,16 +17,10 @@ export interface BatchRow {
 export function useBatchExecutionStatus() {
   const [searchParams] = useSearchParams();
 
-  const ids = useMemo(() => searchParams.get('ids')?.split(',') ?? [], [searchParams]);
-  const collectionIds = useMemo(() => searchParams.get('collections')?.split(',') ?? [], [searchParams]);
-  const names = useMemo(
-    () => (searchParams.get('names')?.split(',') ?? []).map((n) => decodeURIComponent(n)),
-    [searchParams],
-  );
-  const statuses = useMemo(
-    () => (searchParams.get('statuses')?.split(',') ?? []) as BatchRow['launchStatus'][],
-    [searchParams],
-  );
+  const ids = searchParams.get('ids')?.split(',') ?? [];
+  const collectionIds = searchParams.get('collections')?.split(',') ?? [];
+  const names = (searchParams.get('names')?.split(',') ?? []).map((n) => decodeURIComponent(n));
+  const statuses = (searchParams.get('statuses')?.split(',') ?? []) as BatchRow['launchStatus'][];
 
   const executionQueries = useQueries({
     queries: ids.map((id) => ({

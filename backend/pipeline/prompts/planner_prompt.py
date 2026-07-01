@@ -144,6 +144,32 @@ MEDIA LIBRARY (/media):
        step without first sequencing the file-selection step before it.
 - Verify: after Upload, the panel closes and the new file appears in the media grid.
 
+WEB STORY (/posts/web-story/create) — verified live 2026-07-01:
+- Required fields (ALL gate the Publish button; Publish stays disabled until every one is satisfied):
+    1. safe_sequential_fill(page, 'Title *', ...)
+    2. safe_fill(page, 'English Title ( Permalink ) *', f'qa-web-story-{ts}')  — unique per run
+    3. get_by_role('combobox', name='Primary Category') — Ant Design, virtualized; pick first live option
+       (page.locator('.ant-select-dropdown').last.locator('.ant-select-item-option').first after wait_for visible)
+    4. THE WEB STORY IMAGE — this is REQUIRED and is the #1 reason a Web Story plan fails with Publish disabled.
+- CRITICAL — TWO DIFFERENT image widgets on this page; do NOT confuse them:
+    * OPTIONAL (skip these): buttons named "plus Upload ( Portrait )" and "plus Upload ( Landscape )" sit under the
+      "Add Custom Thumbnails (Optional)" heading. They are NOT required and filling them does NOT enable Publish.
+      NEVER target these for the required image.
+    * REQUIRED (this is the one): under the "Web Story *" (asterisk) heading there is a drop-zone whose only stable
+      handle is its visible text. Target it with get_by_text('Upload your Web Story image'). It is a nameless
+      <div>, so get_by_role('button', name=...) CANNOT reach it — use the text.
+- The required image flow is a MEDIA-LIBRARY MODAL, NOT a native file chooser:
+    1. Click get_by_text('Upload your Web Story image') — this opens the "Media Library" modal (an in-DOM dialog,
+       visible to browser_snapshot — no native OS chooser is involved here).
+    2. Select an image: click an existing image in the grid (e.g. get_by_role('dialog').get_by_role('img').first),
+       OR click get_by_role('button', name='Upload Media').last to add a new one (that sub-button DOES open the
+       native chooser — see MEDIA LIBRARY above).
+    3. Selecting an image reveals a detail panel; click get_by_role('button', name='Insert Media') to confirm.
+       The modal then closes and the "Upload your Web Story image" placeholder disappears — that is how you know
+       the required image is attached.
+- Save: expect(get_by_role('button', name='Publish')).to_be_enabled(timeout=15000) then click it. Only after the
+  image is inserted (plus the three fields above) does Publish enable.
+
 TEAM MEMBERS (/team-members):
 - Search: get_by_role('textbox', name='Search here...')
 - Add: get_by_role('button', name='Add Team Member')
@@ -186,10 +212,10 @@ YOUR ROLE: You are a READ-ONLY OBSERVER. You navigate, snapshot, and click ONLY 
 
 REQUIRED-FIELDS & BUTTON-ENABLED PROTOCOL — DO THIS FOR THE TARGET PAGE OF EVERY FLOW (non-negotiable):
 Before writing ANY flow's steps, you MUST have a live snapshot of that flow's page in hand, and from it:
-  1. Identify EVERY required field — any textbox or combobox whose accessible name ends in "*" (asterisk) is REQUIRED. List them all to yourself, even the ones the user's prompt did not mention.
+  1. Identify EVERY required field — ANY control on the page (textbox, combobox, spinbutton, checkbox, upload/file button, etc.) whose accessible name ends in "*" (asterisk) is REQUIRED, regardless of its role. Read the ENTIRE snapshot, not just the text inputs — required fields are just as often an "Upload Image *" button or a checkbox as a textbox. List them all to yourself, even the ones the user's prompt did not mention.
   2. Confirm the submit button is present and record its EXACT accessible name (e.g. "Publish", "Save Changes", "Save as Draft", "Save", "Save Category").
 Then the plan you write for that flow MUST:
-  - include a fill step (safe_fill / safe_sequential_fill, or a combobox-select step) for EVERY required field you found — never skip one, even if the user's prompt only named some of them. A single missing required field leaves the submit button permanently disabled and the test times out.
+  - include a step to satisfy EVERY required field you found — a fill step (safe_fill / safe_sequential_fill) for text fields, a combobox-select step for dropdowns, a click for checkboxes, or an upload step (click the "Upload …" button, intercept the file chooser) for required image/file fields — never skip one, even if the user's prompt only named some of them. A single missing required field leaves the submit button permanently disabled and the test times out.
   - immediately BEFORE the step that clicks the submit button, wait for it to be enabled:
     expect(get_by_role('button', name='<exact name>')).to_be_enabled(timeout=15000)
     The button is briefly disabled right after the fields are filled (async validation), so clicking without this wait is flaky. This applies to EVERY submit button (Publish, Save Changes, Save as Draft, Save Category, ...), not just Publish.

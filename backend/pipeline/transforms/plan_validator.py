@@ -174,7 +174,68 @@ def validate_plan_content(
                 break
         if not snap:
             continue
-        live_required = re.findall(r'\b(?:textbox|combobox|spinbutton)\s+"([^"]*\*[^"]*)"', snap)
+        # Role-agnostic on purpose: required fields aren't always textbox/combobox/spinbutton
+        # (e.g. an Ant Upload control renders its trigger as role="button"). Any control whose
+        # accessible name is asterisk-marked in the live snapshot counts as required.
+        live_required = re.findall(r'\b\w+\s+"([^"]*\*[^"]*)"', snap)
+
+        # Some required markers aren't embedded in any control's accessible name at all -- the
+        # dashboard sometimes renders the label and the "*" as separate sibling nodes with the
+        # actual interactive control carrying no accessible name whatsoever (e.g. Web Story's
+        # image upload: a `text: Web Story` node next to a standalone `generic ...: "*"` node,
+        # both siblings of an unlabelled clickable drop-zone). Reconstruct these by pairing a
+        # standalone asterisk-only node with the nearest preceding label text.
+        snap_lines = snap.split('\n')
+        for i, line in enumerate(snap_lines):
+            if not re.search(r':\s*"\*"\s*$', line):
+                continue
+            label = None
+            for back in range(1, 7):
+                j = i - back
+                if j < 0:
+                    break
+                label_match = re.search(r'(?:text|paragraph)[^:]*:\s*(.+)$', snap_lines[j])
+                if label_match:
+                    candidate = label_match.group(1).strip()
+                    if re.search(r'[A-Za-z]{2,}', candidate):
+                        label = candidate
+                    break
+            if not label:
+                continue
+            # These reconstructed labels are often the content type's own name (e.g. "Web
+            # Story" on a "create a web story" plan), which trivially "matches" ordinary prose
+            # describing the flow even when the field itself was never actually filled. When
+            # the surrounding UI clearly reads as an upload/drop-zone, don't trust bare prose
+            # mentions -- require the plan to reference the drop-zone's OWN prompt text.
+            context_window = '\n'.join(snap_lines[max(0, i - 8):i + 8])
+            if re.search(r'upload|drop.?zone|drag.?(?:and|&).?drop', context_window, flags=re.IGNORECASE):
+                # The drop-zone renders a distinctive prompt like "Upload your Web Story image".
+                # Requiring THAT exact phrase (not just any "upload" keyword) is what separates a
+                # correct plan from one that wrongly targets a similarly-named but OPTIONAL upload
+                # button elsewhere on the page (e.g. "Upload ( Portrait )" custom thumbnails) --
+                # which was the actual Web Story failure: an "upload" keyword was present, but it
+                # pointed at the wrong widget so the required image was never attached.
+                # Pick the MOST distinctive "Upload ..." prompt in the window (most word tokens):
+                # bare "Upload" labels on the optional thumbnails must not shadow the real,
+                # multi-word drop-zone prompt.
+                upload_prompts = re.findall(
+                    r'(?:text|paragraph)[^:]*:\s*(Upload[^\n]*)',
+                    context_window, flags=re.IGNORECASE,
+                )
+                distinctive = [p.strip() for p in upload_prompts if len(p.split()) >= 3]
+                dropzone_prompt = max(distinctive, key=len) if distinctive else None
+                if dropzone_prompt and _is_field_referenced(dropzone_prompt, content):
+                    continue  # plan references the exact drop-zone prompt -> satisfied
+                # Fall back to a generic upload-shaped check only when no distinctive prompt exists.
+                if not dropzone_prompt and re.search(
+                    r'set_files|file_chooser|browser_file_upload', content, flags=re.IGNORECASE
+                ):
+                    continue
+                target = dropzone_prompt or label
+                missing_required_fields.append(f'{visited} -> "{target}" (required image/file upload)')
+                continue
+            live_required.append(label)
+
         for raw_name in dict.fromkeys(live_required):
             # ARIA names often embed icon text like "info-circle"; strip it before matching.
             field_name = re.sub(r'\s*info-circle\s*', ' ', raw_name, flags=re.IGNORECASE).strip()

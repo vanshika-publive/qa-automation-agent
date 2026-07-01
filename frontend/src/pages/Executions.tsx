@@ -7,7 +7,7 @@ import ExpandedTestResults, { StatusPill } from '../components/ExpandedTestResul
 import RunSuiteModal from '../components/RunSuiteModal';
 import FilterDrawer, { STATUS_OPTIONS } from '../components/FilterDrawer';
 import PaginationBar from '../components/PaginationBar';
-import { formatDuration, fmtDatetime, fmtDate, fmtMSS, relTime } from '../utils/formatters';
+import { formatDuration, fmtDatetime, fmtDate, fmtMSS, relTime, fmtTableDatetime } from '../utils/formatters';
 import { ACCENTS, STATUS_BG } from '../utils/status';
 import LogViewerModal from '../components/LogViewerModal';
 import { useExecutions } from '../hooks/useExecutions';
@@ -397,7 +397,7 @@ export default function Executions() {
                 <div className="font-semibold text-text-primary text-sm mb-1 leading-snug line-clamp-2">{test.name}</div>
                 <div className="text-xs text-text-secondary">
                   {runCount > 0
-                    ? `${runCount} run${runCount !== 1 ? 's' : ''} · Last ${relTime(lastExec!.startedAt)}`
+                    ? `${runCount} run${runCount !== 1 ? 's' : ''} · Last ${(() => { const { date, time } = fmtTableDatetime(lastExec!.startedAt); return `${date}, ${time}`; })()}`
                     : 'Never run'
                   }
                 </div>
@@ -441,7 +441,9 @@ export default function Executions() {
               {isRunning && <span className="mt-[3px] w-1.5 h-1.5 rounded-full bg-primary animate-pulse flex-shrink-0 inline-block" />}
               <div>
                 <div className="font-medium text-sm text-text-primary">{e.testName}</div>
-                <div className="text-sm text-text-secondary mt-0.5">{relTime(e.startedAt)} · #{e.runNumber}</div>
+                <div className="text-sm text-text-secondary mt-0.5">
+                  {(() => { const { date, time } = fmtTableDatetime(e.startedAt); return `${date}, ${time}`; })()} · #{e.runNumber}
+                </div>
                 {isRunning && (
                   <div className="mt-1.5 w-32 h-1 rounded overflow-hidden bg-surface-muted" style={{ borderRadius: 2 }}>
                     <div className="h-full" style={{ width: `${progressPct}%`, backgroundColor: '#3525cd', borderRadius: 2 }} />

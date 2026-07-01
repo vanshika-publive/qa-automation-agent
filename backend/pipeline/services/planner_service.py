@@ -138,10 +138,11 @@ class PlannerService:
                         plan_just_rejected = True
                     if plan_saved_flag:
                         plan_saved = True
+                    max_chars = AgentUtils.MAX_SNAPSHOT_RESULT_CHARS if name == 'browser_snapshot' else None
                     tool_results.append({
                         'role': 'tool',
                         'tool_call_id': call.id,
-                        'content': AgentUtils.truncate_result(result_str),
+                        'content': AgentUtils.truncate_result(result_str, max_chars),
                     })
 
                 messages.extend(tool_results)
@@ -310,13 +311,15 @@ class PlannerService:
             try:
                 result = bridge.call_tool(name, args)
                 if name == 'browser_snapshot':
-                    try:
-                        url_result = bridge.call_tool('browser_evaluate', {'expression': 'window.location.href'})
-                        url_match = re.search(r'https?://[^\s\'"]+', url_result)
-                        cache_key = url_match.group(0) if url_match else f'snapshot-{id(result)}'
-                        snapshot_cache[cache_key] = result
-                    except Exception:
-                        pass
+                    # The snapshot result itself always carries "- Page URL: <url>" as its first
+                    # line (confirmed across every non-error snapshot on record) — reading it
+                    # directly is both simpler and more reliable than a separate browser_evaluate
+                    # round-trip, whose failure used to fall back to a meaningless id()-based key
+                    # that the plan validator's URL-based snapshot lookup could never match,
+                    # silently letting it validate against the wrong (often stale/empty) snapshot.
+                    url_match = re.search(r'^- Page URL:\s*(\S+)', result, flags=re.MULTILINE)
+                    cache_key = url_match.group(1) if url_match else f'snapshot-{id(result)}'
+                    snapshot_cache[cache_key] = result
             except Exception as err:
                 result = f'ERROR calling {name}: {err}'
 

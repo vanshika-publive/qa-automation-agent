@@ -292,9 +292,9 @@ export default function CreateTestSlideOver({
       />
 
       <div
-        className={`fixed top-0 right-0 h-full w-[680px] bg-white shadow-2xl z-50 flex flex-col transition-transform duration-300 ease-out ${
+        className={`fixed top-0 right-0 h-full bg-white shadow-2xl z-50 flex flex-col transition-[transform,width] duration-300 ease-out ${
           visible ? 'translate-x-0' : 'translate-x-full'
-        }`}
+        } ${phase !== 'form' ? 'w-[900px]' : 'w-[680px]'}`}
       >
         <div className="flex items-center justify-between px-6 py-5 border-b border-border-subtle flex-shrink-0">
           <div className="flex items-center gap-3">
@@ -320,118 +320,149 @@ export default function CreateTestSlideOver({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+        {phase === 'form' ? (
+          <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
+            <div className="space-y-5">
+              <div>
+                <label className="block text-sm font-medium text-text-primary mb-1.5">
+                  Test Name <span className="text-error">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Create article and verify it appears in drafts"
+                  className="w-full border border-border-subtle rounded-xl px-4 py-2.5 text-sm text-text-primary placeholder:text-text-secondary bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-colors"
+                />
+              </div>
 
-          <div className={`space-y-5 transition-opacity duration-300 ${phase !== 'form' ? 'opacity-40 pointer-events-none' : ''}`}>
-            <div>
-              <label className="block text-sm font-medium text-text-primary mb-1.5">
-                Test Name <span className="text-error">*</span>
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Create article and verify it appears in drafts"
-                disabled={phase !== 'form'}
-                className="w-full border border-border-subtle rounded-xl px-4 py-2.5 text-sm text-text-primary placeholder:text-text-secondary bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-colors disabled:bg-surface-muted"
-              />
-            </div>
+              <div>
+                <label className="block text-sm font-medium text-text-primary mb-1.5">
+                  Collection <span className="text-error">*</span>
+                </label>
+                {collections.length === 0 ? (
+                  <p className="text-sm text-text-secondary p-3 bg-warning/5 border border-warning/20 rounded-xl">
+                    No collections found. Create a collection first.
+                  </p>
+                ) : (
+                  <select
+                    value={collectionId}
+                    onChange={(e) => setCollectionId(e.target.value)}
+                    className="w-full border border-border-subtle rounded-xl px-4 py-2.5 text-sm text-text-primary bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-colors appearance-none cursor-pointer"
+                  >
+                    {collections.map((col) => (
+                      <option key={col.id} value={col.id}>{col.name}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-text-primary mb-1.5">
-                Collection <span className="text-error">*</span>
-              </label>
-              {collections.length === 0 ? (
-                <p className="text-sm text-text-secondary p-3 bg-warning/5 border border-warning/20 rounded-xl">
-                  No collections found. Create a collection first.
+              <div>
+                <label className="block text-sm font-medium text-text-primary mb-1.5">
+                  Test Intent <span className="text-error">*</span>
+                </label>
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Describe what the test should do..."
+                  rows={5}
+                  className="w-full border border-border-subtle rounded-xl px-4 py-2.5 text-sm font-mono-code text-text-primary placeholder:text-text-secondary placeholder:font-sans bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-colors resize-none leading-relaxed"
+                />
+                <p className="text-xs text-text-secondary mt-1.5">
+                  Plain English is fine — the AI will interpret intent and generate Playwright test steps.
                 </p>
-              ) : (
-                <select
-                  value={collectionId}
-                  onChange={(e) => setCollectionId(e.target.value)}
-                  disabled={phase !== 'form'}
-                  className="w-full border border-border-subtle rounded-xl px-4 py-2.5 text-sm text-text-primary bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-colors disabled:bg-surface-muted appearance-none cursor-pointer"
-                >
-                  {collections.map((col) => (
-                    <option key={col.id} value={col.id}>{col.name}</option>
-                  ))}
-                </select>
+              </div>
+
+              <div className="flex gap-3 bg-surface-container-low rounded-xl p-4 border border-surface-container">
+                <Lightbulb size={18} className="text-primary flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-text-secondary leading-relaxed">
+                  <span className="font-semibold text-text-primary">Pro tip: </span>
+                  Be specific about what to click, fill in, and verify. For example: "Navigate to posts,
+                  click New Article, fill the title with a unique name, save as draft, then verify the
+                  article appears in the drafts list."
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text-primary mb-1.5">
+                  Environment <span className="text-error">*</span>
+                </label>
+                {activeEnvs.length === 0 ? (
+                  <div className="flex items-center gap-2 text-xs text-warning p-3 bg-warning/5 border border-warning/20 rounded-xl">
+                    <AlertTriangle size={14} />
+                    No active environments. Go to{' '}
+                    <a href="/environments" className="underline font-medium">Environments</a>{' '}
+                    to create one.
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <select
+                      value={environmentId}
+                      onChange={(e) => setEnvironmentId(e.target.value)}
+                      className="w-full border border-border-subtle rounded-xl px-4 py-2.5 text-sm text-text-primary bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-colors appearance-none cursor-pointer"
+                    >
+                      {activeEnvs.map((env) => (
+                        <option key={env.id} value={env.id}>{env.name} — {env.baseUrl}</option>
+                      ))}
+                    </select>
+                    <ChevronDown size={20} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-text-secondary" />
+                  </div>
+                )}
+              </div>
+
+              {formError && (
+                <p className="text-sm text-error bg-error/5 border border-error/20 rounded-xl px-4 py-3">
+                  {formError}
+                </p>
               )}
-            </div>
 
-            <div>
-              <label className="block text-sm font-medium text-text-primary mb-1.5">
-                Test Intent <span className="text-error">*</span>
-              </label>
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Describe what the test should do..."
-                rows={5}
-                disabled={phase !== 'form'}
-                className="w-full border border-border-subtle rounded-xl px-4 py-2.5 text-sm font-mono-code text-text-primary placeholder:text-text-secondary placeholder:font-sans bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-colors resize-none disabled:bg-surface-muted leading-relaxed"
-              />
-              <p className="text-xs text-text-secondary mt-1.5">
-                Plain English is fine — the AI will interpret intent and generate Playwright test steps.
-              </p>
+              <button
+                onClick={handleGenerate}
+                disabled={!environmentId}
+                className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-white rounded-xl py-3.5 text-sm font-semibold transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none"
+              >
+                Generate &amp; Run Tests
+              </button>
             </div>
+          </div>
+        ) : (
+          <div className="flex-1 flex overflow-hidden">
+            {/* Left column — read-only test configuration */}
+            <div className="w-[380px] flex-shrink-0 overflow-y-auto px-6 py-6 border-r border-border-subtle space-y-5">
+              <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Test Configuration</p>
 
-            <div className="flex gap-3 bg-surface-container-low rounded-xl p-4 border border-surface-container">
-              <Lightbulb size={18} className="text-primary flex-shrink-0 mt-0.5" />
-              <div className="text-xs text-text-secondary leading-relaxed">
-                <span className="font-semibold text-text-primary">Pro tip: </span>
-                Be specific about what to click, fill in, and verify. For example: "Navigate to posts,
-                click New Article, fill the title with a unique name, save as draft, then verify the
-                article appears in the drafts list."
+              <div>
+                <p className="text-xs text-text-secondary mb-1">Test Name</p>
+                <p className="text-sm font-medium text-text-primary break-words">{name}</p>
+              </div>
+
+              <div>
+                <p className="text-xs text-text-secondary mb-1">Collection</p>
+                <p className="text-sm font-medium text-text-primary">
+                  {collections.find((c) => c.id === collectionId)?.name ?? '—'}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs text-text-secondary mb-1">Environment</p>
+                <p className="text-sm font-medium text-text-primary">
+                  {activeEnvs.find((e) => e.id === environmentId)?.name ?? '—'}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-xs text-text-secondary mb-1">Test Intent</p>
+                <div className="rounded-xl p-3" style={{ backgroundColor: EDITOR_BG }}>
+                  <pre className="text-[11px] text-[#94A3B8] font-mono-code whitespace-pre-wrap break-words leading-relaxed max-h-64 overflow-y-auto">
+                    {prompt}
+                  </pre>
+                </div>
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-text-primary mb-1.5">
-                Environment <span className="text-error">*</span>
-              </label>
-              {activeEnvs.length === 0 ? (
-                <div className="flex items-center gap-2 text-xs text-warning p-3 bg-warning/5 border border-warning/20 rounded-xl">
-                  <AlertTriangle size={14} />
-                  No active environments. Go to{' '}
-                  <a href="/environments" className="underline font-medium">Environments</a>{' '}
-                  to create one.
-                </div>
-              ) : (
-                <div className="relative">
-                  <select
-                    value={environmentId}
-                    onChange={(e) => setEnvironmentId(e.target.value)}
-                    disabled={phase !== 'form'}
-                    className="w-full border border-border-subtle rounded-xl px-4 py-2.5 text-sm text-text-primary bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-colors disabled:bg-surface-muted appearance-none cursor-pointer"
-                  >
-                    {activeEnvs.map((env) => (
-                      <option key={env.id} value={env.id}>{env.name} — {env.baseUrl}</option>
-                    ))}
-                  </select>
-                  <ChevronDown size={20} className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-text-secondary" />
-                </div>
-              )}
-            </div>
-
-            {formError && phase === 'form' && (
-              <p className="text-sm text-error bg-error/5 border border-error/20 rounded-xl px-4 py-3">
-                {formError}
-              </p>
-            )}
-
-            <button
-              onClick={handleGenerate}
-              disabled={phase !== 'form' || !environmentId}
-              className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-white rounded-xl py-3.5 text-sm font-semibold transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:hover:shadow-none"
-            >
-              Generate &amp; Run Tests
-            </button>
-          </div>
-
-          {phase !== 'form' && (
+            {/* Right column — pipeline status */}
             <div
-              className="space-y-4"
+              className="flex-1 overflow-y-auto px-6 py-6 space-y-4"
               style={{ animation: 'slideDown 0.4s ease-out both' }}
             >
               <style>{`
@@ -515,8 +546,8 @@ export default function CreateTestSlideOver({
                 </div>
               )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="flex items-center justify-between px-6 py-4 border-t border-border-subtle flex-shrink-0 bg-surface-muted/50">
           <button

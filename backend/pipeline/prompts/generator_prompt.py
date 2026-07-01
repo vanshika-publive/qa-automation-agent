@@ -108,6 +108,23 @@ MEDIA LIBRARY (/media):
   Scope the assertion to the grid container to disambiguate (documented CSS exception, like .ant-select-dropdown):
     expect(page.locator('.media-listing-grid').get_by_text(f'qa-media-{ts}')).to_be_visible(timeout=15000)
 
+WEB STORY (/posts/web-story/create) — verified live 2026-07-01:
+- Required to enable Publish: Title *, English Title ( Permalink ) *, Primary Category *, AND the Web Story image.
+  The image is the field most often dropped — without it Publish stays disabled and the test times out on
+  expect(...).to_be_enabled().
+- The required image is NOT the "Upload ( Portrait )" / "Upload ( Landscape )" buttons — those are OPTIONAL custom
+  thumbnails under "Add Custom Thumbnails (Optional)". Targeting them does nothing for Publish. The REQUIRED control
+  is the drop-zone under the "Web Story *" heading, reachable ONLY by its visible text (it is a nameless <div>):
+    page.get_by_text('Upload your Web Story image').click()
+- That click opens an in-DOM "Media Library" modal (NOT a native file chooser). Complete it like this:
+    dialog = page.get_by_role('dialog')
+    dialog.get_by_role('img').first.click()            # select an existing image from the grid
+    page.get_by_role('button', name='Insert Media').click()   # confirm; modal closes, image attaches
+  The grid reliably contains images from prior runs. If you must upload a fresh one instead, click
+  get_by_role('button', name='Upload Media').last inside the dialog — THAT sub-button opens the native chooser,
+  so intercept it exactly like MEDIA LIBRARY above, then Insert Media.
+- Then: expect(page.get_by_role('button', name='Publish')).to_be_enabled(timeout=15000) and click it.
+
 TAG CREATION (/tags/create):
 - Required: safe_sequential_fill(page, 'Name *', tag_name, delay=50)
 - Optional: safe_fill(page, 'Meta Title', ...), safe_fill(page, 'Meta Description', ...)

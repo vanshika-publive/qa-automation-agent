@@ -62,12 +62,22 @@ class GeneratorService:
         model = ai['model']
         written = []
 
+        # The planner rewrites plan.md at the start of every full pipeline run, so its mtime marks
+        # "when the current plan was produced". A spec is only safe to reuse if it was written from
+        # THAT plan (i.e. it is at least as new as the plan). A spec older than the plan is stale —
+        # it predates a plan the planner has since improved — and reusing it silently runs outdated
+        # code (this is exactly how a fixed "upload the required image" plan still executed the old
+        # image-less spec and failed on a disabled Publish button). Specs written earlier in this
+        # same generator run are newer than the plan, so genuine mid-run resumes still skip.
+        plan_mtime = os.path.getmtime(plan_path)
         for scenario in scenarios:
             spec_path = os.path.join(tests_dir, f'test_{scenario.file_name}.py')
-            if os.path.exists(spec_path):
-                print(f'Skipping existing spec: test_{scenario.file_name}.py — delete it to regenerate')
+            if os.path.exists(spec_path) and os.path.getmtime(spec_path) >= plan_mtime:
+                print(f'Skipping up-to-date spec: test_{scenario.file_name}.py — delete it to force regenerate')
                 written.append(spec_path)
                 continue
+            if os.path.exists(spec_path):
+                print(f'Regenerating stale spec (plan is newer): test_{scenario.file_name}.py')
             print(f'Generating: {scenario.scenario_name}')
             file_path = GeneratorService._generate_scenario(
                 openai_client, model, scenario, url, tests_dir, plan_snapshots
@@ -258,10 +268,11 @@ class GeneratorService:
                             result = f'ERROR calling {name}: {err}'
                         action_log.append(f'{name}: {json.dumps(args)[:120]}')
 
+                    max_chars = AgentUtils.MAX_SNAPSHOT_RESULT_CHARS if name == 'browser_snapshot' else None
                     tool_results.append({
                         'role': 'tool',
                         'tool_call_id': call.id,
-                        'content': AgentUtils.truncate_result(result),
+                        'content': AgentUtils.truncate_result(result, max_chars),
                     })
 
                 messages.extend(tool_results)

@@ -52,6 +52,24 @@ fc_info.value.set_files(random_desktop_png())
 ```
 Only once `set_files()` runs does the grid get replaced by the "Upload Files" panel (`File name *`, `Alt text *`, `Caption`, `Source`), which is the first point at which `get_by_role('button', name='Upload')` is unique. `random_desktop_png()` (in `helpers.py`) picks a real `.png` at random from the Desktop folder — never pass a fake or empty path, the chooser silently no-ops on one.
 
+### Web Story's required image is a Media-Library modal on a NAMELESS drop-zone — not the "Upload (Portrait/Landscape)" buttons
+
+On `/posts/web-story/create` the required image (marked by the `Web Story *` asterisk) is the single biggest cause of a "Publish stays disabled" timeout, because the page shows **two visually similar upload widgets** and the obvious one is the wrong one:
+
+- **Wrong (optional):** the buttons `plus Upload ( Portrait )` / `plus Upload ( Landscape )` under **"Add Custom Thumbnails (Optional)"**. They have accessible names, so `get_by_role('button', name=...)` finds them easily — but they are optional and filling them does **not** enable Publish.
+- **Right (required):** a nameless `<div cursor=pointer>` drop-zone whose only stable handle is its visible text. **Always** target it by text:
+```python
+page.get_by_text('Upload your Web Story image').click()   # opens the Media Library modal
+```
+
+**Never** treat this as a native file chooser — clicking the drop-zone opens an **in-DOM "Media Library" dialog** (verified live 2026-07-01). Pick an existing image and confirm with **Insert Media**:
+```python
+dialog = page.get_by_role('dialog')
+dialog.get_by_role('img').first.click()                    # select an image from the grid
+page.get_by_role('button', name='Insert Media').click()    # confirm — modal closes, image attaches
+```
+The grid reliably holds images from earlier runs. To upload a fresh one instead, the modal's own `Upload Media` button *does* fire the native chooser (intercept it as in the Media Library heuristics above), then click `Insert Media`. The `Upload your Web Story image` placeholder disappearing is the signal the required image is attached and Publish can enable.
+
 ### The option list is VIRTUALIZED — never hardcode a category, choose from live options
 
 The Primary Category dropdown (and every long Ant Select) uses `rc-virtual-list`: **only the ~9 options currently scrolled into view exist in the DOM** (verified live — 65+ categories, 9 rendered). So `get_by_title('<name>')` for any option not currently rendered waits the full timeout and the test dies — even when that category genuinely exists. On top of that, the category set is **per-publisher and changes over time** (e.g. Crictoday has `Cricket`, `F1`, `Stadium…` and no `National`; another publisher has `National`, `Sports…`). There is **no safe hardcoded default** — `'National ( national )'` does NOT exist on every publisher.

@@ -31,12 +31,6 @@ export function useCollectionTests(collectionId: string | null) {
     },
   });
 
-  const runAllSpecsMutation = useMutation({
-    mutationFn: ({ environmentId }: { environmentId: string }) =>
-      collectionsService.runAllSpecs(collectionId!, environmentId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['executions'] }),
-  });
-
   function invalidateTests() {
     qc.invalidateQueries({ queryKey: ['tests', collectionId] });
     qc.invalidateQueries({ queryKey: ['collections'] });
@@ -49,7 +43,6 @@ export function useCollectionTests(collectionId: string | null) {
     isLoadingSpecs: specsQuery.isLoading,
     deleteTestMutation,
     updateTestMutation,
-    runAllSpecsMutation,
     invalidateTests,
   };
 }

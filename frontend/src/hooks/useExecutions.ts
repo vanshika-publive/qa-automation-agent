@@ -77,10 +77,7 @@ export function useExecutions(
   const tests           = testsQuery.data?.data ?? [];
   const testExecs       = testExecsQuery.data?.data ?? [];
 
-  const hasRunning = useMemo(
-    () => tableExecs.some((e) => e.status === 'running'),
-    [tableExecs],
-  );
+  const hasRunning = tableExecs.some((e) => e.status === 'running');
 
   useEffect(() => {
     if (!hasRunning) return;
@@ -159,7 +156,7 @@ export function useExecutions(
   return {
     collections,
     tableExecs, tablePagination,
-    colExecs, execsByTestId,
+    execsByTestId,
     tests, testExecs,
     runListSlice, runListTotalPages,
     compareExecutions,
