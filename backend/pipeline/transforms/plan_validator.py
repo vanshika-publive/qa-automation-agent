@@ -16,7 +16,11 @@ def _extract_goto_paths(content: str) -> List[str]:
     for line in content.split('\n'):
         if not re.search(r'page\.goto\s*\(\s*\)', line):
             continue
-        for m in re.finditer(r'(?<![:\w])(\/[a-zA-Z][\w\-/]*)', line):
+        # Capture the query string too (?page_type=...&create=...) — the prompt teaches the prose
+        # form "Navigate to <PATH> via page.goto()", so the content-type filter lives OUTSIDE the
+        # parens. Truncating at '?' turned a correct filtered URL into the bare /posts/published and
+        # made the content-type-bleed check reject a valid plan forever (confirmed loop, 2026-07-01).
+        for m in re.finditer(r"(?<![:\w])(\/[a-zA-Z][\w\-/]*(?:\?[^\s'\"`)]*)?)", line):
             paths.append(m.group(1))
     return list(dict.fromkeys(paths))  # unique, preserving order
 
@@ -103,20 +107,22 @@ def find_hardcoded_virtualized_titles(content: str) -> List[tuple]:
     return findings
 
 
-# Maps a content-type keyword to the query-param prefix its filtered published-list URL must carry.
+# Maps a content-type keyword to the EXACT filtered published-list URL its single-item flow must use.
 # Confirmed bug (2026-07-01): a plan for "edit the topmost video" visited the bare /posts/published
 # (which interleaves every content type sorted by recency) and picked row.nth(1), which matched the
 # topmost LIVE BLOG instead of a video. Enforced here in addition to the prompt guidance, since the
 # planner has been observed to see the filtered sidebar links live and still write the bare URL.
+# The value is a ready-to-paste page.goto() path — the rejection message hands it to the model verbatim
+# so correcting the plan is a one-line text edit, not a re-exploration of the sidebar.
 CONTENT_TYPE_FILTER_MAP = {
-    'live blog': 'page_type=LiveBlog',
-    'liveblog': 'page_type=LiveBlog',
-    'video': 'page_type=Video',
-    'web story': 'page_type=Web Story',
-    'photo gallery': 'page_type=Gallery',
-    'custom content': 'page_type=CustomPage',
-    'custom page': 'page_type=CustomPage',
-    'article': 'page_type=Article',
+    'live blog': '/posts/published?page_type=LiveBlog&ptype=LiveBlog&create=live-blog',
+    'liveblog': '/posts/published?page_type=LiveBlog&ptype=LiveBlog&create=live-blog',
+    'video': '/posts/published?page_type=Video&ptype=Video&create=video',
+    'web story': '/posts/published?page_type=Web Story&ptype=Web Story&create=web-story',
+    'photo gallery': '/posts/published?page_type=Gallery&ptype=Gallery&create=gallery',
+    'custom content': '/posts/published?page_type=CustomPage&ptype=CustomPage&create=custom-page',
+    'custom page': '/posts/published?page_type=CustomPage&ptype=CustomPage&create=custom-page',
+    'article': '/posts/published?page_type=Article&ptype=Article&create=article',
 }
 
 
@@ -142,10 +148,22 @@ def validate_plan_content(
     # Catches "planner collapsed multiple required fields into one fill"
     visited_paths_in_plan = _extract_goto_paths(content)
     plan_clicks_publish = bool(re.search(r"""name\s*=\s*['\"]Publish['\"]""", content))
+
+    # Required-field enforcement only makes sense for flows that actually SUBMIT a form -- the whole
+    # point is "don't leave a required field unfilled or the Save/Publish button stays disabled." A
+    # delete or read-only/verify journey fills nothing and never submits, so a required field seen on
+    # a visited page (e.g. the "File name *" input in the media edit panel a delete flow merely opens)
+    # must NOT be demanded. Without this gate such flows hit an unwinnable rejection loop: the planner
+    # correctly refuses to add a fill step that would break the delete, and burns every iteration.
+    plan_submits_form = bool(re.search(
+        r"""[Cc]lick[^\n]*name\s*=\s*['\"](?:Publish|Save Changes|Save as Draft|Save Category|Save|Update|Create|Submit)['\"]""",
+        content,
+    ))
+
     missing_required_fields: List[str] = []
     for visited in visited_paths_in_plan:
         facts = PAGE_FACTS.get(visited)
-        if not facts:
+        if not facts or not plan_submits_form:
             continue
         required_fields = list(facts.required_for_draft)
         # When the flow actually publishes, the publish-only required fields (e.g. Summary,
@@ -161,7 +179,7 @@ def validate_plan_content(
     # require each to be filled. Extends the required-fields guarantee to EVERY flow, not just
     # the hand-maintained known pages.
     for visited in visited_paths_in_plan:
-        if PAGE_FACTS.get(visited) is not None:
+        if PAGE_FACTS.get(visited) is not None or not plan_submits_form:
             continue
         snap = None
         for url, snapshot in snapshot_cache.items():
@@ -268,7 +286,7 @@ def validate_plan_content(
     # Single-content-type edit/delete/topmost/latest flow that visits the bare, unfiltered
     # /posts/published — see CONTENT_TYPE_FILTER_MAP comment for the confirmed regression this guards.
     mentioned_content_types = [
-        (label, qparam) for label, qparam in CONTENT_TYPE_FILTER_MAP.items()
+        (label, filter_url) for label, filter_url in CONTENT_TYPE_FILTER_MAP.items()
         if re.search(rf'\b{re.escape(label)}\b', content, flags=re.IGNORECASE)
     ]
     targets_single_item_action = bool(re.search(
@@ -334,11 +352,14 @@ def validate_plan_content(
     ))
     snapshots_text = '\n'.join(snapshot_cache.values())
     plan_fill_labels = extract_fill_labels(content)
+    # A search/filter textbox (e.g. "Search by name, path, or alt text" on /media) is NOT a form field --
+    # never validate it against a page's form-field facts, or a delete/search plan is rejected forever.
     unknown_fill_labels = (
         [
             l for l in plan_fill_labels
             if normalize_field_name(l) not in known_fields_across_pages
             and not _is_field_referenced(l, snapshots_text)
+            and not re.search(r'\b(search|filter)\b', l, flags=re.IGNORECASE)
         ]
         if (all_visited_have_facts and not reaches_clicked_edit_form) else []
     )
@@ -381,6 +402,23 @@ def validate_plan_content(
         if not has_enabled_wait:
             missing_enabled_wait.append(btn)
 
+    # React-controlled fields must use safe_sequential_fill, not safe_fill.
+    # .fill() does not fire React onChange — the value never registers and Publish stays disabled.
+    seen_rc_plan: Set[str] = set()
+    react_controlled_fields_in_plan_scope = []
+    for facts in visited_facts:
+        for f in [*facts.required_for_draft, *facts.required_for_publish, *facts.optional_fields]:
+            if f.react_controlled and f.field not in seen_rc_plan:
+                seen_rc_plan.add(f.field)
+                react_controlled_fields_in_plan_scope.append(f.field)
+    wrong_fill_react_in_plan = [
+        label for label in react_controlled_fields_in_plan_scope
+        if re.search(
+            r'(?<![a-zA-Z_])safe_fill\s*\(\s*page\s*,\s*[\'"]' + re.escape(label) + r'[\'"]',
+            content
+        )
+    ]
+
     hardcoded_virtualized_titles = find_hardcoded_virtualized_titles(content)
 
     if (
@@ -388,7 +426,8 @@ def validate_plan_content(
         missing_permalink or len(unvalidated_paths) > 0 or has_placeholder or
         len(unverified_titles) > 0 or len(missing_required_fields) > 0 or
         len(forbidden_goto_matches) > 0 or wrong_save_button or len(unknown_fill_labels) > 0 or
-        len(missing_enabled_wait) > 0 or len(hardcoded_virtualized_titles) > 0 or content_type_bleed
+        len(missing_enabled_wait) > 0 or len(hardcoded_virtualized_titles) > 0 or
+        content_type_bleed or len(wrong_fill_react_in_plan) > 0
     ):
         issues: List[str] = []
         if not has_flow:
@@ -409,7 +448,7 @@ def validate_plan_content(
             issues.append(
                 'article creation flow is missing the required "English Title ( Permalink ) *" step -- '
                 'this field is mandatory (along with Title * and Primary Category) or Save as Draft stays permanently disabled. '
-                "Add a step: \"Use safe_fill(page, 'English Title ( Permalink ) *', f'qa-{ts}') to fill the permalink field\""
+                "Add a step: \"Use safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-{ts}', delay=50) to fill the permalink field\""
             )
         if len(unvalidated_paths) > 0:
             issues.append(
@@ -467,15 +506,29 @@ def validate_plan_content(
                 'The correct entity flow is: fill required fields -> click Publish on the create page -> assert URL change.'
             )
         if content_type_bleed:
-            label, qparam = mentioned_content_types[0]
+            label, filter_url = mentioned_content_types[0]
+            # Quote the exact offending line(s) so the model can see WHICH occurrence is wrong --
+            # a plan can fix the navigation goto() but still fail here because a later step or the
+            # Expected section repeats the bare URL, and a generic message looks identical across
+            # attempts even when the model did make some edit, making retries look like no-ops.
+            offending_lines = [
+                line.strip() for line in content.split('\n')
+                if re.search(r'/posts/published(?!\?|/geographies)', line)
+            ]
+            offending_quote = (
+                '\nExact line(s) in your plan still containing the bare URL:\n' +
+                '\n'.join(f'  "{line}"' for line in offending_lines)
+                if offending_lines else ''
+            )
             issues.append(
                 f'plan targets a single "{label}" item (edit/delete/publish/topmost/latest) but navigates to the '
                 'bare, unfiltered /posts/published, which interleaves EVERY content type sorted by recency -- '
                 '"topmost"/"latest" there means topmost-of-ANY-type, not topmost of the type you want. This exact '
-                'pattern previously caused a "topmost video" plan to silently edit a Live Blog instead. Replace '
-                f"page.goto('/posts/published') with the content-type-filtered URL "
-                f"(?{qparam}&ptype=...&create=..., visible live in the sidebar's Content Type section) so the row "
-                f'you act on is guaranteed to be a "{label}".'
+                'pattern previously caused a "topmost video" plan to silently edit a Live Blog instead. This is a '
+                'one-line TEXT FIX, not something to re-browse for: change the goto to the exact filtered URL below '
+                f"and call planner_save_plan again. Replace page.goto('/posts/published') with "
+                f"page.goto('{filter_url}') so the row you act on is guaranteed to be a \"{label}\"."
+                f'{offending_quote}'
             )
         if len(hardcoded_virtualized_titles) > 0:
             quoted = ', '.join(f'{name} -> "{title}"' for name, title in hardcoded_virtualized_titles)
@@ -488,6 +541,14 @@ def validate_plan_content(
                 ".locator('.ant-select-item-option').first.wait_for(state='visible') and .click() -- or, if a "
                 "specific option is required, cb.fill('<name>') to filter first, then click the first "
                 '.ant-select-item-option match. Never use get_by_title() for this combobox.'
+            )
+        if len(wrong_fill_react_in_plan) > 0:
+            quoted = ', '.join(f'"{l}"' for l in wrong_fill_react_in_plan)
+            issues.append(
+                f'plan uses safe_fill() on React-controlled field(s): {quoted}. '
+                'React-controlled inputs do not fire onChange on .fill() — the value does not '
+                'register and the Publish/Save button stays permanently disabled. '
+                "Replace every flagged call with safe_sequential_fill(page, '<field>', value, delay=50)."
             )
         if len(unknown_fill_labels) > 0:
             valid_per_page_parts: List[str] = []

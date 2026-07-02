@@ -17,7 +17,7 @@ only if a live snapshot CLEARLY contradicts a fact should you trust the snapshot
 - NEVER use get_by_label() — form labels are custom <div> elements, not <label> tags. Always times out.
 
 ARTICLE CREATION (/posts/article/create) — articles PUBLISH DIRECTLY from this page (no draft detour):
-- Required textboxes: "Title *" (safe_sequential_fill only), "English Title ( Permalink ) *" (fill ok; use a UNIQUE slug like f'qa-{ts}' every run — NEVER reuse a permalink)
+- Required textboxes: "Title *" (safe_sequential_fill REQUIRED), "English Title ( Permalink ) *" (safe_sequential_fill REQUIRED — NEVER safe_fill; use a UNIQUE slug like f'qa-{ts}' every run — NEVER reuse a permalink)
 - Required comboboxes: "Primary Category" (REQUIRED), "Credits" (REQUIRED but auto-filled with the logged-in user — leave it alone)
 - Optional textboxes (SEO only, NOT required to publish): "Summary", "Meta Description", "Banner Description", "Focus Keyphrase"
 - Other comboboxes: get_by_role('combobox', name='Tags'), get_by_role('combobox', name='Additional Category')
@@ -144,13 +144,61 @@ MEDIA LIBRARY (/media):
        step without first sequencing the file-selection step before it.
 - Verify: after Upload, the panel closes and the new file appears in the media grid.
 
+VIDEO CREATION (/posts/video/create) — videos PUBLISH DIRECTLY:
+- Navigate directly: page.goto('/posts/video/create')
+- ORDERING RULE — CRITICAL: NEVER click "Add Featured Video" during your live-browsing pass. You have no
+  browser_type or browser_fill_form; clicking it opens the "Embed Media" dialog but you cannot fill it,
+  so the dialog just sits open and the button click is wasted. Write the embed step from the known facts below:
+    1. page.get_by_role('button', name='Add Featured Video').click()
+       safe_fill(page, 'Media URL *', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+       page.get_by_role('button', name='Submit').click()
+  WHY the embed must come FIRST (before Title/Permalink): Title's React-controlled Permalink
+  auto-generation fires a debounced update. If safe_sequential_fill on Permalink runs immediately after
+  safe_sequential_fill on Title, the debounce fires mid-type and corrupts the slug, leaving Publish
+  permanently disabled. The dialog interaction gives the debounce time to settle.
+- Required fields (after embed is done):
+    2. safe_sequential_fill(page, 'Title *', title, delay=50)
+    3. safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-video-{ts}', delay=50)
+    4. get_by_role('combobox', name='Primary Category') — virtualized; pick first live option
+  Credits auto-fills with the logged-in user — leave it alone.
+- Snapshot the Primary Category combobox live to get the real option text (same as Article creation).
+- TO PUBLISH: expect(get_by_role('button', name='Publish')).to_be_enabled(timeout=15000) then click.
+  After clicking, URL changes to /posts/published?page_type=Video&ptype=Video&create=video.
+- PUBLISHED LIST (Video only — ALWAYS use this filtered URL, NEVER the bare /posts/published):
+  /posts/published?page_type=Video&ptype=Video&create=video
+  Row actions and delete flow are identical to the article published-list pattern above.
+
+PHOTO GALLERY (/posts/gallery/create) — verified live 2026-07-01:
+- Navigate directly: page.goto('/posts/gallery/create')
+- Required fields — EXACTLY THREE things enable Publish (nothing else is required):
+    1. safe_sequential_fill(page, 'Title *', title, delay=50) — React-controlled, safe_sequential_fill ONLY
+    2. page.wait_for_timeout(500) — MANDATORY. Let the Title->Permalink auto-slug debounce fire and settle
+       BEFORE touching Permalink. Unlike video/web-story, the gallery has NO embed/image step to absorb this
+       debounce, so Title and Permalink run cold and back-to-back. Without this wait the debounce fires
+       mid-type during the next step, corrupts the slug, and leaves Publish permanently disabled (no error).
+    3. safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-gallery-{ts}', delay=50)
+       EXACT ARIA name: spaces inside parens are REQUIRED — "English Title ( Permalink ) *" not "(Permalink)"
+       React-controlled, safe_sequential_fill ONLY — NEVER safe_fill
+    4. get_by_role('combobox', name='Primary Category') — virtualized; pick first live option
+  Credits auto-fills — leave it alone.
+- CRITICAL — DO NOT INCLUDE ANY "Add Slide" OR IMAGE UPLOAD STEPS:
+    The "Add Slide" button adds an empty slide placeholder ONLY — it does NOT open a file chooser or media
+    library. Attempting any upload flow after clicking it does NOT enable Publish and the test will time out.
+    Publish is enabled by the three fields above ALONE. Do not write any step involving "Add Slide",
+    "Upload Media", file upload, or image selection for Photo Gallery tests.
+- TO PUBLISH: expect(get_by_role('button', name='Publish')).to_be_enabled(timeout=15000) then click.
+  After clicking, URL changes to /posts/published?page_type=Gallery&ptype=Gallery&create=gallery.
+
 WEB STORY (/posts/web-story/create) — verified live 2026-07-01:
+- ORDERING RULE — attach the Web Story image FIRST, before filling Title or Permalink. Same debounce
+  race as video: filling Permalink immediately after Title corrupts the slug. Correct order: image → Title
+  → Permalink → Category → Publish. NEVER put Title/Permalink steps before the image step.
 - Required fields (ALL gate the Publish button; Publish stays disabled until every one is satisfied):
-    1. safe_sequential_fill(page, 'Title *', ...)
-    2. safe_fill(page, 'English Title ( Permalink ) *', f'qa-web-story-{ts}')  — unique per run
-    3. get_by_role('combobox', name='Primary Category') — Ant Design, virtualized; pick first live option
+    1. THE WEB STORY IMAGE — always first. See detailed instructions below.
+    2. safe_sequential_fill(page, 'Title *', ...)
+    3. safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-web-story-{ts}', delay=50) — unique per run
+    4. get_by_role('combobox', name='Primary Category') — Ant Design, virtualized; pick first live option
        (page.locator('.ant-select-dropdown').last.locator('.ant-select-item-option').first after wait_for visible)
-    4. THE WEB STORY IMAGE — this is REQUIRED and is the #1 reason a Web Story plan fails with Publish disabled.
 - CRITICAL — TWO DIFFERENT image widgets on this page; do NOT confuse them:
     * OPTIONAL (skip these): buttons named "plus Upload ( Portrait )" and "plus Upload ( Landscape )" sit under the
       "Add Custom Thumbnails (Optional)" heading. They are NOT required and filling them does NOT enable Publish.
@@ -270,6 +318,11 @@ Rules:
   CORRECT (prompt names a category): "Click get_by_role('combobox', name='Primary Category'), call cb.fill('<name>') to filter the virtual list, then click .ant-select-dropdown's first .ant-select-item-option" — NEVER hardcode or invent a category title.
 - ALL test data strings in step descriptions for items CREATED by the test MUST reference a unique ts timestamp (ts = int(time.time() * 1000)) — NEVER use a fixed string like 'QA Agent category'
 - EXCEPTION — operating on a pre-existing named item: When the user's prompt targets a SPECIFIC item that already exists (e.g. "delete the tag named 'I am tag'", "edit the category called 'Sports'"), use the exact name as given — do NOT append a timestamp. The uniqueness rule is for test-created data only.
+- "EDIT/DELETE AN EXISTING X" WITH NO NAME GIVEN: When the prompt says to edit/delete "an existing" or "a" gallery/article/tag/etc. without naming a specific one, do NOT invent or guess a name, and do NOT go traverse/snapshot the list page to find one (that burns the iteration budget and is unnecessary). Instead target the row POSITIONALLY, the same way virtualized comboboxes default to "first live option": select the first real data row and act on it directly, with no name-based filter at all.
+  WRONG: "Locate an existing photo gallery component to edit by filtering the list or using search." (vague — forces the generator to invent a fake name like "Existing Gallery Name")
+  WRONG: "...page.locator('tr').filter(has_text=gallery_name)..." (gallery_name is never defined anywhere — a hardcoded guess in disguise)
+  CORRECT: "Select the first existing gallery row (skip the header row) using page.get_by_role('row').nth(1), then click its Edit button: page.get_by_role('row').nth(1).get_by_role('button', name='Edit', exact=True).click()"
+  This works regardless of what data exists and needs no live list traversal.
 - FIELD LIMITS: If you observe a maxlength attribute or character counter on any input during snapshotting,
   record it in the step description so the generator knows the constraint. For example:
   "Use safe_fill(page, 'Focus Keyphrase', f'kw-{ts}') — field has maxLength=60 per DOM"
@@ -296,24 +349,25 @@ Generated: [ISO timestamp]
 ..."""
 
 
+_PLANNER_FACTS_PREAMBLE = (
+    'your plan MUST include a fill step for EVERY field listed under '
+    '"Required for save/draft" for each page you visit. Do NOT collapse multiple required fields '
+    'into one even if the prompt only names one of them. This SAME rule applies to required fields '
+    'you discover live that are not listed here: any field whose accessible name ends in "*" in the '
+    'snapshot is required and MUST get its own fill step'
+)
+
+
 def build_planner_system_prompt(heuristics, facts='', publisher=''):
-    publisher_section = (
-        f'\n\n## ACTIVE PUBLISHER: {publisher}\n'
-        f'The session is logged into the "{publisher}" publisher and the test runs against THIS publisher only. '
-        'Categories, tags, reporters and other option lists are per-publisher — use ONLY what you observe live here. '
-        'Never switch publishers, and never assume another publisher\'s categories or routes.'
-        if publisher else ''
+    from pipeline.prompts._shared import _publisher_section, _facts_section, _heuristics_section
+    return (
+        PLANNER_SYSTEM_PROMPT
+        + _publisher_section(
+            publisher,
+            f'The session is logged into the "{publisher}" publisher and the test runs against THIS publisher only. '
+            'Categories, tags, reporters and other option lists are per-publisher — use ONLY what you observe live here. '
+            'Never switch publishers, and never assume another publisher\'s categories or routes.',
+        )
+        + _facts_section(facts, _PLANNER_FACTS_PREAMBLE)
+        + _heuristics_section(heuristics)
     )
-    facts_section = (
-        f'\n\n## Verified Page Facts — your plan MUST include a fill step for EVERY field listed under '
-        f'"Required for save/draft" for each page you visit. Do NOT collapse multiple required fields '
-        f'into one even if the prompt only names one of them. This SAME rule applies to required fields '
-        f'you discover live that are not listed here: any field whose accessible name ends in "*" in the '
-        f'snapshot is required and MUST get its own fill step:\n{facts}'
-        if facts else ''
-    )
-    heuristics_section = (
-        f'\n\n## Known Dashboard Quirks — you MUST follow these:\n{heuristics}'
-        if heuristics else ''
-    )
-    return f'{PLANNER_SYSTEM_PROMPT}{publisher_section}{facts_section}{heuristics_section}'

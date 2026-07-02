@@ -96,12 +96,42 @@ The title format is always `'Name ( slug )'`. **Never** copy a category title fr
 
 ---
 
+## Video & Web Story Create — Embed/Image BEFORE Title/Permalink
+
+**Always** add the Featured Video (or Web Story image) **before** filling Title or Permalink on video and web story create forms. The Title field's React-controlled Permalink auto-generation fires a debounced update. If `safe_sequential_fill` on Permalink starts immediately after `safe_sequential_fill` on Title, that debounce fires mid-type — during `press_sequentially` — and overwrites the partially-typed slug, leaving Publish permanently disabled with no visible error.
+
+The embed dialog / media library interaction takes several seconds, which is enough for the debounce to settle. After it closes, Title and Permalink are safe to fill.
+
+**Video create** — correct order:
+```python
+page.get_by_role('button', name='Add Featured Video').click()
+safe_fill(page, 'Media URL *', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+page.get_by_role('button', name='Submit').click()
+safe_sequential_fill(page, 'Title *', title, delay=50)
+safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-video-{ts}', delay=50)
+```
+
+**Web story create** — correct order:
+```python
+page.get_by_text('Upload your Web Story image').click()
+dialog = page.get_by_role('dialog')
+dialog.get_by_role('img').first.click()
+page.get_by_role('button', name='Insert Media').click()
+safe_sequential_fill(page, 'Title *', title, delay=50)
+safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-web-story-{ts}', delay=50)
+```
+
+**Never** fill Title or Permalink before the embed/image step on these two create forms.
+
+---
+
 ## React-Controlled Text Inputs
 
 Some inputs are React-controlled and do not fire `onChange` when filled with `fill()`. Using `fill()` on these fields succeeds silently but leaves the form's save button permanently disabled — the single most common failure mode in generated tests.
 
 **Always** use `safe_sequential_fill(page, field_label, value, delay=50)` for React-controlled fields. Known React-controlled fields on this dashboard:
 - `'Title *'` on article create, custom content create, and similar create forms
+- `'English Title ( Permalink ) *'` on ALL create forms (article, video, gallery, live blog, custom page, and any other content type with a Permalink field) — the async uniqueness check only reacts to real keystroke events; `safe_fill()` leaves Publish permanently disabled even with a valid unique value
 - `'Name *'` on tag create and category create
 
 **Never** use raw `fill()` on React-controlled fields.
@@ -132,6 +162,8 @@ safe_sequential_fill(page, 'Title *', title, delay=50)
 ---
 
 ## Ant Design Table Row Locators
+
+**Scope:** this whole section applies to the **table**-based list pages (tags, categories, posts/published, drafts). It does **NOT** apply to the **Media Library** (`/media`), which is a card grid with **zero `<tr>` elements** — using `page.locator('tr')` there matches nothing and times out. For anything on `/media`, follow the *Media Library* heuristic below instead.
 
 **Never** use `get_by_role('row', name=...)` to locate a specific row in an Ant Design table. Ant Design `<tr>` elements do not have an accessible name derived from cell text — this locator always resolves to nothing and times out.
 
@@ -165,6 +197,62 @@ row.get_by_role('button', name='Edit', exact=True).click()
 row.get_by_title('Delete').click()
 ```
 **Never** use `get_by_role('button', name='Delete')` or `.published-action-dropdown` for category rows — the former matches nothing (it is a titled icon, not a named button) and the latter is the *tags* list's affordance.
+
+---
+
+## Media Library (`/media`) is a card grid, NOT a table
+
+The Media Library renders items as **Ant cards** (`div.ant-card.media-listing-card`) inside an infinite-scroll grid (`.media-listing-grid`). There are **no `<tr>` elements on this page at all** — every `page.locator('tr')` / `get_by_role('row')` pattern from the table section above matches nothing here and times out. This is the #1 way a media-flow test silently breaks: the generic table row pattern gets copied onto `/media`.
+
+**Sanctioned CSS exception (like `button.publisher-switcher`):** `.media-listing-grid`, `.media-listing-card`, and `.pl-search-bar button` (the icon-only search button) are approved CSS locators for this page — the grid cards and the search button have no semantic (role/name) locator. Everything *after* opening a card is semantic.
+
+**The search button is an ICON-ONLY button with no accessible name.** There IS a magnifier search button next to the search box, but it has no aria-label/title/text, so `get_by_role('button', name='Search')` matches nothing and times out. Click it via the sanctioned CSS locator `page.locator('.pl-search-bar button')`. (Pressing Enter in the box also triggers search.) Verified live: clicking it issues `GET /api/media/?…&filename=<term>` and narrows the grid to the match.
+
+**The filename is NOT rendered as card text.** A card's visible text is `"Download"` + a long storage hash + the media's **alt text/title** — the human filename you searched for never appears in the DOM text. So `page.locator('.media-listing-card').filter(has_text='qa-media-….png')` matches nothing. Instead, **search first** (which narrows the grid to the matching item), then act on the sole result:
+```python
+box = page.get_by_role('textbox', name='Search by name, path, or alt text')
+box.fill(filename)                              # e.g. 'qa-media-1782883698294.png'
+page.locator('.pl-search-bar button').click()  # icon-only search button (no accessible name)
+card = page.locator('.media-listing-card').first   # grid narrows to the match (16 -> 1)
+card.wait_for(state='visible', timeout=15000)
+```
+
+**Delete affordance — click the card to open its detail panel, then use the named Delete button.** Clicking a card opens an inline detail panel (NOT a modal) with three *named* buttons: `Edit Image Details`, `Copy to clipboard`, and `Delete`. The `Delete` button is page-level (not scoped inside the card), and `get_by_role('button', name='Delete', exact=True)` resolves to exactly one match:
+```python
+card.click()
+page.get_by_role('button', name='Delete', exact=True).click()
+```
+(There is also a hover-overlay trash icon on each card, but it is icon-only with no accessible name — prefer the card-click → named-button flow above.)
+
+**Confirm** in the Ant modal (a real `role="dialog"`, titled "Delete Media", body "…delete 1 selected media…", buttons "Cancel" / "Delete"):
+```python
+page.get_by_role('dialog').get_by_role('button', name='Delete').click()
+```
+
+**Assert gone** by re-checking the (still-filtered) grid — do NOT assert against filename text, which never rendered:
+```python
+expect(page.locator('.media-listing-card')).to_have_count(0, timeout=15000)
+```
+
+---
+
+## Photo Gallery
+
+**Never** include "Add Slide", image upload, or media library steps in a Photo Gallery creation test. The "Add Slide" button adds an empty placeholder — it does NOT open a file chooser or a media library dialog. Attempting to interact with `Upload Media` after clicking "Add Slide" will leave the Publish button disabled because the upload flow is incomplete.
+
+**Publish is enabled by Title + Permalink + Primary Category alone.** The minimum passing test is:
+```python
+page.goto('/posts/gallery/create')
+safe_sequential_fill(page, 'Title *', title, delay=50)
+page.wait_for_timeout(500)   # let the Title->Permalink auto-slug debounce settle before filling Permalink
+safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-gallery-{ts}', delay=50)
+page.get_by_role('combobox', name='Primary Category').click()
+page.locator('.ant-select-dropdown').last.locator('.ant-select-item-option').first.click()
+expect(page.get_by_role('button', name='Publish')).to_be_enabled(timeout=15000)
+page.get_by_role('button', name='Publish').click()
+```
+
+**Why the `wait_for_timeout(500)` is mandatory here (same debounce race as Video/Web Story, but with no buffer).** The Title field's React-controlled Permalink auto-generation is debounced. On video and web-story forms the embed/image step runs *before* Title and absorbs that debounce. The gallery has **no** pre-Title step (see the "Never include Add Slide/upload" rule above), so Title and Permalink run cold and back-to-back — the debounce fires mid-type during `press_sequentially` on Permalink, corrupts the slug, and leaves Publish **permanently disabled with no visible error**. The 500 ms wait lets the debounce fire and settle into Permalink first; `safe_sequential_fill` then cleanly replaces it (Ctrl+A / Delete / retype) with no pending timer to collide. Symptom without the wait: intermittent `to_be_enabled` timeout on a `disabled` Publish button.
 
 ---
 
