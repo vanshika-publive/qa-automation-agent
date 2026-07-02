@@ -99,7 +99,7 @@ CUSTOM_PAGE_CREATE = PageFacts(
     title='Custom Content Template Page',
     required_for_draft=[
         FieldConstraint(field='Title *', react_controlled=True, note='React-controlled — MUST use safe_sequential_fill'),
-        FieldConstraint(field='English Title ( Permalink ) *', max=250, note="use a UNIQUE slug every run, e.g. f'qa-custom-{ts}'"),
+        FieldConstraint(field='English Title ( Permalink ) *', max=250, react_controlled=True, note="MUST use safe_sequential_fill — the async permalink-uniqueness check only reacts to real keystroke events, so plain fill() leaves Publish permanently disabled. Use a UNIQUE slug every run, e.g. f'qa-custom-{ts}'."),
     ],
     required_for_publish=[],
     optional_fields=[
@@ -306,14 +306,59 @@ VIDEO_CREATE = PageFacts(
     ],
     published_list_path='/posts/published?page_type=Video&ptype=Video&create=video',
     note=(
+        'ORDERING RULE — ALWAYS add the Featured Video BEFORE filling Title or Permalink. '
+        'Title\'s React-controlled Permalink auto-generation is debounced; filling Permalink immediately '
+        'after Title fires that debounce mid-type during press_sequentially and corrupts the slug, leaving '
+        'Publish permanently disabled with no visible error. Correct order: '
+        '(1) click "Add Featured Video" → fill "Media URL *" → click "Submit", '
+        '(2) safe_sequential_fill Title, (3) safe_sequential_fill Permalink, (4) select Primary Category. '
         'There is NO "Upload Video" button and NO native file chooser on this page — never write '
         'page.expect_file_chooser() or get_by_role("button", name="Upload Video") here, both time out. '
         'The "Featured Video *" field is filled by clicking button "Add Featured Video", which opens a dialog '
         'titled "Embed Media" containing a single required field "Media URL *" (placeholder "Enter video URL") '
-        'plus "Cancel"/"Submit" buttons. Fill "Media URL *" with a real video URL then click "Submit" to attach '
-        'it and close the dialog — video is added by URL embed only, there is no desktop-upload path. '
+        'plus "Cancel"/"Submit" buttons. Fill "Media URL *" with a real embeddable video URL then click "Submit" '
+        'to attach it and close the dialog — video is added by URL embed only, there is no desktop-upload path. '
         '(Verified live 2026-07-01 on OdishaTv - Khabar.) The unrelated "Upload ( 16:9 )" button under '
         '"Custom Thumbnail" uploads a static image thumbnail, not the video, and is optional.'
+    ),
+)
+
+GALLERY_CREATE = PageFacts(
+    path='/posts/gallery/create',
+    title='Photo Gallery Create',
+    required_for_draft=[
+        FieldConstraint(field='Title *', react_controlled=True, note='React-controlled — MUST use safe_sequential_fill, not safe_fill.'),
+        # EXACT ARIA name confirmed live from snapshot: spaces inside parentheses are REQUIRED.
+        # The generator has been observed to drop these spaces and write "English Title (Permalink) *"
+        # which matches nothing and causes a 15s timeout. Always copy this string verbatim.
+        FieldConstraint(field='English Title ( Permalink ) *', react_controlled=True, note="EXACT label — spaces inside parens are mandatory: 'English Title ( Permalink ) *'. MUST use safe_sequential_fill. Use a UNIQUE slug every run, e.g. f'qa-gallery-{ts}'."),
+    ],
+    required_for_publish=[
+        FieldConstraint(field='Title *', react_controlled=True, note='React-controlled — MUST use safe_sequential_fill.'),
+        FieldConstraint(field='English Title ( Permalink ) *', react_controlled=True, note='MUST use safe_sequential_fill. Unique slug every run.'),
+        FieldConstraint(field='Primary Category', react_controlled=False, note='Combobox — pick first live .ant-select-item-option.'),
+    ],
+    comboboxes=[
+        ComboboxFacts(aria_name='Primary Category', required=True, virtualized=True, note='REQUIRED. Virtualized + per-publisher — pick the first live .ant-select-item-option; never hardcode a name.'),
+        ComboboxFacts(aria_name='Credits *', required=True, note='REQUIRED but auto-fills with the logged-in user — no action needed.'),
+    ],
+    save_button='Publish',
+    after_save_url_pattern='/posts/published',
+    published_list_path='/posts/published?page_type=Gallery&ptype=Gallery&create=gallery',
+    note=(
+        'Confirmed live from snapshot 2026-07-01. The Permalink field ARIA name has spaces inside the parens: '
+        '"English Title ( Permalink ) *" — not "(Permalink)". The generator has been observed to drop the spaces, '
+        'producing a locator that matches nothing and times out. Always use the exact string above. '
+        'DEBOUNCE RACE — MANDATORY page.wait_for_timeout(500) BETWEEN Title and Permalink: Title\'s '
+        'React-controlled Permalink auto-generation is debounced. Unlike video/web-story (whose embed/image step '
+        'runs before Title and absorbs the debounce), the gallery has NO pre-Title step, so Title and Permalink '
+        'run cold and back-to-back. Filling Permalink immediately after Title fires the debounce mid-type, '
+        'corrupts the slug, and leaves Publish permanently disabled with no error. Order: (1) safe_sequential_fill '
+        'Title, (2) page.wait_for_timeout(500), (3) safe_sequential_fill Permalink, (4) select Primary Category. '
+        'PUBLISH IS ENABLED BY: Title + Permalink + Primary Category ONLY. No image upload required. '
+        'The "Add Slide" button adds an empty placeholder — it does NOT open a file chooser or media library. '
+        'DO NOT include any "Add Slide", "Upload Media", file upload, or image steps in the test — '
+        'they are not required and will leave Publish disabled if the upload flow is incomplete.'
     ),
 )
 
@@ -360,7 +405,26 @@ MEDIA_LIBRARY = PageFacts(
         'a substring of "Upload Media", so it still matches the ant-upload span AND the "Upload Media" button on '
         'the still-visible original page. Only click get_by_role("button", name="Upload") AFTER set_files() and '
         'after filling File name */Alt text *, at which point it uniquely matches the panel\'s submit button. '
-        'After a successful upload the panel closes and the new file appears in the media grid.'
+        'After a successful upload the panel closes and the new file appears in the media grid.\n'
+        'DELETE FLOW (grid, NOT a table): items are Ant cards `div.ant-card.media-listing-card` in an '
+        'infinite-scroll grid `.media-listing-grid` -- there are NO <tr> elements, so page.locator("tr") / '
+        'get_by_role("row") match NOTHING here. The filename is not rendered as card text (card text is '
+        '"Download" + a storage hash + the alt text), so .filter(has_text=<filename>) fails. To delete: '
+        'search by filename first. The magnifier search button is ICON-ONLY with no accessible name, so '
+        'get_by_role("button", name="Search") matches nothing -- click it via the sanctioned CSS locator '
+        '.pl-search-bar button (or press Enter in the box): '
+        'box = get_by_role("textbox", name="Search by name, path, or alt text"); box.fill(name); '
+        'page.locator(".pl-search-bar button").click(), which filters the grid server-side to the match; then '
+        'card = page.locator(".media-listing-card").first; card.wait_for(state="visible", timeout=15000); '
+        'card.click() to open its inline detail panel (NOT a modal), which has three NAMED buttons: '
+        '"Edit Image Details", "Copy to clipboard", "Delete". Click the page-level named Delete button: '
+        'page.get_by_role("button", name="Delete", exact=True).click() (resolves to exactly one match). '
+        'Then confirm in the Ant modal (role="dialog", title "Delete Media", body "...delete 1 selected media..."): '
+        'page.get_by_role("dialog").get_by_role("button", name="Delete").click(). Assert gone against the grid, '
+        'never filename text: expect(page.locator(".media-listing-card")).to_have_count(0, timeout=15000). '
+        '`.media-listing-grid` / `.media-listing-card` are sanctioned CSS locators for this page (like '
+        'button.publisher-switcher) because the grid cards have no semantic locator; everything after card.click() '
+        'is semantic.'
     ),
 )
 
@@ -383,6 +447,8 @@ PAGE_FACTS = {
     '/categories': CATEGORIES_LIST,
     '/posts/entity/geographies/geography/create': GEOGRAPHY_CREATE,
     '/posts/video/create': VIDEO_CREATE,
+    '/posts/gallery/create': GALLERY_CREATE,
+    '/posts/published?page_type=Gallery&ptype=Gallery&create=gallery': PUBLISHED_LIST,
     '/posts/live-blog/create': LIVE_BLOG_CREATE,
 }
 

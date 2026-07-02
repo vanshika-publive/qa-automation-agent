@@ -42,7 +42,7 @@ def validate_spec_semantics(code: str) -> Optional[str]:
         issues.append(
             "create flow is missing 'English Title ( Permalink ) *' -- without it 'Save as Draft' stays disabled. "
             "Add after safe_sequential_fill(page, 'Title *', ...): "
-            "safe_fill(page, 'English Title ( Permalink ) *', f'qa-{ts}')"
+            "safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-{ts}', delay=50)"
         )
 
     if re.search(r'\.to_have_url\(', code) and not re.search(r'\.to_have_url\(.*timeout', code):
@@ -65,6 +65,33 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             'jQuery-style selector detected (":contains()" or ":has-text()") -- these are NOT valid CSS. '
             'Replace with Playwright semantic locators: page.get_by_text("..."), '
             'page.get_by_role("heading", name="..."), or page.locator("h2", has_text="...").'
+        )
+
+    # The Media Library (/media) is a card GRID, not a table -- it has zero <tr> elements. A spec that
+    # navigates there and uses page.locator('tr') / get_by_role('row') (copied from the table-based list
+    # pages) matches nothing and times out. This was the confirmed delete-media failure: the generator
+    # applied the generic Ant-table row pattern to a grid page.
+    navigates_media = bool(re.search(r"goto\(['\"]\/media['\"]\)", code))
+    uses_table_row_locator = bool(
+        re.search(r"page\.locator\(\s*['\"]tr['\"]", code) or
+        re.search(r"get_by_role\(\s*['\"]row['\"]", code)
+    )
+    # /media's search button is ICON-ONLY with no accessible name, so get_by_role('button', name='Search')
+    # times out (verified live: 0 matches). Click it via CSS '.pl-search-bar button' (or press Enter).
+    uses_phantom_search_button = bool(re.search(r"get_by_role\(\s*['\"]button['\"]\s*,\s*name\s*=\s*['\"]Search['\"]", code))
+    if navigates_media and (uses_table_row_locator or uses_phantom_search_button):
+        issues.append(
+            "spec navigates to /media (the Media Library) but uses a table/named-Search-button pattern copied from "
+            "the list pages. /media is a card GRID with NO <tr> elements, and its magnifier search button is "
+            "ICON-ONLY with no accessible name (get_by_role('button', name='Search') matches nothing). Correct flow: "
+            "box = page.get_by_role('textbox', name='Search by name, path, or alt text'); box.fill(filename); "
+            "page.locator('.pl-search-bar button').click()  # icon-only search button (or box.press('Enter')). "
+            "The filename is NOT rendered as card text, so do not filter by has_text; the search narrows the grid, "
+            "so take the sole result: card = page.locator('.media-listing-card').first; "
+            "card.wait_for(state='visible', timeout=15000). Delete: card.click(); "
+            "page.get_by_role('button', name='Delete', exact=True).click(); "
+            "page.get_by_role('dialog').get_by_role('button', name='Delete').click(). "
+            "Assert gone against the grid: expect(page.locator('.media-listing-card')).to_have_count(0, timeout=15000)."
         )
 
     # [^)]* ensures name= is inside the get_by_role() parens, not in a chained method call
@@ -107,19 +134,42 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             'and assert the URL changes directly to the published list path.'
         )
 
-    navigated_paths = [m.group(1) for m in re.finditer(r"page\.goto\(['\"](\\/[^'\"\\)]+)['\"]\)", code)]
+    navigated_paths = [p for p in (
+        m.group(1) for m in re.finditer(r"page\.goto\(['\"]([^'\"]+)['\"]\)", code)
+    ) if p.startswith('/')]
     navigated_facts = [PAGE_FACTS[p] for p in navigated_paths if PAGE_FACTS.get(p) is not None]
+    # A page counts as "having field facts" only if it actually declares fields. Some pages exist in
+    # PAGE_FACTS for routing/notes but leave their field lists empty (e.g. /posts/live-blog/create,
+    # whose fields are not yet hand-verified and are resolved via the live-discovery fallback).
+    # Treating an empty-field page as fully specced would make the unknown-fill-labels check below
+    # conclude that NO label is valid and reject every fill — blocking any correct spec for that page.
+    def _has_field_facts(facts) -> bool:
+        return len(facts.required_for_draft) + len(facts.required_for_publish) + len(facts.optional_fields) > 0
+
     all_navigated_have_facts = (
-        len(navigated_paths) > 0 and len(navigated_facts) == len(navigated_paths)
+        len(navigated_paths) > 0 and
+        all(
+            PAGE_FACTS.get(p) is not None and _has_field_facts(PAGE_FACTS[p])
+            for p in navigated_paths
+        )
     )
     known_fields_in_spec: Set[str] = set()
     for facts in navigated_facts:
         for f in [*facts.required_for_draft, *facts.required_for_publish, *facts.optional_fields]:
             known_fields_in_spec.add(normalize_field_name(f.field))
 
+    # A search/filter textbox (e.g. "Search by name, path, or alt text" on /media) is NOT a form field --
+    # it must never be validated against a page's form-field facts. Otherwise a delete/search flow gets
+    # rejected forever because the search box isn't in PAGE_FACTS' upload/create field list.
+    def _is_search_or_filter_box(label: str) -> bool:
+        return bool(re.search(r'\b(search|filter)\b', label, flags=re.IGNORECASE))
+
     spec_fill_labels = extract_fill_labels(code)
     unknown_fill_labels = (
-        [l for l in spec_fill_labels if normalize_field_name(l) not in known_fields_in_spec]
+        [
+            l for l in spec_fill_labels
+            if normalize_field_name(l) not in known_fields_in_spec and not _is_search_or_filter_box(l)
+        ]
         if all_navigated_have_facts else []
     )
     if len(unknown_fill_labels) > 0:
@@ -166,6 +216,57 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             "page.locator('.ant-select-dropdown').last.locator('.ant-select-item-option').first.click()."
         )
 
+    # React-controlled fields fire no onChange on .fill() — the value never registers and
+    # the Publish/Save button stays permanently disabled. Enforce safe_sequential_fill for every
+    # field marked react_controlled=True in PAGE_FACTS for the pages this spec navigates to.
+    seen_rc: Set[str] = set()
+    react_controlled_fields_in_scope = []
+    for facts in navigated_facts:
+        for f in [*facts.required_for_draft, *facts.required_for_publish, *facts.optional_fields]:
+            if f.react_controlled and f.field not in seen_rc:
+                seen_rc.add(f.field)
+                react_controlled_fields_in_scope.append(f.field)
+    wrong_fill_react = [
+        label for label in react_controlled_fields_in_scope
+        if re.search(
+            r'(?<![a-zA-Z_])safe_fill\s*\(\s*page\s*,\s*[\'"]' + re.escape(label) + r'[\'"]',
+            code
+        )
+    ]
+    if wrong_fill_react:
+        quoted = ', '.join(f'"{l}"' for l in wrong_fill_react)
+        issues.append(
+            f'spec uses safe_fill() on React-controlled field(s): {quoted}. '
+            'React-controlled inputs do not fire onChange on .fill() — the value does not register '
+            'and the Publish/Save button stays permanently disabled. '
+            "Replace every flagged call with safe_sequential_fill(page, '<field>', value, delay=50)."
+        )
+
+    # Defense-in-depth for the Permalink field, which is React-controlled on EVERY create page of
+    # this dashboard: its async uniqueness check only reacts to real keystroke events, so a plain
+    # safe_fill() leaves Publish/Save permanently disabled even with a valid unique value. The
+    # per-page enforcement above only fires when the navigated page has hand-verified field facts in
+    # PAGE_FACTS; pages whose facts are not yet populated (e.g. /posts/live-blog/create) would
+    # otherwise let a safe_fill on Permalink through. Flag it by label regardless of facts coverage.
+    permalink_safe_fill = [
+        label
+        for label in extract_fill_labels(code)
+        if 'permalink' in label.lower()
+        and label not in wrong_fill_react
+        and re.search(
+            r'(?<![a-zA-Z_])safe_fill\s*\(\s*page\s*,\s*[\'"]' + re.escape(label) + r'[\'"]',
+            code
+        )
+    ]
+    if permalink_safe_fill:
+        quoted = ', '.join(f'"{l}"' for l in permalink_safe_fill)
+        issues.append(
+            f'spec uses safe_fill() on the React-controlled Permalink field: {quoted}. '
+            'The permalink-uniqueness check only reacts to real keystroke events, so safe_fill() '
+            'leaves Publish/Save permanently disabled even with a valid unique value. '
+            "Replace every flagged call with safe_sequential_fill(page, '<field>', value, delay=50)."
+        )
+
     hardcoded_virtualized_titles = find_hardcoded_virtualized_titles(code)
     if len(hardcoded_virtualized_titles) > 0:
         quoted = ', '.join(f'{name} -> "{title}"' for name, title in hardcoded_virtualized_titles)
@@ -206,6 +307,17 @@ def validate_spec_data_uniqueness(code: str) -> Optional[str]:
         )
     )
     if is_edit_or_delete_existing:
+        placeholder = re.search(
+            r"\w*(?:name|title)\w*\s*=\s*['\"]((?:Existing|Sample|Placeholder|Example|Test)\s[^'\"]*|[^'\"]*Replace\s+with[^'\"]*)['\"]",
+            code, flags=re.IGNORECASE
+        )
+        if placeholder:
+            return (
+                f'SPEC REJECTED -- placeholder value used for a pre-existing item: {placeholder.group(0).strip()}\n'
+                'This locator will never match a real row. The plan must name a real, observed item — '
+                'do not fabricate a name. If the plan itself lacks a real item name, that is a planner defect: '
+                're-request a plan that reads the actual list via browser_snapshot before writing the step.'
+            )
         return None
 
     # Scan a copy with Playwright locator calls stripped out, so that name=/exact= keyword arguments

@@ -36,7 +36,7 @@ ARTICLE CREATION (/posts/article/create) — articles PUBLISH DIRECTLY (NO save-
 - Navigate directly — no "Create Article" button exists.
 - Required to enable Publish (Credits auto-fills with the logged-in user — leave it alone):
     safe_sequential_fill(page, 'Title *', title, delay=50)
-    safe_fill(page, 'English Title ( Permalink ) *', f'qa-{ts}')   # UNIQUE every run — never reuse a permalink
+    safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-{ts}', delay=50)   # UNIQUE every run — never reuse a permalink
     cb = page.get_by_role('combobox', name='Primary Category')
     cb.click()
     # The category list is VIRTUALIZED (only ~9 of 65+ options render) and categories vary per publisher.
@@ -63,6 +63,51 @@ ARTICLE CREATION (/posts/article/create) — articles PUBLISH DIRECTLY (NO save-
   plan: either pick the first live .ant-select-item-option, or cb.fill('<name>') to filter then click the first match.
   Never substitute a remembered category title. Category format is always 'Name ( slug )'; tag format is plain name.
 - TinyMCE: page.frame_locator('iframe[title*="Rich Text Area"]').locator('body')
+
+VIDEO CREATION (/posts/video/create) — videos PUBLISH DIRECTLY:
+- Navigate directly: page.goto('/posts/video/create')
+- ALWAYS add the Featured Video FIRST — before filling Title or Permalink:
+    page.get_by_role('button', name='Add Featured Video').click()
+    safe_fill(page, 'Media URL *', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ')  # any real embeddable URL
+    page.get_by_role('button', name='Submit').click()
+  WHY: Title's React-controlled Permalink auto-generation fires a debounced update. If Permalink is filled
+  immediately after Title, the debounce fires mid-type during press_sequentially and corrupts the slug,
+  leaving Publish permanently disabled. The video embed dialog gives the debounce time to settle first.
+  NEVER fill Title/Permalink before clicking "Add Featured Video".
+- After the dialog closes, fill required fields (Credits auto-fills — leave it alone):
+    safe_sequential_fill(page, 'Title *', title, delay=50)
+    safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-video-{ts}', delay=50)
+    page.get_by_role('combobox', name='Primary Category').click()
+    page.locator('.ant-select-dropdown').last.locator('.ant-select-item-option').first.click()
+- PUBLISH:
+    publish = page.get_by_role('button', name='Publish')
+    expect(publish).to_be_enabled(timeout=15000)
+    publish.click()
+    expect(page).to_have_url(re.compile(r'/posts/published'), timeout=15000)
+- PUBLISHED LIST (Video only): /posts/published?page_type=Video&ptype=Video&create=video
+  Row delete: same kebab pattern as articles — row.locator('.published-action-dropdown').click()
+
+PHOTO GALLERY CREATION (/posts/gallery/create) — galleries PUBLISH DIRECTLY:
+- Navigate directly: page.goto('/posts/gallery/create')
+- Publish is enabled by THREE fields ALONE — Title + Permalink + Primary Category (Credits auto-fills — leave it alone).
+- MANDATORY page.wait_for_timeout(500) BETWEEN Title and Permalink:
+    safe_sequential_fill(page, 'Title *', title, delay=50)
+    page.wait_for_timeout(500)   # let the Title->Permalink auto-slug debounce fire & settle
+    safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-gallery-{ts}', delay=50)  # UNIQUE every run
+    page.get_by_role('combobox', name='Primary Category').click()
+    page.locator('.ant-select-dropdown').last.locator('.ant-select-item-option').first.click()
+  WHY: Title's React-controlled Permalink auto-generation fires a debounced update. Unlike video/web-story
+  (whose embed/image step runs before Title and absorbs the debounce), the gallery has NO pre-Title step, so
+  Title and Permalink run cold and back-to-back. Filling Permalink immediately after Title fires the debounce
+  mid-type during press_sequentially, corrupts the slug, and leaves Publish PERMANENTLY DISABLED with no error.
+- NEVER add "Add Slide", "Upload Media", file upload, or image steps — "Add Slide" only adds an empty
+  placeholder, does NOT enable Publish, and any upload attempt after it leaves Publish disabled / times out.
+- PUBLISH:
+    publish = page.get_by_role('button', name='Publish')
+    expect(publish).to_be_enabled(timeout=15000)
+    publish.click()
+    expect(page).to_have_url(re.compile(r'/posts/published'), timeout=15000)
+- PUBLISHED LIST (Gallery only): /posts/published?page_type=Gallery&ptype=Gallery&create=gallery
 
 PUBLISHED LIST (/posts/published — articles: /posts/published?page_type=Article&ptype=Article&create=article):
 - Row actions: link "Edit", link "View", button "Copy url to clipboard", and a kebab (more-actions) icon button (NO accessible name).
@@ -109,6 +154,11 @@ MEDIA LIBRARY (/media):
     expect(page.locator('.media-listing-grid').get_by_text(f'qa-media-{ts}')).to_be_visible(timeout=15000)
 
 WEB STORY (/posts/web-story/create) — verified live 2026-07-01:
+- ORDERING RULE — ALWAYS attach the Web Story image FIRST, before filling Title or Permalink.
+  Title's debounced Permalink auto-generation fires mid-type if Permalink is filled immediately after Title,
+  corrupting the slug and leaving Publish disabled. The media library interaction gives the debounce time
+  to settle. NEVER fill Title or Permalink before the image step.
+  Correct order: (1) image via media library, (2) Title, (3) Permalink, (4) Primary Category, (5) Publish.
 - Required to enable Publish: Title *, English Title ( Permalink ) *, Primary Category *, AND the Web Story image.
   The image is the field most often dropped — without it Publish stays disabled and the test times out on
   expect(...).to_be_enabled().
@@ -123,7 +173,13 @@ WEB STORY (/posts/web-story/create) — verified live 2026-07-01:
   The grid reliably contains images from prior runs. If you must upload a fresh one instead, click
   get_by_role('button', name='Upload Media').last inside the dialog — THAT sub-button opens the native chooser,
   so intercept it exactly like MEDIA LIBRARY above, then Insert Media.
-- Then: expect(page.get_by_role('button', name='Publish')).to_be_enabled(timeout=15000) and click it.
+- After image attaches:
+    safe_sequential_fill(page, 'Title *', title, delay=50)
+    safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-web-story-{ts}', delay=50)
+    page.get_by_role('combobox', name='Primary Category').click()
+    page.locator('.ant-select-dropdown').last.locator('.ant-select-item-option').first.click()
+    expect(page.get_by_role('button', name='Publish')).to_be_enabled(timeout=15000)
+    page.get_by_role('button', name='Publish').click()
 
 TAG CREATION (/tags/create):
 - Required: safe_sequential_fill(page, 'Name *', tag_name, delay=50)
@@ -287,22 +343,23 @@ RULE 7 — DO NOT INVENT FIELDS:
 ---------------------------------------------------"""
 
 
+_GENERATOR_FACTS_PREAMBLE = (
+    'for EACH page you write code against, you MUST emit a fill step for '
+    'EVERY field in "Required for save/draft". Never collapse multiple required fields into one even if '
+    'the user prompt only mentions one of them. This is the #1 cause of disabled Save/Publish buttons '
+    'in generated specs'
+)
+
+
 def build_generator_system_prompt(heuristics, facts='', publisher=''):
-    publisher_section = (
-        f'\n\n## ACTIVE PUBLISHER: {publisher}\n'
-        f'The session is logged into "{publisher}" and the test runs against THIS publisher only. '
-        'Use only categories/options observed live for this publisher; never assume another publisher\'s data.'
-        if publisher else ''
+    from pipeline.prompts._shared import _publisher_section, _facts_section, _heuristics_section
+    return (
+        GENERATOR_SYSTEM_PROMPT
+        + _publisher_section(
+            publisher,
+            f'The session is logged into "{publisher}" and the test runs against THIS publisher only. '
+            'Use only categories/options observed live for this publisher; never assume another publisher\'s data.',
+        )
+        + _facts_section(facts, _GENERATOR_FACTS_PREAMBLE)
+        + _heuristics_section(heuristics)
     )
-    facts_section = (
-        f'\n\n## Verified Page Facts — for EACH page you write code against, you MUST emit a fill step for '
-        f'EVERY field in "Required for save/draft". Never collapse multiple required fields into one even if '
-        f'the user prompt only mentions one of them. This is the #1 cause of disabled Save/Publish buttons '
-        f'in generated specs:\n{facts}'
-        if facts else ''
-    )
-    heuristics_section = (
-        f'\n\n## Known Dashboard Quirks — you MUST follow these:\n{heuristics}'
-        if heuristics else ''
-    )
-    return f'{GENERATOR_SYSTEM_PROMPT}{publisher_section}{facts_section}{heuristics_section}'

@@ -84,3 +84,24 @@ def safe_sequential_fill(page, label, text, delay=0, exact=False):
     max_len = locator.evaluate('(el) => el.maxLength')
     value = text[:max_len] if max_len > 0 else text
     locator.press_sequentially(value, delay=delay)
+
+    # Permalink commit-nudge. The "English Title ( Permalink )" field runs a DEBOUNCED, ASYNC
+    # uniqueness check that gates the Publish/Save button. After a fast press_sequentially the check
+    # intermittently settles in a "not-yet-valid" state and the button stays disabled FOREVER — no
+    # amount of waiting recovers it (verified live on /posts/live-blog/create: Publish stayed disabled
+    # through 4s+ of later steps). A single isolated keystroke re-fires the check and it resolves,
+    # enabling the button within ~500ms. So we append one throwaway char and delete it: the field
+    # value is unchanged, but the trailing edit forces a clean final validation. Harmless on content
+    # types where the check already passes on its own.
+    if isinstance(label, str) and 'permalink' in label.lower():
+        page.wait_for_timeout(400)  # let the initial (Title-driven) debounce settle first
+        locator.press('End')
+        if max_len <= 0 or len(value) < max_len:
+            locator.press('a')          # append throwaway char (skip if already at maxLength)
+        else:
+            locator.press('Backspace')  # at maxLength: drop last char instead, then restore it below
+            locator.press_sequentially(value[-1], delay=delay)
+            page.wait_for_timeout(400)
+            locator.press('End')
+        locator.press('Backspace')      # end on a Backspace — restores the intended value
+        page.wait_for_timeout(400)      # give the re-fired uniqueness check time to enable Publish

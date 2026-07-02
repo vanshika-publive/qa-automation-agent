@@ -14,7 +14,7 @@ from pipeline.knowledge.dashboard_facts import facts_for_all_mentioned_pages, PA
 from pipeline.constants import MAX_PLANNER_ITERATIONS, PLANNER_NUDGE_THRESHOLD
 from pipeline.prompts.planner_prompt import build_planner_system_prompt
 from pipeline.tools.planner_tools import PLANNER_CUSTOM_TOOLS
-from pipeline.transforms.plan_validator import validate_plan_content
+from pipeline.transforms.plan_validator import validate_plan_content, CONTENT_TYPE_FILTER_MAP
 
 
 class PlannerService:
@@ -98,13 +98,16 @@ class PlannerService:
                         print(f'Planner returned text without tool calls at iteration {iteration}. Nudging...')
                         if plan_rejection_count > 0:
                             nudge = (
-                                'Your plan was rejected because you used an unverified URL or missed a required field. '
-                                'You MUST click through the UI to find the real page first:\n'
+                                'Your plan was rejected — re-read the most recent PLAN REJECTED message, it states '
+                                'the exact fix. If it hands you a concrete replacement URL or names a specific field '
+                                'to add, just edit the plan text accordingly and call planner_save_plan again — do NOT '
+                                're-browse for something you already have. Only if the rejection explicitly says a URL '
+                                'or field is still unverified, click through the UI to confirm it first:\n'
                                 '1. Call browser_snapshot (no args) to see the current page and sidebar\n'
                                 '2. Find the feature you need in the sidebar — look for its link or "Create" button\n'
                                 '3. Call browser_click on that element to navigate there\n'
                                 '4. Call browser_snapshot again to see the form and confirm the URL\n'
-                                '5. Only then call planner_save_plan with steps using that confirmed URL'
+                                '5. Then call planner_save_plan with steps using that confirmed URL'
                             )
                         else:
                             nudge = (
@@ -123,7 +126,14 @@ class PlannerService:
                 for call in tool_calls:
                     name = call.function.name
                     args = AgentUtils.parse_tool_args(call.function.arguments)
-                    print(f'Planner calling: {name}({json.dumps(args)[:120]})')
+                    # planner_save_plan is logged in full (not the 120-char summary other tool calls
+                    # get) — truncating it hid the actual plan text on repeated-rejection loops, making
+                    # it impossible to tell whether the model resubmitted the same broken URL or made a
+                    # different mistake each time (confirmed blind spot, 2026-07-02).
+                    if name == 'planner_save_plan':
+                        print(f'Planner calling: {name}({json.dumps(args)})')
+                    else:
+                        print(f'Planner calling: {name}({json.dumps(args)[:120]})')
                     if name == 'browser_snapshot':
                         snapshot_call_count += 1
                     result = PlannerService._handle_tool(
@@ -183,10 +193,11 @@ class PlannerService:
                 nudge_iteration = int(MAX_PLANNER_ITERATIONS * PLANNER_NUDGE_THRESHOLD) - 1
                 if not plan_saved and iteration == nudge_iteration:
                     nudge_msg = (
-                        'Your plan has been rejected. You STILL need to click the feature button '
-                        'in the sidebar to discover the real URL. '
-                        'Call browser_snapshot, find the Create button or link for the target feature, '
-                        'call browser_click on it, snapshot again, then write the plan with the confirmed URL.'
+                        'Your plan keeps getting rejected. Re-read the most recent PLAN REJECTED message — '
+                        'it states the exact fix. If it gives a concrete replacement URL or a specific field '
+                        'to add, edit the plan text to match it EXACTLY and call planner_save_plan again NOW — '
+                        'do NOT call browser_snapshot or browser_click for a fix you already have. Only re-browse '
+                        'if the rejection explicitly says a URL or field is still unverified.'
                     ) if plan_rejection_count > 0 else (
                         'You have explored enough pages. Call planner_save_plan NOW with the complete '
                         'markdown plan. Use KNOWN FACTS from your system prompt for any details you did '
@@ -287,7 +298,7 @@ class PlannerService:
                     result = f'ERROR navigating to {target_url}: {err}'
 
         elif name == 'planner_save_plan':
-            content = str(args.get('content', ''))
+            content = PlannerService._auto_fix_plan(str(args.get('content', '')))
             rejection_issues = validate_plan_content(content, snapshot_cache, planner_system_prompt)
             if rejection_issues:
                 plan_just_rejected = True
@@ -324,6 +335,27 @@ class PlannerService:
                 result = f'ERROR calling {name}: {err}'
 
         return result, setup_page_count, last_setup_url, plan_just_rejected, plan_saved
+
+    @staticmethod
+    def _auto_fix_plan(content: str) -> str:
+        """Deterministically fix issues the LLM reliably fails to self-correct.
+
+        Content-type URL bleed: the LLM is told verbatim "Replace X with Y" and still
+        re-submits the same wrong URL up to 3 times (confirmed 2026-07-01). The fix is a
+        one-string substitution — do it in code, not prompts.
+        """
+        lower = content.lower()
+        matches = [
+            (label, filter_url)
+            for label, filter_url in CONTENT_TYPE_FILTER_MAP.items()
+            if re.search(rf'\b{re.escape(label)}\b', lower)
+        ]
+        if len(matches) == 1:
+            _, filter_url = matches[0]
+            # Replace bare /posts/published (no query string) with the filtered URL.
+            # Negative lookahead skips already-correct filtered URLs and sub-paths like /published/geographies.
+            content = re.sub(r'/posts/published(?![?/\w])', filter_url, content)
+        return content
 
     @staticmethod
     def _to_dict(plan) -> dict:
