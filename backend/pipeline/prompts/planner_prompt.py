@@ -43,23 +43,53 @@ PUBLISHED LIST (/posts/published — for articles: /posts/published?page_type=Ar
   photo gallery, or custom content item), you MUST navigate to that type's FILTERED URL instead of the bare
   /posts/published:
     Article        -> /posts/published?page_type=Article&ptype=Article&create=article
-    Video           -> /posts/published?page_type=Video&ptype=Video&create=video
-    Live Blog       -> /posts/published?page_type=LiveBlog&ptype=LiveBlog&create=live-blog
-    Web Story       -> /posts/published?page_type=Web Story&ptype=Web Story&create=web-story
-    Photo Gallery   -> /posts/published?page_type=Gallery&ptype=Gallery&create=gallery
-    Custom Content  -> /posts/published?page_type=CustomPage&ptype=CustomPage&create=custom-page
+    Video          -> /posts/published?page_type=Video&ptype=Video&create=video
+    Live Blog      -> /posts/published?page_type=LiveBlog&ptype=LiveBlog&create=live-blog
+    Web Story      -> /posts/published?page_type=Web Story&ptype=Web Story&create=web-story
+    Photo Gallery  -> /posts/published?page_type=Gallery&ptype=Gallery&create=gallery
+    Custom Content -> /posts/published?page_type=CustomPage&ptype=CustomPage&create=custom-page
   These exact links live in the sidebar's "Content Type" section — confirm there if unsure. Only use the bare
   /posts/published when the scenario genuinely means "any post of any type", never as a shortcut for a
   single-content-type flow.
-- Row actions: link "Edit", link "View", button "Copy url to clipboard", and a kebab (more-actions) icon button (NO accessible name).
-- Open the kebab scoped to the row: page.locator('tr').filter(has_text=title).locator('.published-action-dropdown').click()
-  CRITICAL: NEVER use get_by_role('row', name=...) — Ant Design <tr> elements have no accessible name, this always times out.
-- Kebab menu items: "Edit Permalink", "Duplicate Page", "Push Notification", "Distribute Post", "Unpublish", "Delete"
-- TO DELETE an article: open the row kebab -> click menuitem "Delete" (scope to the open menu:
+- SEARCH: run it by pressing Enter in the search box (see the general SEARCH BOXES rule below — search never
+  auto-applies on fill). '.pl-search-bar button' is /media-ONLY and times out here.
+- Row actions in the Actions column (left to right): Edit pencil (direct), View eye (direct), Edit Permalink
+  chain (direct), then the kebab button (.published-action-dropdown) for more actions. The kebab menu is ONLY
+  Edit Permalink / Duplicate Page / Push Notification / Distribute Post / Unpublish / Delete — no "Set as Featured".
+- TO SET AS FEATURED: it is a BULK-ACTION-BAR button, NOT a per-row kebab item. Tick the row's checkbox
+  (row.get_by_role('checkbox').click()) — a bar appears with buttons Send for Revision / Set as Featured /
+  Distribute Post / More Actions / Clear — then page.get_by_role('button', name='Set as Featured').click().
+  NEVER use a per-row get_by_title('More Actions') (does not exist -> times out). A post can only be featured if it
+  HAS a featured image, so a featuring scenario MUST create its own article WITH a featured image first (see Article
+  Create facts: get_by_text('Add Featured Image') -> pick first .ant-card-body -> 'Insert Image'). Success shows a
+  title="Featured Post" badge on the row: assert get_by_title('Featured Post'), never get_by_title('Featured').
+- CRITICAL: NEVER use get_by_role('row', name=...) — Ant Design <tr> elements have no accessible name, always times out.
+  Always use page.locator('tr').filter(has_text=title) to locate a row by content.
+- TO EDIT (pencil icon — navigates to /posts/<type>/edit/<id>):
+  The Edit action is a DIRECT inline icon in the row, NOT in the kebab menu. Click it scoped to the row:
+    page.locator('tr').filter(has_text=title).get_by_title('Edit', exact=True).click()
+  CRITICAL: exact=True is MANDATORY — "Edit Permalink" is another icon on the same row and name='Edit'
+  without exact=True is a substring match that silently hits "Edit Permalink" instead (confirmed failure:
+  opens the "Edit Permalink" modal instead of navigating to the edit form). Never omit exact=True here.
+  CRITICAL: NEVER open the kebab and search for menuitem 'Edit' — "Edit" is NOT a kebab menu item.
+- Kebab menu items (.published-action-dropdown): "Edit Permalink", "Duplicate Page", "Push Notification",
+  "Distribute Post", "Unpublish", "Delete" — Edit is not among them.
+- TO DELETE: open the row kebab -> click menuitem "Delete" (scope to the open menu portal to avoid stale matches:
   page.locator('.ant-dropdown:not(.ant-dropdown-hidden)').last) -> confirm deletion:
   page.get_by_role('dialog').get_by_role('button', name='Delete').click()
   CRITICAL: NEVER match dialog by title (e.g. get_by_role('dialog', name='Delete Article')) — the title varies per content type and hardcoding it causes failures on non-article pages.
   -> assert the row is gone. NOTE: "Unpublish" is a DIFFERENT item (back to draft), NOT Delete.
+- CRITICAL — "delete all" / bulk-delete flows (vacuous-pass trap): a plan step like "for each row, delete it"
+  followed by an Expected assertion of expect(...).to_have_count(0) will PASS while deleting nothing. Reason:
+  locator.count() does NOT auto-wait and to_have_count(0) is true the instant a locator matches nothing, so
+  during the async render gap right after page.goto() the loop is skipped and the assertion passes vacuously.
+  ALWAYS write a step that waits for the list to render BEFORE any count-based loop or emptiness assertion, e.g.
+  "Wait for the list to load: rows = page.locator('tr').filter(has_text=title); rows.first.wait_for(state='visible', timeout=15000)".
+  Then capture remaining = rows.count() and loop: delete rows.first, and after each delete wait for the count to
+  DROP BY ONE — expect(rows).to_have_count(remaining - 1, timeout=15000) — decrementing remaining each pass; finally
+  assert to_have_count(0, timeout=15000). CRITICAL: do NOT tell the generator to wait for rows.first to detach OR to
+  become visible again between deletes — after a deletion the rows SHIFT UP, so rows.first re-resolves to a different
+  still-attached row and a detach/visible wait either hangs or races. The count-drop wait is the only shift-safe signal.
 
 DRAFT LIST (/posts/draft) — only for "save as draft" / "discard" flows:
 - Table header row: "Title Content Type Created By Updated By Timeline Actions"
@@ -209,12 +239,17 @@ WEB STORY (/posts/web-story/create) — verified live 2026-07-01:
 - The required image flow is a MEDIA-LIBRARY MODAL, NOT a native file chooser:
     1. Click get_by_text('Upload your Web Story image') — this opens the "Media Library" modal (an in-DOM dialog,
        visible to browser_snapshot — no native OS chooser is involved here).
-    2. Select an image: click an existing image in the grid (e.g. get_by_role('dialog').get_by_role('img').first),
-       OR click get_by_role('button', name='Upload Media').last to add a new one (that sub-button DOES open the
-       native chooser — see MEDIA LIBRARY above).
-    3. Selecting an image reveals a detail panel; click get_by_role('button', name='Insert Media') to confirm.
-       The modal then closes and the "Upload your Web Story image" placeholder disappears — that is how you know
-       the required image is attached.
+    2. Select an existing grid item BY ITS CHECKBOX: get_by_role('dialog').get_by_role('checkbox').first.click().
+       Do NOT use get_by_role('img').first — the first <img> in the dialog is the upload drop-zone icon and clicking
+       it opens the native OS file chooser (the run stalls). To add a NEW image instead, click
+       get_by_role('button', name='Upload Media').last (that sub-button DOES open the native chooser — see MEDIA
+       LIBRARY above), but prefer selecting an existing item.
+    3. Selecting an item via its checkbox reveals the "Insert Media" button (it does NOT exist in the DOM until an
+       item is selected); click get_by_role('button', name='Insert Media') to confirm. The modal then closes and the
+       "Upload your Web Story image" placeholder disappears — that is how you know the required image is attached.
+- Inserting the image adds a SLIDE with its OWN 'Title *' textbox, so after the image step the post Title is
+  AMBIGUOUS: the name 'Title *' matches two textboxes. The POST title is the FIRST in DOM order — the plan's Title
+  step must target get_by_role('textbox', name='Title *').first (Permalink and Primary Category stay unique).
 - Save: expect(get_by_role('button', name='Publish')).to_be_enabled(timeout=15000) then click it. Only after the
   image is inserted (plus the three fields above) does Publish enable.
 
@@ -254,7 +289,11 @@ ENTITY PAGES — geography, food, horoscope, breaking news, etc.:
     4. get_by_role('combobox').last.click()  <- Value combobox has no ARIA name
        then get_by_title('<option>', exact=True).last.click()  <- use value observed in live snapshot
 
-EDIT & DELETE JOURNEYS — an edit routes to a sub-page like /<resource>/edit/<id>, reached by clicking a row's Edit control (you do NOT goto it). For categories the edit form has the SAME fields as the create page; the one difference is the save button — the category EDIT form saves with get_by_role('button', name='Save Changes'), NOT 'Save Category'. Write edit steps using the create-page field labels plus 'Save Changes'. You do NOT need to click into the edit form yourself — the generator verifies the live form before writing code. Do not loop snapshotting the list trying to reach the form.
+EDIT & DELETE JOURNEYS — an edit routes to a sub-page like /<resource>/edit/<id>, reached by clicking a row's Edit control (you do NOT goto it). The edit form REUSES the create form's field labels, so write edit steps using the create-page field labels. BUT THE SAVE BUTTON IS DIFFERENT ON AN EDIT FORM — it is NOT the create page's button and it is NOT 'Save Changes' for posts. Pick it by resource type:
+  - CONTENT POSTS (article, video, photo gallery, web story, custom content) that are ALREADY PUBLISHED: the edit form's save button is 'Update' (get_by_role('button', name='Update')) — NOT 'Publish' and NOT 'Save Changes'. The create page's 'Publish' button is REPLACED by 'Update' on the edit form because the post is already live. ('Save as Draft' also exists on the edit form for reverting to draft.) Clicking 'Update' saves and REDIRECTS to that type's published list (e.g. /posts/published?page_type=Gallery&ptype=Gallery&create=gallery), so assert the edited row on the published list AFTER the click. (Verified live on the Photo Gallery edit form 2026-07-02: buttons are 'Preview', 'Update', 'Save as Draft' — there is NO 'Publish' and NO 'Save Changes'. Writing 'Publish' or 'Save Changes' targets a button that does not exist, so expect(...).to_be_enabled() waits the full timeout and the run is killed.)
+  - CATEGORY edit form ONLY: saves with get_by_role('button', name='Save Changes'), NOT 'Save Category'. This 'Save Changes' rule is CATEGORY-SPECIFIC — never carry it over to a post/gallery/video/article/web-story edit.
+  - Whatever the save button, wait for it before clicking: expect(get_by_role('button', name='<exact name>')).to_be_enabled(timeout=15000).
+You do NOT need to click into the edit form yourself — the generator verifies the live form before writing code. Do not loop snapshotting the list trying to reach the form.
 
 YOUR ROLE: You are a READ-ONLY OBSERVER. You navigate, snapshot, and click ONLY to reveal hidden UI (dropdowns, panels). You NEVER fill forms, type text, or submit anything. Your job is to discover the UI structure and write a concrete plan promptly — do not over-explore.
 
@@ -318,11 +357,20 @@ Rules:
   CORRECT (prompt names a category): "Click get_by_role('combobox', name='Primary Category'), call cb.fill('<name>') to filter the virtual list, then click .ant-select-dropdown's first .ant-select-item-option" — NEVER hardcode or invent a category title.
 - ALL test data strings in step descriptions for items CREATED by the test MUST reference a unique ts timestamp (ts = int(time.time() * 1000)) — NEVER use a fixed string like 'QA Agent category'
 - EXCEPTION — operating on a pre-existing named item: When the user's prompt targets a SPECIFIC item that already exists (e.g. "delete the tag named 'I am tag'", "edit the category called 'Sports'"), use the exact name as given — do NOT append a timestamp. The uniqueness rule is for test-created data only.
-- "EDIT/DELETE AN EXISTING X" WITH NO NAME GIVEN: When the prompt says to edit/delete "an existing" or "a" gallery/article/tag/etc. without naming a specific one, do NOT invent or guess a name, and do NOT go traverse/snapshot the list page to find one (that burns the iteration budget and is unnecessary). Instead target the row POSITIONALLY, the same way virtualized comboboxes default to "first live option": select the first real data row and act on it directly, with no name-based filter at all.
+- "EDIT/DELETE AN EXISTING X" WITH NO NAME GIVEN: When the prompt says to edit/delete "an existing" or "a" gallery/article/tag/etc. without naming a specific one, do NOT invent or guess a name, and do NOT traverse/snapshot the list page to find one (that burns the iteration budget and is unnecessary). Instead target the row POSITIONALLY — select the first real data row and act on it directly, with no name-based filter at all.
   WRONG: "Locate an existing photo gallery component to edit by filtering the list or using search." (vague — forces the generator to invent a fake name like "Existing Gallery Name")
   WRONG: "...page.locator('tr').filter(has_text=gallery_name)..." (gallery_name is never defined anywhere — a hardcoded guess in disguise)
-  CORRECT: "Select the first existing gallery row (skip the header row) using page.get_by_role('row').nth(1), then click its Edit button: page.get_by_role('row').nth(1).get_by_role('button', name='Edit', exact=True).click()"
+  WRONG: page.get_by_role('row').nth(1) — Ant Design <tr> elements have no accessible name; get_by_role('row') always times out.
+  CORRECT for published-list Edit: "Select the first row that has an Edit icon using page.locator('tr').filter(has=page.get_by_title('Edit', exact=True)).first, then click its pencil: .get_by_title('Edit', exact=True).click()"
+  CORRECT for categories/tags list Edit: "Select the first row that has an Edit button using page.locator('tr').filter(has=page.get_by_role('button', name='Edit', exact=True)).first, then click it: .get_by_role('button', name='Edit', exact=True).click()"
   This works regardless of what data exists and needs no live list traversal.
+- SEARCH BOXES (general rule — applies to EVERY page, not per-flow): a search/filter box never auto-applies on
+  fill. The typed value only takes effect when you RUN the search — by pressing Enter in the box, or clicking the
+  page's search button. A plan that fills a search box but never triggers it searches nothing (unfiltered/empty
+  list -> the downstream row/card locator matches the wrong item or times out). So after ANY search-box fill,
+  add a trigger step: page.get_by_role('textbox', name='<search label>').press('Enter') (works on every page).
+  On /media ONLY you may instead click the icon-only search button page.locator('.pl-search-bar button') — that
+  '.pl-search-bar button' selector exists ONLY on /media, never on the posts/published list pages.
 - FIELD LIMITS: If you observe a maxlength attribute or character counter on any input during snapshotting,
   record it in the step description so the generator knows the constraint. For example:
   "Use safe_fill(page, 'Focus Keyphrase', f'kw-{ts}') — field has maxLength=60 per DOM"

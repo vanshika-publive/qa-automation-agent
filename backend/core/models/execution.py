@@ -20,6 +20,9 @@ class ExecutionQuerySet(models.QuerySet):
     def with_status(self, status_value: str):
         return self.filter(status=status_value)
 
+    def search_by_name(self, q: str):
+        return self.filter(test__name__icontains=q)
+
     def in_date_range(self, from_date: str = None, to_date: str = None):
         qs = self
         if from_date:

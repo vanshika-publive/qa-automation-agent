@@ -33,6 +33,7 @@ class PipelineRunner:
         test_prompt = ctx['test_prompt']
 
         test_plan_path = os.path.join(PROJECT_ROOT, 'specs', collection_slug, test_id, 'plan.md')
+        plan_prompt_path = os.path.join(PROJECT_ROOT, 'specs', collection_slug, test_id, 'plan-prompt.txt')
         tests_dir = os.path.join(PROJECT_ROOT, 'tests', collection_slug)
         reports_dir = os.path.join(PROJECT_ROOT, 'reports', collection_slug, execution_id)
         report_dir = f'{collection_slug}/{execution_id}'
@@ -70,6 +71,18 @@ class PipelineRunner:
                 )
 
             plan_already_exists = os.path.isfile(test_plan_path)
+            if plan_already_exists:
+                try:
+                    stored_prompt = Path(plan_prompt_path).read_text(encoding='utf-8').strip()
+                except FileNotFoundError:
+                    stored_prompt = None
+                if stored_prompt != test_prompt.strip():
+                    print('Test prompt has changed since the last plan was generated — invalidating plan and specs.')
+                    Path(test_plan_path).unlink(missing_ok=True)
+                    snapshot_path = test_plan_path.replace('plan.md', 'plan-snapshots.json')
+                    Path(snapshot_path).unlink(missing_ok=True)
+                    plan_already_exists = False
+
             PipelineRunner._prepare_environment(env_row, environment_id)
 
             test_plan = None
@@ -96,6 +109,7 @@ class PipelineRunner:
                         else:
                             from pipeline.services.planner_service import PlannerService
                             PlannerService.run(test_plan, test_plan_path)
+                            Path(plan_prompt_path).write_text(test_prompt.strip(), encoding='utf-8')
 
                     elif step_name == 'generator':
                         if not os.path.isfile(test_plan_path):

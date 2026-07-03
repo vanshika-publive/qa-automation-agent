@@ -41,6 +41,8 @@ class ExecutionService:
             qs = qs.for_collection(collection_id)
         if params.get('status'):
             qs = qs.with_status(params['status'])
+        if params.get('search'):
+            qs = qs.search_by_name(params['search'])
         qs = qs.in_date_range(params.get('from'), params.get('to'))
 
         total = qs.count()

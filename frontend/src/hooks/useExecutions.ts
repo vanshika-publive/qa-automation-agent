@@ -20,7 +20,9 @@ export function useExecutions(
   const [expandedId,     setExpandedId]      = useState<string | null>(null);
   const [retryingId,     setRetryingId]      = useState<string | null>(null);
   const [appliedFilters, setAppliedFilters]  = useState<FilterState>(DEFAULT_FILTERS);
-  const [search,         setSearch]          = useState('');
+  const [search,         setSearchRaw]       = useState('');
+
+  function setSearch(q: string) { setSearchRaw(q); setTablePage(1); }
   const [now,            setNow]             = useState(Date.now());
 
   const collectionsQuery = useQuery({
@@ -29,12 +31,13 @@ export function useExecutions(
   });
 
   const tableExecsQuery = useQuery({
-    queryKey: ['executions', 'table', appliedFilters, tablePage],
+    queryKey: ['executions', 'table', appliedFilters, search, tablePage],
     queryFn: () => executionsService.getAll({
       collectionId: appliedFilters.collectionId || undefined,
       status:       appliedFilters.status || undefined,
       from:         appliedFilters.from || undefined,
       to:           appliedFilters.to || undefined,
+      search:       search || undefined,
       page:         tablePage,
       pageSize:     TABLE_PAGE_SIZE,
     }),
@@ -95,11 +98,7 @@ export function useExecutions(
     return map;
   }, [colExecs]);
 
-  const filteredTableExecs = useMemo(() => {
-    if (!search.trim()) return tableExecs;
-    const q = search.toLowerCase();
-    return tableExecs.filter((e) => e.testName.toLowerCase().includes(q));
-  }, [tableExecs, search]);
+  const filteredTableExecs = tableExecs;
 
   const compareExecutions = useMemo(() => {
     const ids = Array.from(selectedIds).slice(0, 2);

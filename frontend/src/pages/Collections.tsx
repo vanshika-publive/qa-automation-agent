@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { relTime, fmtTableDatetime } from '../utils/formatters';
 import CollectionFilterDrawer from '../components/CollectionFilterDrawer';
 import RunAllModal from '../components/RunAllModal';
+import RunAllCollectionsModal from '../components/RunAllCollectionsModal';
 import PaginationBar from '../components/PaginationBar';
 import { useCollections } from '../hooks/useCollections';
-import { useRunAllCollections } from '../hooks/useRunAllCollections';
 import {
   Sparkles, Check, ArrowRight, CheckCircle2, FlaskConical,
   X, FolderPlus, Search, Calendar, Play, Trash2, Folder,
@@ -221,9 +221,9 @@ export default function Collections() {
   const [selectedColIds, setSelectedColIds] = useState<Set<string>>(new Set());
   const [renamingCol,    setRenamingCol]    = useState<{ id: string; name: string } | null>(null);
   const [runAllColIds,   setRunAllColIds]   = useState<string[] | null>(null);
+  const [runAllEnvOpen,  setRunAllEnvOpen]  = useState(false);
   const [colFilterOpen,  setColFilterOpen]  = useState(false);
   const selectAllRef = useRef<HTMLInputElement>(null);
-  const runAllCollectionsMutation = useRunAllCollections();
 
   const {
     collections, filteredCollections, pagedCollections,
@@ -318,15 +318,13 @@ export default function Collections() {
         </div>
         <div className="flex items-center gap-3">
           <button
-            onClick={() => runAllCollectionsMutation.mutate(filteredCollections)}
-            disabled={filteredCollections.length === 0 || runAllCollectionsMutation.isPending}
+            onClick={() => setRunAllEnvOpen(true)}
+            disabled={filteredCollections.length === 0}
             title={filteredCollections.length === 0 ? 'No collections to run' : undefined}
             className="inline-flex items-center gap-2 border border-primary/30 bg-primary/5 text-primary rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/10 transition-all hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
           >
-            {runAllCollectionsMutation.isPending
-              ? <span className="w-[18px] h-[18px] border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
-              : <PlayCircle size={18} />}
-            {runAllCollectionsMutation.isPending ? 'Launching…' : 'Run All Collections'}
+            <PlayCircle size={18} />
+            Run All Collections
           </button>
           <button
             onClick={() => { setCreateOpen(true); createMutation.reset(); }}
@@ -529,6 +527,10 @@ export default function Collections() {
 
       {runAllColIds && (
         <RunAllModal collectionIds={runAllColIds} onClose={() => setRunAllColIds(null)} />
+      )}
+
+      {runAllEnvOpen && (
+        <RunAllCollectionsModal collections={filteredCollections} onClose={() => setRunAllEnvOpen(false)} />
       )}
 
       <CollectionFilterDrawer

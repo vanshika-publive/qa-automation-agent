@@ -12,6 +12,7 @@ export interface ExecFilters {
   page?: number;
   pageSize?: number;
   testId?: string;
+  search?: string;
 }
 
 export const executionsService = {
@@ -22,6 +23,7 @@ export const executionsService = {
     if (filters.from)         qs.set('from', filters.from);
     if (filters.to)           qs.set('to', filters.to);
     if (filters.testId)       qs.set('testId', filters.testId);
+    if (filters.search)       qs.set('search', filters.search);
     if (filters.page)         qs.set('page', String(filters.page));
     if (filters.pageSize)     qs.set('pageSize', String(filters.pageSize));
     return api.get<PaginatedExecs>(`/executions?${qs}`);
