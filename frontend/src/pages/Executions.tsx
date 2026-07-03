@@ -14,7 +14,7 @@ import { useExecutions } from '../hooks/useExecutions';
 import {
   Folder, FolderOpen, X, Calendar, ListFilter, PlayCircle, Play,
   ChevronLeft, ChevronRight, Network, RotateCcw, Trash2, ChevronDown,
-  BarChart3, Square, Terminal, ArrowLeftRight, ArrowLeft,
+  BarChart3, Square, Terminal, ArrowLeftRight, ArrowLeft, Search,
 } from 'lucide-react';
 
 // ── Page-local components ────────────────────────────────────────────────────
@@ -412,8 +412,8 @@ export default function Executions() {
   // ── Level 1: main executions table ────────────────────────────────────────
 
   function renderCollectionFolders() {
-    const liveRows    = exec.tableExecs.filter((e) => e.status === 'running' || e.status === 'queued');
-    const historyRows = exec.tableExecs.filter((e) => e.status === 'passed'  || e.status === 'failed');
+    const liveRows    = exec.filteredTableExecs.filter((e) => e.status === 'running' || e.status === 'queued');
+    const historyRows = exec.filteredTableExecs.filter((e) => e.status === 'passed'  || e.status === 'failed');
     const allVisible  = [...liveRows, ...historyRows];
     const allChecked  = allVisible.length > 0 && allVisible.every((e) => exec.selectedIds.has(e.id));
     const someChecked = allVisible.some((e) => exec.selectedIds.has(e.id));
@@ -537,6 +537,45 @@ export default function Executions() {
 
     return (
       <>
+        <div className="flex items-center gap-2 flex-wrap mb-3">
+          <div className="relative">
+            <Search size={16} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary pointer-events-none" />
+            <input
+              value={exec.search}
+              onChange={(e) => exec.setSearch(e.target.value)}
+              placeholder="Search executions…"
+              className="w-64 border border-border-subtle rounded-xl pl-8 pr-3 py-2 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40"
+            />
+          </div>
+
+          {exec.selectedIds.size > 0 && (
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const count = exec.selectedIds.size;
+                  if (!window.confirm(`Delete ${count} execution${count === 1 ? '' : 's'}?`)) return;
+                  exec.selectedIds.forEach((id) => exec.deleteMutation.mutate(id));
+                  exec.clearSelection();
+                }}
+                disabled={exec.deleteMutation.isPending}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-error/30 bg-error/5 text-error hover:bg-error/10 transition-all duration-150 active:scale-[0.98] disabled:opacity-50"
+              >
+                <Trash2 size={16} />
+                Delete {exec.selectedIds.size} selected
+              </button>
+              {exec.selectedIds.size >= 2 && (
+                <button
+                  onClick={() => setCompareOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-primary/30 bg-primary/5 text-primary hover:bg-primary/10 transition-all duration-150 active:scale-[0.98]"
+                >
+                  <ArrowLeftRight size={16} />
+                  Compare {exec.selectedIds.size} selected
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
         <FilterBar
           applied={exec.appliedFilters}
           activeCount={exec.activeFilterCount}
@@ -545,18 +584,6 @@ export default function Executions() {
           onRemove={exec.removeFilter}
           collections={exec.collections}
         />
-
-        {exec.selectedIds.size >= 2 && (
-          <div className="flex justify-end mb-3">
-            <button
-              onClick={() => setCompareOpen(true)}
-              className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2 text-sm font-semibold hover:bg-primary/90 transition-colors"
-            >
-              <ArrowLeftRight size={16} />
-              Compare ({exec.selectedIds.size})
-            </button>
-          </div>
-        )}
 
         <div className="border border-border-subtle rounded-xl overflow-hidden">
           {exec.isLoadingTable ? (
@@ -592,12 +619,14 @@ export default function Executions() {
                 {liveRows.map(renderRow)}
                 {historyRows.length > 0 && <tr><td colSpan={8} className={sectionHeaderCls}>History</td></tr>}
                 {historyRows.map(renderRow)}
-                {exec.tableExecs.length === 0 && (
+                {exec.filteredTableExecs.length === 0 && (
                   <tr>
                     <td colSpan={8} className="px-[14px] py-12 text-center text-sm text-text-secondary">
-                      {exec.activeFilterCount > 0
-                        ? 'No executions match your filters.'
-                        : 'No executions yet. Run a suite to see results here.'}
+                      {exec.search.trim()
+                        ? 'No executions match your search.'
+                        : exec.activeFilterCount > 0
+                          ? 'No executions match your filters.'
+                          : 'No executions yet. Run a suite to see results here.'}
                     </td>
                   </tr>
                 )}

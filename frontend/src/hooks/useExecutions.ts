@@ -20,6 +20,7 @@ export function useExecutions(
   const [expandedId,     setExpandedId]      = useState<string | null>(null);
   const [retryingId,     setRetryingId]      = useState<string | null>(null);
   const [appliedFilters, setAppliedFilters]  = useState<FilterState>(DEFAULT_FILTERS);
+  const [search,         setSearch]          = useState('');
   const [now,            setNow]             = useState(Date.now());
 
   const collectionsQuery = useQuery({
@@ -94,6 +95,12 @@ export function useExecutions(
     return map;
   }, [colExecs]);
 
+  const filteredTableExecs = useMemo(() => {
+    if (!search.trim()) return tableExecs;
+    const q = search.toLowerCase();
+    return tableExecs.filter((e) => e.testName.toLowerCase().includes(q));
+  }, [tableExecs, search]);
+
   const compareExecutions = useMemo(() => {
     const ids = Array.from(selectedIds).slice(0, 2);
     return ids.map((id) => tableExecs.find((e) => e.id === id)).filter(Boolean) as Execution[];
@@ -141,6 +148,8 @@ export function useExecutions(
     setTablePage(1);
   }
 
+  function clearSelection() { setSelectedIds(new Set()); }
+
   function toggleRow(id: string) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -155,7 +164,7 @@ export function useExecutions(
 
   return {
     collections,
-    tableExecs, tablePagination,
+    tableExecs, filteredTableExecs, tablePagination,
     execsByTestId,
     tests, testExecs,
     runListSlice, runListTotalPages,
@@ -166,7 +175,8 @@ export function useExecutions(
     isLoadingTestExecs: testExecsQuery.isLoading,
     tablePage, setTablePage,
     runListPage, setRunListPage,
-    selectedIds, toggleRow, toggleAll,
+    selectedIds, toggleRow, toggleAll, clearSelection,
+    search, setSearch,
     appliedFilters, activeFilterCount,
     applyFilters, clearFilters, removeFilter,
     expandedId, setExpandedId,
