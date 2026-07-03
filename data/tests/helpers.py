@@ -3,6 +3,8 @@ import os
 import random
 import re
 
+from playwright.sync_api import Locator
+
 
 def random_desktop_png():
     desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
@@ -61,7 +63,9 @@ def trigger_and_read_min_limits(page):
 
 
 def safe_fill(page, label, text, exact=False):
-    if isinstance(label, str):
+    if isinstance(label, Locator):
+        locator = label            # caller pre-narrowed the field (e.g. .first on an ambiguous name)
+    elif isinstance(label, str):
         locator = page.get_by_role('textbox', name=label, exact=exact)
     else:
         locator = page.get_by_role('textbox', name=label)
@@ -70,7 +74,9 @@ def safe_fill(page, label, text, exact=False):
 
 
 def safe_sequential_fill(page, label, text, delay=0, exact=False):
-    if isinstance(label, str):
+    if isinstance(label, Locator):
+        locator = label            # caller pre-narrowed the field (e.g. .first on an ambiguous name)
+    elif isinstance(label, str):
         locator = page.get_by_role('textbox', name=label, exact=exact)
     else:
         locator = page.get_by_role('textbox', name=label)

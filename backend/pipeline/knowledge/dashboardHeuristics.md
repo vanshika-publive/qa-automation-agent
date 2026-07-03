@@ -62,13 +62,15 @@ On `/posts/web-story/create` the required image (marked by the `Web Story *` ast
 page.get_by_text('Upload your Web Story image').click()   # opens the Media Library modal
 ```
 
-**Never** treat this as a native file chooser — clicking the drop-zone opens an **in-DOM "Media Library" dialog** (verified live 2026-07-01). Pick an existing image and confirm with **Insert Media**:
+**Never** treat this as a native file chooser — clicking the drop-zone opens an **in-DOM "Media Library" dialog** (verified live 2026-07-01). Select an existing item **by its checkbox** and confirm with **Insert Media**:
 ```python
 dialog = page.get_by_role('dialog')
-dialog.get_by_role('img').first.click()                    # select an image from the grid
+dialog.get_by_role('checkbox').first.click()               # SELECT a grid item via its checkbox
 page.get_by_role('button', name='Insert Media').click()    # confirm — modal closes, image attaches
 ```
-The grid reliably holds images from earlier runs. To upload a fresh one instead, the modal's own `Upload Media` button *does* fire the native chooser (intercept it as in the Media Library heuristics above), then click `Insert Media`. The `Upload your Web Story image` placeholder disappearing is the signal the required image is attached and Publish can enable.
+**Do NOT select with `get_by_role('img').first`** (verified live 2026-07-03): the first `<img>` in the dialog is the upload drop-zone icon — clicking it opens a **native OS file chooser** and the run stalls with no file to give it. Grid items are selected via their **checkbox** (there are ~16 in view). Critically, the **`Insert Media` button does not exist in the DOM until an item is selected** — with nothing selected, `get_by_role('button', name='Insert Media')` matches zero elements and times out (`Locator.click: Timeout exceeded, waiting for get_by_role("button", name="Insert Media")`). Clicking a checkbox is what makes Insert Media appear and enable.
+
+**Always** attach the image by selecting an existing grid item and clicking **Insert Media** (bottom-right of the modal). **Never** click the modal's **Upload Media** button — it fires a native OS file chooser that stalls the run with no file to hand it, so Publish never enables and the test times out. The grid reliably holds images from earlier runs, so `Insert Media` always has something to attach. The `Upload your Web Story image` placeholder disappearing is the signal the required image is attached and Publish can enable.
 
 ### The option list is VIRTUALIZED — never hardcode a category, choose from live options
 
@@ -115,13 +117,35 @@ safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-video-{ts}', de
 ```python
 page.get_by_text('Upload your Web Story image').click()
 dialog = page.get_by_role('dialog')
-dialog.get_by_role('img').first.click()
+dialog.get_by_role('checkbox').first.click()   # select via checkbox, NOT get_by_role('img').first (drop-zone → file chooser)
 page.get_by_role('button', name='Insert Media').click()
-safe_sequential_fill(page, 'Title *', title, delay=50)
+safe_sequential_fill(page, page.get_by_role('textbox', name='Title *').first, title, delay=50)  # .first — see below
 safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-web-story-{ts}', delay=50)
 ```
 
 **Never** fill Title or Permalink before the embed/image step on these two create forms.
+
+### Web Story: the post `Title *` is AMBIGUOUS after the image inserts — target `.first`
+
+Inserting the Web Story image adds a **slide** to the form, and that slide has its **own `Title *` textbox** (`#slide_title`, placeholder "Enter Title"). It shares the exact accessible name `Title *` with the post title (`#title`), so after the image step `get_by_role('textbox', name='Title *')` resolves to **two** elements — a strict-mode violation (`resolved to 2 elements`, verified live 2026-07-03). `exact=True` does **not** help (both names are exactly "Title *"). The POST title is **first in DOM order**, so narrow it with `.first` and hand the Locator to `safe_sequential_fill` (the helper accepts a Locator, not just a name string):
+```python
+safe_sequential_fill(page, page.get_by_role('textbox', name='Title *').first, title, delay=50)
+```
+Only the `Title *` field collides — `English Title ( Permalink ) *` (`#english_title`) and `Primary Category` stay unique, so keep passing those as plain name strings. The slide's other fields (`slide_desc`, `slide_cta_text`, `slide_cta_link`) have distinct names too.
+
+---
+
+## Title → Permalink Debounce Wait (global, auto-enforced)
+
+**Any time a `'Title *'` fill is immediately followed by a Permalink fill, a `page.wait_for_timeout(500)` must sit between them.** The Title field's React-controlled Permalink auto-generation is debounced; if the Permalink `safe_sequential_fill` starts before that debounce settles, it fires mid-`press_sequentially` and corrupts the slug, leaving Publish/Save **permanently disabled with no visible error** (symptom: intermittent `to_be_enabled` timeout on a `disabled` button). This is a property of the **Title+Permalink field pair**, not of any one page — it applies to gallery, live blog, article, custom page, and every other create form that has both fields back-to-back.
+
+You do **not** need to write this wait by hand. `spec_sanitizer._insert_permalink_debounce_wait` inserts it deterministically after write, for every flow, whenever a `'Title *'` fill precedes a Permalink fill with no wait already between them (idempotent — it never double-inserts). The examples below still show the wait explicitly for clarity, but omitting it is not a defect: the sanitizer adds it. The one thing that would defeat the guard is filling Title with plain `safe_fill` instead of `safe_sequential_fill` — don't (Title is React-controlled; see below).
+
+```python
+safe_sequential_fill(page, 'Title *', title, delay=50)
+page.wait_for_timeout(500)   # auto-inserted by the sanitizer if omitted
+safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-{ts}', delay=50)
+```
 
 ---
 
@@ -158,6 +182,61 @@ safe_fill(page, re.compile(r'Name in English \( Slug \)'), f'qa-geo-{ts}')
 # Article title — full ARIA name is 'Title *', no collision, no exact needed
 safe_sequential_fill(page, 'Title *', title, delay=50)
 ```
+
+---
+
+## Published List — Edit Pencil vs. Edit Permalink
+
+The published list Actions column has four controls per row (left to right): Edit pencil, View eye, Edit Permalink chain, and the `.published-action-dropdown` kebab. **"Edit" is a direct inline icon — it is NOT a kebab menu item.**
+
+**Always** click the pencil icon directly, scoped to the row, with `exact=True`:
+```python
+row = page.locator('tr').filter(has_text=title)
+row.wait_for(state='visible', timeout=15000)
+row.get_by_title('Edit', exact=True).click()
+```
+
+**Never** open the kebab and look for menuitem `'Edit'` — it is not there. The kebab only contains: `"Edit Permalink"`, `"Duplicate Page"`, `"Push Notification"`, `"Distribute Post"`, `"Unpublish"`, `"Delete"`.
+
+**Never** omit `exact=True` on the Edit click. `name='Edit'` without `exact=True` is a substring match — it matches `"Edit Permalink"` (the chain icon) first and opens the "Edit Permalink" modal instead of navigating to the edit form. Confirmed failure mode (2026-07-02).
+
+The kebab pattern (`.published-action-dropdown` → `.ant-dropdown:not(.ant-dropdown-hidden)` → menuitem) is **only** for Delete and other kebab-only actions, never for Edit.
+
+---
+
+## Published List — "Set as Featured" is a BULK-BAR button, needs a featured image
+
+Verified live 2026-07-03. Featuring a post is **not** a per-row kebab action. Ticking one or more row checkboxes surfaces a **bulk-action bar** above the table (`"<n> Selected"`) with plain `<button>`s: **Send for Revision · Set as Featured · Distribute Post · More Actions · Clear**.
+
+```python
+row = page.locator('tr').filter(has_text=title).first
+row.wait_for(state='visible', timeout=15000)
+row.get_by_role('checkbox').click()
+page.get_by_role('button', name='Set as Featured').click()
+```
+
+- **Never** look for `get_by_title('More Actions')` on a row, and never open the `.published-action-dropdown` kebab to find "Set as Featured" — the kebab has no featuring option, and "More Actions" is a button in the **bulk bar**, not a per-row control. (This exact mistake — `row...get_by_title('More Actions', exact=True)` — timed out and failed a run, 2026-07-03.)
+- **A post can only be featured if it has a featured image.** Clicking "Set as Featured" on an imageless post opens a **"Set as featured"** dialog ("… without a featured image Or are Custom Content … will be excluded", `[Cancel]` / `[Proceed without them]`) and proceeding features **nothing**. So a self-contained featuring test must **create its own article WITH a featured image** (see *Add Featured Image* below), never reuse arbitrary/hardcoded rows. When the post has an image it is featured **directly, with no dialog**.
+- **Success indicator:** a featured row shows a `title="Featured Post"` badge in its Title cell. Reload the filtered list, then assert:
+  ```python
+  expect(page.locator('tr').filter(has_text=title).first.get_by_title('Featured Post')).to_be_visible(timeout=15000)
+  ```
+  Do **not** assert `get_by_title('Featured')` — the real title is `"Featured Post"`.
+
+---
+
+## Article "Add Featured Image" — Media-Library modal (NO checkboxes, "Insert Image")
+
+Verified live 2026-07-03. The article create form's featured image opens the same Media Library modal as Web Story, **but this variant has NO checkboxes** and its confirm button is **"Insert Image"** (not "Insert Media"):
+
+```python
+page.get_by_text('Add Featured Image').click()
+dialog = page.get_by_role('dialog')
+dialog.locator('.ant-card-body').first.click()          # pick first existing asset (never hardcode a filename)
+page.get_by_role('button', name='Insert Image').click()
+```
+
+Same drop-zone trap as Web Story: **do NOT** `dialog.get_by_role('img').first.click()` — the first `<img>` is the upload control and opens a native OS file chooser. Select a tile by its `.ant-card-body` card; that enables "Insert Image".
 
 ---
 
@@ -244,7 +323,7 @@ expect(page.locator('.media-listing-card')).to_have_count(0, timeout=15000)
 ```python
 page.goto('/posts/gallery/create')
 safe_sequential_fill(page, 'Title *', title, delay=50)
-page.wait_for_timeout(500)   # let the Title->Permalink auto-slug debounce settle before filling Permalink
+page.wait_for_timeout(500)   # Title->Permalink debounce wait — auto-inserted by the sanitizer if omitted
 safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-gallery-{ts}', delay=50)
 page.get_by_role('combobox', name='Primary Category').click()
 page.locator('.ant-select-dropdown').last.locator('.ant-select-item-option').first.click()
@@ -253,6 +332,21 @@ page.get_by_role('button', name='Publish').click()
 ```
 
 **Why the `wait_for_timeout(500)` is mandatory here (same debounce race as Video/Web Story, but with no buffer).** The Title field's React-controlled Permalink auto-generation is debounced. On video and web-story forms the embed/image step runs *before* Title and absorbs that debounce. The gallery has **no** pre-Title step (see the "Never include Add Slide/upload" rule above), so Title and Permalink run cold and back-to-back — the debounce fires mid-type during `press_sequentially` on Permalink, corrupts the slug, and leaves Publish **permanently disabled with no visible error**. The 500 ms wait lets the debounce fire and settle into Permalink first; `safe_sequential_fill` then cleanly replaces it (Ctrl+A / Delete / retype) with no pending timer to collide. Symptom without the wait: intermittent `to_be_enabled` timeout on a `disabled` Publish button.
+
+**Editing an already-published gallery saves with `Update`, NOT `Publish` or `Save Changes`.** The create form publishes with a `Publish` button; but once a post is live, its edit form (reached via the published-list Edit pencil, URL `/posts/gallery/<id>`) replaces `Publish` with an `Update` button. Verified live 2026-07-02 — the edit form's action buttons are exactly `Preview`, `Update`, `Save as Draft`; there is **no** `Publish` and **no** `Save Changes` on it. Writing either of those for the edit-save step targets a button that does not exist, so `expect(...).to_be_enabled()` waits out its full timeout and the run is killed. `Update` saves and redirects back to the Gallery published list, so assert the edited row there afterward:
+```python
+# ...create + publish the gallery first, landing on the Gallery published list...
+row = page.locator('tr').filter(has_text=title)
+row.wait_for(state='visible', timeout=15000)
+row.get_by_title('Edit', exact=True).click()          # pencil icon -> /posts/gallery/<id> edit form
+page.get_by_role('textbox', name='Title *').wait_for(timeout=15000)
+safe_sequential_fill(page, 'Title *', f'{title}-edited', delay=50)
+update = page.get_by_role('button', name='Update')    # NOT 'Publish', NOT 'Save Changes'
+expect(update).to_be_enabled(timeout=15000)
+update.click()
+expect(page.locator('tr').filter(has_text=f'{title}-edited')).to_be_visible(timeout=15000)
+```
+This `Publish`-on-create / `Update`-on-edit split applies to the other publish-directly content posts too (article, video, web story, custom content) — the edit form of an already-published post uses `Update`.
 
 ---
 

@@ -41,7 +41,7 @@ function RowCard({ row, onClick }: { row: BatchRow; onClick: () => void }) {
             </div>
           )}
           {row.launchStatus === 'skipped' && (
-            <div className="text-xs text-text-secondary mt-0.5">No specs or environment to run</div>
+            <div className="text-xs text-text-secondary mt-0.5">No specs to run</div>
           )}
           {row.launchStatus === 'failed' && (
             <div className="text-xs text-error mt-0.5">Failed to launch</div>

@@ -10,42 +10,24 @@ interface BatchEntry {
   launchStatus: 'launched' | 'skipped' | 'failed';
 }
 
-function mostCommonEnvironmentId(environmentIdLists: string[][]): string | null {
-  const counts = new Map<string, number>();
-  for (const ids of environmentIdLists) {
-    const first = ids[0];
-    if (!first) continue;
-    counts.set(first, (counts.get(first) ?? 0) + 1);
-  }
-  let best: string | null = null;
-  let bestCount = 0;
-  for (const [id, count] of counts) {
-    if (count > bestCount) { best = id; bestCount = count; }
-  }
-  return best;
+interface RunAllArgs {
+  collections: Collection[];
+  environmentId: string;
 }
 
 export function useRunAllCollections() {
   const navigate = useNavigate();
 
   return useMutation({
-    mutationFn: async (collections: Collection[]): Promise<BatchEntry[]> => {
+    mutationFn: async ({ collections, environmentId }: RunAllArgs): Promise<BatchEntry[]> => {
       const entries: BatchEntry[] = await Promise.all(
         collections.map(async (col): Promise<BatchEntry> => {
           if (col.testCount === 0) {
             return { collectionId: col.id, collectionName: col.name, executionId: null, launchStatus: 'skipped' };
           }
 
-          const testsRes = await collectionsService.getTests(col.id);
-          const tests = testsRes.data ?? [];
-          const envId = mostCommonEnvironmentId(tests.map((t) => t.environmentIds));
-
-          if (!envId) {
-            return { collectionId: col.id, collectionName: col.name, executionId: null, launchStatus: 'skipped' };
-          }
-
           try {
-            const res = await collectionsService.runAllSpecs(col.id, envId);
+            const res = await collectionsService.runAllSpecs(col.id, environmentId);
             const executionId = res.data?.executionId ?? null;
             return executionId
               ? { collectionId: col.id, collectionName: col.name, executionId, launchStatus: 'launched' }

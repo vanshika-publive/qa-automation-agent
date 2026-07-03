@@ -13,8 +13,16 @@ WORKFLOW — follow these steps in order:
       clicking a row's Edit button, or a confirm dialog: if the plan's locators target such a page and no ARIA
       snapshot for it was provided, browser_click the SAME read-only control the plan uses to get there (a row's
       Edit/Delete control, an "Add" button), then browser_snapshot the resulting page/dialog and write its locators
-      from that snapshot. NEVER assume an edit form matches the create page (different labels, different save button —
-      e.g. category edit saves with 'Save Changes', not 'Save Category').
+      from that snapshot. NEVER assume an edit form matches the create page — the SAVE BUTTON is different on an
+      edit form and you MUST read it from the edit-form snapshot, never copy it from the create page or the plan:
+        - Editing an ALREADY-PUBLISHED content post (article, video, photo gallery, web story, custom content):
+          the save button is 'Update' (get_by_role('button', name='Update')) — NOT 'Publish' and NOT 'Save Changes'.
+          The create page's 'Publish' is replaced by 'Update' on the edit form. Clicking 'Update' redirects to that
+          type's published list, so assert the edited row there afterward. (Verified live on the gallery edit form
+          2026-07-02: the buttons are 'Preview', 'Update', 'Save as Draft' — no 'Publish', no 'Save Changes'.)
+        - Category edit form: saves with 'Save Changes', not 'Save Category'.
+      If you cannot observe the edit form (traversal failed), STILL do not guess 'Publish'/'Save Changes' for a post
+      edit — use 'Update'.
 2. generator_write_test  — write the complete Python test file after observing all needed pages
 
 generator_discover_limits is available if you need to verify specific DOM field lengths,
@@ -110,15 +118,69 @@ PHOTO GALLERY CREATION (/posts/gallery/create) — galleries PUBLISH DIRECTLY:
 - PUBLISHED LIST (Gallery only): /posts/published?page_type=Gallery&ptype=Gallery&create=gallery
 
 PUBLISHED LIST (/posts/published — articles: /posts/published?page_type=Article&ptype=Article&create=article):
-- Row actions: link "Edit", link "View", button "Copy url to clipboard", and a kebab (more-actions) icon button (NO accessible name).
-- DELETE an article (verified live — the row kebab is the documented exception to the no-CSS rule, it has no ARIA name):
-    row = page.get_by_role('row', name=re.compile(re.escape(title)))
-    row.first.locator('.published-action-dropdown').click()              # row kebab (icon-only)
-    menu = page.locator('.ant-dropdown:not(.ant-dropdown-hidden)').last  # the open Ant Design menu portal
+- SEARCH: run it by pressing Enter in the search box (see RULE 3c — search boxes never auto-apply on fill).
+  The '.pl-search-bar button' selector is /media-ONLY; it does not exist here and times out.
+- Row actions in the Actions column (left to right): Edit pencil (direct icon), View eye (direct icon),
+  Edit Permalink chain (direct icon), then the kebab button (.published-action-dropdown) for more actions.
+  The kebab menu holds ONLY Edit Permalink / Duplicate Page / Push Notification / Distribute Post / Unpublish /
+  Delete — there is NO "Set as Featured" and NO per-row "More Actions".
+  NEVER use get_by_role('row', name=...) — Ant Design <tr> elements have no accessible name, always times out.
+- TO SET AS FEATURED (bulk-action bar, NOT the row kebab):
+    row = page.locator('tr').filter(has_text=title).first
+    row.wait_for(state='visible', timeout=15000)
+    row.get_by_role('checkbox').click()          # reveals the bulk bar
+    page.get_by_role('button', name='Set as Featured').click()
+  NEVER do row.get_by_title('More Actions') — no such per-row control; it times out.
+  A post can only be featured if it HAS a featured image (imageless posts are excluded by a confirmation dialog
+  and nothing gets featured). So a featuring test MUST create its own article WITH a featured image first:
+    page.get_by_text('Add Featured Image').click()
+    page.get_by_role('dialog').locator('.ant-card-body').first.click()   # first live asset; never hardcode
+    page.get_by_role('button', name='Insert Image').click()
+  With an image, "Set as Featured" features directly (no dialog). Verify by reloading the filtered list and
+  asserting the row's badge: expect(row.get_by_title('Featured Post')).to_be_visible(timeout=15000)
+  (the title is 'Featured Post', NOT 'Featured').
+  Always use page.locator('tr').filter(has_text=title) to locate a row.
+- TO EDIT (pencil icon — navigates to the edit form at /posts/<type>/edit/<id>):
+  "Edit" is a DIRECT icon in the row, NOT a kebab menu item. Always scope to the row and use exact=True:
+    row = page.locator('tr').filter(has_text=title)
+    row.wait_for(state='visible', timeout=15000)
+    row.get_by_title('Edit', exact=True).click()
+  CRITICAL: exact=True is MANDATORY. "Edit Permalink" is another icon in the same row, and name='Edit'
+  without exact=True is a substring match that silently clicks "Edit Permalink" instead (confirmed: opens
+  the "Edit Permalink" modal instead of the edit form). Never omit exact=True on this click.
+  CRITICAL: NEVER open the kebab (.published-action-dropdown) and search for menuitem 'Edit' — "Edit" is
+  NOT a kebab menu item. The kebab only contains: "Edit Permalink", "Duplicate Page", "Push Notification",
+  "Distribute Post", "Unpublish", "Delete".
+- DELETE (verified live — the row kebab is the documented exception to the no-CSS rule, it has no ARIA name):
+    row = page.locator('tr').filter(has_text=title)
+    row.wait_for(state='visible', timeout=15000)
+    row.locator('.published-action-dropdown').click()                    # row kebab (icon-only, no ARIA name)
+    menu = page.locator('.ant-dropdown:not(.ant-dropdown-hidden)').last  # open Ant Design menu portal
     menu.get_by_role('menuitem', name='Delete').click()
-    page.get_by_role('dialog', name='Delete Article').get_by_role('button', name='Delete').click()
-    expect(page.get_by_role('row', name=re.compile(re.escape(title)))).to_have_count(0, timeout=15000)
+    page.get_by_role('dialog').get_by_role('button', name='Delete').click()
+    expect(page.locator('tr').filter(has_text=title)).to_have_count(0, timeout=15000)
   NOTE: the kebab also has "Unpublish" — that sends the article back to draft and is NOT the same as Delete.
+  NEVER match the dialog by title (e.g. get_by_role('dialog', name='Delete Article')) — title varies per content type.
+- CRITICAL — BULK / "delete all" delete. Two traps here, both confirmed live:
+  (a) VACUOUS PASS: locator.count() does NOT auto-wait, and expect(...).to_have_count(0) is satisfied the
+      instant a locator matches nothing. The list renders its rows asynchronously AFTER page.goto() resolves,
+      so `while rows.count() > 0:` right after the goto sees 0, the loop body never runs, and to_have_count(0)
+      passes on its first poll — a GREEN test that deleted nothing. Prove the list rendered before counting.
+  (b) SHIFT/BACKFILL: after each deletion the remaining rows shift UP, so the previous first row is instantly
+      replaced by a new first row. Do NOT wait for rows.first to detach — rows.first is a DYNAMIC locator that
+      re-resolves to the shifted-up (still-attached) row, so state='detached' never resolves and the wait times
+      out (confirmed: "locator('tr').filter(has_text='QA').first to be detached" timed out for 15s while a new
+      <tr> sat in first position). Instead, confirm each delete landed by waiting for the count to DROP BY ONE:
+    rows = page.locator('tr').filter(has_text=title)
+    rows.first.wait_for(state='visible', timeout=15000)   # MANDATORY: prove the filtered list rendered
+    remaining = rows.count()
+    while remaining > 0:
+        rows.first.locator('.published-action-dropdown').click()
+        page.locator('.ant-dropdown:not(.ant-dropdown-hidden)').last.get_by_role('menuitem', name='Delete').click()
+        page.get_by_role('dialog').get_by_role('button', name='Delete').click()
+        expect(rows).to_have_count(remaining - 1, timeout=15000)   # this delete landed; survives row shift-up
+        remaining -= 1
+    expect(page.locator('tr').filter(has_text=title)).to_have_count(0, timeout=15000)
 
 DRAFT LIST (/posts/draft) — only for "save as draft" / "discard" flows:
 - Row actions: link "Edit", link "Preview", button "Discard" — NO Delete button
@@ -168,13 +230,23 @@ WEB STORY (/posts/web-story/create) — verified live 2026-07-01:
     page.get_by_text('Upload your Web Story image').click()
 - That click opens an in-DOM "Media Library" modal (NOT a native file chooser). Complete it like this:
     dialog = page.get_by_role('dialog')
-    dialog.get_by_role('img').first.click()            # select an existing image from the grid
+    dialog.get_by_role('checkbox').first.click()       # SELECT a grid item via its checkbox (verified live 2026-07-03)
     page.get_by_role('button', name='Insert Media').click()   # confirm; modal closes, image attaches
-  The grid reliably contains images from prior runs. If you must upload a fresh one instead, click
-  get_by_role('button', name='Upload Media').last inside the dialog — THAT sub-button opens the native chooser,
-  so intercept it exactly like MEDIA LIBRARY above, then Insert Media.
+  CRITICAL — select the grid item with its CHECKBOX, NOT get_by_role('img').first. The first <img> in the dialog
+  is the upload drop-zone icon: clicking it opens a native OS file chooser (the run stalls with no file to give it).
+  Worse, the "Insert Media" button does NOT exist in the DOM until an item is actually selected — so if nothing is
+  selected, get_by_role('button', name='Insert Media') matches zero elements and times out. Clicking a checkbox is
+  what makes Insert Media appear and enable.
+  IMPORTANT — attach the image by SELECTING an existing grid item and clicking "Insert Media" (bottom-right of the
+  modal). Do NOT click the modal's "Upload Media" button: it fires a native OS file chooser that stalls the run
+  with no file to give it, leaving Publish disabled and timing out the test. The grid reliably contains images from
+  prior runs, so Insert Media always has something to attach — never take the Upload Media path.
 - After image attaches:
-    safe_sequential_fill(page, 'Title *', title, delay=50)
+    # Inserting the image adds a SLIDE that has its OWN 'Title *' textbox (#slide_title), so the accessible name
+    # 'Title *' now matches TWO textboxes — passing the plain string 'Title *' is a strict-mode violation
+    # ("resolved to 2 elements"). The POST title (#title) is the FIRST match in DOM order. Target it explicitly
+    # with .first and pass the Locator to safe_sequential_fill (it accepts a Locator, not just a name string):
+    safe_sequential_fill(page, page.get_by_role('textbox', name='Title *').first, title, delay=50)
     safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-web-story-{ts}', delay=50)
     page.get_by_role('combobox', name='Primary Category').click()
     page.locator('.ant-select-dropdown').last.locator('.ant-select-item-option').first.click()
@@ -302,6 +374,16 @@ RULE 3b — DROPDOWN VALUES:
   The option lists in this system prompt (categories, tags, content types) are FORMAT EXAMPLES, not exhaustive lists.
   ALWAYS use the exact option text recorded in the plan steps — those are what the planner observed live.
   If the plan says 'Web Story' or 'Live Blog', use that. Never substitute a system-prompt example value.
+
+RULE 3c — SEARCH BOXES (applies to EVERY page — do not treat as per-flow):
+  A search/filter box NEVER auto-applies on fill. The typed value only takes effect when you RUN the search —
+  by pressing Enter in the box, or clicking the page's search button. Filling a search box without triggering
+  it searches nothing: the list stays unfiltered (or empty) and your downstream row/card locator matches the
+  wrong item or times out. So after ANY search-box fill, add a trigger:
+    safe_fill(page, '<search label>', term)
+    page.get_by_role('textbox', name='<search label>').press('Enter')   # works on every page
+  On /media ONLY you may instead click the icon-only search button: page.locator('.pl-search-bar button').click()
+  (that '.pl-search-bar button' selector exists ONLY on /media — never use it on the posts/published list pages).
 
 RULE 4 — IMPORTS:
   import re

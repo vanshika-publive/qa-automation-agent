@@ -91,7 +91,15 @@ ARTICLE_CREATE = PageFacts(
           'permalink validation), so wait for expect(get_by_role("button", name="Publish")).to_be_enabled(timeout=15000) '
           'before clicking — never click immediately. There is NO "Save as Draft -> Edit -> Publish" detour. '
           '"Save as Draft" is a SEPARATE optional action that sends the article to /posts/draft instead of publishing it. '
-          'To DELETE a published article, go to the Published list and use the row kebab menu (see Published List facts).'),
+          'To DELETE a published article, go to the Published list and use the row kebab menu (see Published List facts). '
+          'FEATURED IMAGE (optional to publish, but REQUIRED before an article can be "Set as Featured" on the '
+          'Published list — imageless posts are excluded from featuring): click get_by_text("Add Featured Image") '
+          'to open the Media Library modal, then pick the first existing asset with '
+          'page.get_by_role("dialog").locator(".ant-card-body").first.click() (per-publisher + time-varying — never '
+          'hardcode a filename) and click get_by_role("button", name="Insert Image"). This modal has NO checkboxes '
+          '(unlike the Web Story "Insert Media" modal) and its confirm button is "Insert Image", not "Insert Media". '
+          'Do NOT click get_by_role("img").first inside the modal — the first img is the upload control and opens an '
+          'OS file chooser.'),
 )
 
 CUSTOM_PAGE_CREATE = PageFacts(
@@ -184,6 +192,22 @@ PUBLISHED_LIST = PageFacts(
           'assert row gone: expect(page.locator("tr").filter(has_text=title)).to_have_count(0, timeout=15000). '
           'NEVER use get_by_role("dialog", name="Delete Article") — dialog title varies by content type. '
           'NOTE: "Unpublish" is a DIFFERENT menu item (sends back to draft), NOT Delete. '
+          'BULK ACTIONS / SET AS FEATURED: ticking one or more row checkboxes '
+          '(row.get_by_role("checkbox").click()) reveals a bulk-action bar above the table reading '
+          '"<n> Selected" with plain buttons: "Send for Revision", "Set as Featured", "Distribute Post", '
+          '"More Actions", "Clear". These are get_by_role("button", name=...) buttons — "More Actions" here is a '
+          'BULK-BAR BUTTON, not a per-row control. There is NO per-row "Set as Featured" and NO per-row control '
+          'named "More Actions": the row kebab (.published-action-dropdown) menu is only Edit Permalink / Duplicate '
+          'Page / Push Notification / Distribute Post / Unpublish / Delete (no featuring). To feature a post: tick '
+          'its checkbox, then page.get_by_role("button", name="Set as Featured").click(). '
+          'CRITICAL — a post can only be featured if it HAS a featured image: clicking "Set as Featured" when any '
+          'selected post lacks a featured image (or is Custom Content) opens a "Set as featured" dialog listing the '
+          'excluded posts with [Cancel] / [Proceed without them], and proceeding features NOTHING. So the post you '
+          'intend to feature MUST be created WITH a featured image (see Article Create facts). When the selected '
+          'post HAS an image it is featured DIRECTLY with no dialog. '
+          'SUCCESS INDICATOR: a featured row shows a title="Featured Post" badge in its Title cell — assert with '
+          'expect(row.get_by_title("Featured Post")).to_be_visible(timeout=15000) (reload the filtered list first '
+          'so the badge renders). Do NOT assert get_by_title("Featured") — the real title is "Featured Post". '
           'TOPMOST/LATEST-ITEM SCENARIOS (no specific title to filter by): use page.get_by_role("row").nth(1) '
           '— NEVER page.locator("tr").first and NEVER page.locator("tbody tr").first. Both of those are WRONG: '
           'the table header is also a <tr> (so .first / tbody-tr[0] can hit it), AND Ant Design additionally '
@@ -358,7 +382,56 @@ GALLERY_CREATE = PageFacts(
         'PUBLISH IS ENABLED BY: Title + Permalink + Primary Category ONLY. No image upload required. '
         'The "Add Slide" button adds an empty placeholder — it does NOT open a file chooser or media library. '
         'DO NOT include any "Add Slide", "Upload Media", file upload, or image steps in the test — '
-        'they are not required and will leave Publish disabled if the upload flow is incomplete.'
+        'they are not required and will leave Publish disabled if the upload flow is incomplete. '
+        'EDIT FLOW (editing an already-published gallery): open the gallery from the published-list Edit icon '
+        '(navigates to /posts/gallery/<id>), which reuses this create form\'s field labels BUT the save button is '
+        "'Update' — NOT 'Publish' and NOT 'Save Changes'. (Verified live 2026-07-02: the edit form\'s buttons are "
+        "'Preview', 'Update', 'Save as Draft' — there is no 'Publish' on an already-published post.) Clicking "
+        "'Update' saves and redirects back to the Gallery published list, so assert the edited row there afterward."
+    ),
+)
+
+WEB_STORY_CREATE = PageFacts(
+    path='/posts/web-story/create',
+    title='Web Story Create',
+    required_for_draft=[
+        FieldConstraint(field='Title *', react_controlled=True, note="React-controlled — MUST use safe_sequential_fill, not safe_fill. AMBIGUOUS after the image step: inserting the Web Story image adds a SLIDE with its own 'Title *' textbox (#slide_title), so the name 'Title *' then matches TWO textboxes. The POST title (#title) is the FIRST in DOM order — target it with page.get_by_role('textbox', name='Title *').first and pass that Locator to safe_sequential_fill (the helper accepts a Locator). exact=True does NOT disambiguate (both names are exactly 'Title *')."),
+        FieldConstraint(field='English Title ( Permalink ) *', react_controlled=True, note="EXACT label — spaces inside parens are mandatory. MUST use safe_sequential_fill — the async permalink-uniqueness check only reacts to real keystrokes, so plain fill() leaves Publish permanently disabled. Use a UNIQUE slug every run, e.g. f'qa-web-story-{ts}'. Only ONE Permalink field exists (no slide collision)."),
+    ],
+    required_for_publish=[
+        FieldConstraint(field='Web Story image *', note="REQUIRED. NOT a native file chooser and NOT the optional 'Upload ( Portrait/Landscape )' thumbnail buttons. Click the nameless drop-zone by its text — page.get_by_text('Upload your Web Story image').click() — which opens an in-DOM 'Media Library' dialog. SELECT an existing grid item via its CHECKBOX: page.get_by_role('dialog').get_by_role('checkbox').first.click() — do NOT use get_by_role('img').first (that is the upload drop-zone icon and opens a native file chooser). The 'Insert Media' button does NOT exist until an item is selected; after selecting, page.get_by_role('button', name='Insert Media').click() attaches the image and closes the dialog."),
+        FieldConstraint(field='Primary Category', note='Combobox — pick first live .ant-select-item-option; never hardcode.'),
+    ],
+    comboboxes=[
+        ComboboxFacts(aria_name='Primary Category', required=True, virtualized=True, note='REQUIRED. Virtualized + per-publisher — click and snapshot, pick the first live .ant-select-item-option; never hardcode a name.'),
+        ComboboxFacts(aria_name='Credits', required=True, note="Renders with an asterisk and aria-required=true, BUT auto-fills with the logged-in user and Publish ENABLES WITHOUT touching it (verified live 2026-07-03). It is a COMBOBOX, not a textbox — NEVER safe_fill('Credits *', ...). Take NO action on Credits."),
+        ComboboxFacts(aria_name='Additional Category'),
+        ComboboxFacts(aria_name='Tags'),
+    ],
+    save_button='Publish',
+    after_save_url_pattern='/posts/published',
+    publish_flow=[
+        PublishStep(kind='click_button', button='Publish'),
+        PublishStep(kind='expect_url', pattern='/posts/published'),
+    ],
+    published_list_path='/posts/published?page_type=Web Story&ptype=Web Story&create=web-story',
+    note=(
+        'Web Story PUBLISHES DIRECTLY from this page (verified live 2026-07-03 on OdishaTv - Khabar). '
+        'PUBLISH IS ENABLED BY EXACTLY: the Web Story image + Title * + English Title ( Permalink ) * + '
+        'Primary Category. Credits is aria-required but auto-fills and is NOT a gate — do not fill it. '
+        'ORDERING RULE — attach the image FIRST, before filling Title or Permalink: the image (media-library) '
+        'interaction absorbs the Title→Permalink debounce. Correct order: (1) image via media library, '
+        '(2) Title (use .first — see below), (3) Permalink, (4) Primary Category, (5) wait for Publish enabled, click. '
+        'IMAGE STEP: page.get_by_text(\'Upload your Web Story image\').click() opens an in-DOM Media Library dialog '
+        '(NOT a native chooser). Select an existing item by its CHECKBOX — '
+        'page.get_by_role(\'dialog\').get_by_role(\'checkbox\').first.click() — NOT get_by_role(\'img\').first (the '
+        'first <img> is the upload drop-zone icon → opens a native file chooser and the run stalls). The '
+        '"Insert Media" button does NOT exist in the DOM until an item is selected, so selecting the checkbox is '
+        'what makes it appear; then page.get_by_role(\'button\', name=\'Insert Media\').click() attaches the image. '
+        'TITLE COLLISION: inserting the image adds a slide with its own \'Title *\' textbox, so after the image step '
+        '\'Title *\' matches two textboxes — fill the POST title with '
+        'page.get_by_role(\'textbox\', name=\'Title *\').first (exact=True does NOT help; both names are exactly '
+        '\'Title *\'). Only Title collides — Permalink and Primary Category stay unique.'
     ),
 )
 
@@ -449,6 +522,8 @@ PAGE_FACTS = {
     '/posts/video/create': VIDEO_CREATE,
     '/posts/gallery/create': GALLERY_CREATE,
     '/posts/published?page_type=Gallery&ptype=Gallery&create=gallery': PUBLISHED_LIST,
+    '/posts/web-story/create': WEB_STORY_CREATE,
+    '/posts/published?page_type=Web Story&ptype=Web Story&create=web-story': PUBLISHED_LIST,
     '/posts/live-blog/create': LIVE_BLOG_CREATE,
 }
 
@@ -476,6 +551,8 @@ def detect_intent(prompt):
     page = None
     if re.search(r'custom.?(content|page)', lower):
         page = CUSTOM_PAGE_CREATE
+    elif re.search(r'web\s*stor', lower):
+        page = WEB_STORY_CREATE
     elif re.search(r'article', lower):
         page = ARTICLE_CREATE
     elif re.search(r'\bvideo\b', lower):

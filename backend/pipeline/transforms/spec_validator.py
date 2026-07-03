@@ -2,7 +2,14 @@ import re
 from typing import List, Optional, Set
 
 from pipeline.knowledge.dashboard_facts import PAGE_FACTS
-from .plan_validator import extract_fill_labels, find_hardcoded_virtualized_titles, normalize_field_name
+from .plan_validator import (
+    extract_fill_labels,
+    find_hardcoded_virtualized_titles,
+    normalize_field_name,
+    _field_distinctive_tokens,
+    _is_field_referenced,
+    _page_facts_declare_fields,
+)
 
 
 def validate_spec_semantics(code: str) -> Optional[str]:
@@ -94,12 +101,69 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             "Assert gone against the grid: expect(page.locator('.media-listing-card')).to_have_count(0, timeout=15000)."
         )
 
+    # '.pl-search-bar button' is a sanctioned CSS locator for the /media Media Library ONLY -- that
+    # icon-only search button exists nowhere else. Generators copy the /media search pattern onto the
+    # posts/published list pages, where the element does not exist and the click times out (confirmed
+    # "delete galleries named QA" failure, 2026-07-02). On the published/list pages the search box does
+    # NOT auto-apply on fill either: the search runs only when you press Enter in the box (or click the
+    # page's own search icon). Trigger it with .press('Enter'), never '.pl-search-bar button'.
+    if re.search(r"locator\(\s*['\"][^'\"]*\.pl-search-bar", code) and not navigates_media:
+        issues.append(
+            "spec uses '.pl-search-bar button' but does not navigate to /media. That selector is a "
+            "/media-ONLY sanctioned CSS exception (the Media Library's icon-only search button) and does "
+            "NOT exist on the posts/published list pages, so the click times out. On the published/list "
+            "pages the search box also does not auto-apply on fill -- run the search by pressing Enter in "
+            "the box: safe_fill(page, '<search label>', term); "
+            "page.get_by_role('textbox', name='<search label>').press('Enter'). Remove the "
+            "'.pl-search-bar button' click entirely."
+        )
+
+    # GENERAL RULE (applies to every page, not per-flow): a search/filter box NEVER auto-applies on fill.
+    # The typed value only takes effect when the search is RUN -- by pressing Enter in the box, or clicking
+    # the page's search button. A spec that fills a search box but never triggers it silently searches
+    # nothing: the list stays unfiltered (or empty) and the downstream row/card locator matches the wrong
+    # item or times out. So: whenever the spec fills a textbox whose label contains "search" or "filter",
+    # it MUST also contain a search trigger somewhere -- a .press('Enter'), a '.pl-search-bar button' click
+    # (/media only), or a click on a button whose name contains "Search".
+    fills_search_box = bool(
+        re.search(r"safe_(?:sequential_)?fill\s*\(\s*page\s*,\s*['\"][^'\"]*(?:[Ss]earch|[Ff]ilter)[^'\"]*['\"]", code) or
+        re.search(r"get_by_(?:role\(\s*['\"]textbox['\"]\s*,\s*name\s*=\s*|placeholder\(\s*)['\"][^'\"]*(?:[Ss]earch|[Ff]ilter)[^'\"]*['\"]\s*\)\s*\.fill\(", code)
+    )
+    has_search_trigger = bool(
+        re.search(r"\.press\(\s*['\"]Enter['\"]", code) or
+        re.search(r"locator\(\s*['\"][^'\"]*\.pl-search-bar", code) or
+        re.search(r"get_by_role\(\s*['\"]button['\"]\s*,\s*name\s*=\s*['\"][^'\"]*[Ss]earch[^'\"]*['\"][^)]*\)\s*\.click", code)
+    )
+    if fills_search_box and not has_search_trigger:
+        issues.append(
+            "spec fills a search/filter box but never RUNS the search. On this dashboard a search box does "
+            "NOT auto-apply on fill -- the typed value only takes effect when you press Enter in the box or "
+            "click the page's search button. Filling without triggering searches nothing, so the list stays "
+            "unfiltered and the row/card locator matches the wrong item or times out. Add a trigger right "
+            "after the fill: page.get_by_role('textbox', name='<search label>').press('Enter') (works on "
+            "every page). On /media you may instead click the icon-only search button: "
+            "page.locator('.pl-search-bar button').click()."
+        )
+
     # [^)]* ensures name= is inside the get_by_role() parens, not in a chained method call
     if re.search(r"get_by_role\(['\"]row['\"][^)]*\bname\s*=", code):
         issues.append(
             "get_by_role('row', name=...) detected — Ant Design tr elements have NO accessible name. "
             "This locator always times out on the live dashboard. "
             "Replace with: row = page.locator('tr').filter(has_text=title) then row.wait_for(state='visible', timeout=15000)"
+        )
+
+    # page.locator('tr').nth(N) (no .filter in between) indexes raw <tr> elements, but Ant Design
+    # renders a hidden aria-hidden="true" "ant-table-measure-row" as the literal first <tr> in <tbody>
+    # (plus the header <tr>), so .nth(1) resolves to that invisible measure row and wait_for(visible)
+    # times out (confirmed failure 2026-07-03). Use the accessibility tree, which skips aria-hidden rows.
+    if re.search(r"\.locator\(\s*['\"]tr['\"]\s*\)\s*\.nth\(", code):
+        issues.append(
+            "page.locator('tr').nth(N) detected — Ant Design renders a hidden aria-hidden='true' "
+            "'ant-table-measure-row' as the first <tr> in <tbody>, so .nth(1) hits that invisible row and "
+            "wait_for(state='visible') times out. Use get_by_role('row').nth(N) for positional access "
+            "(the a11y tree skips aria-hidden rows, so nth(0) is the header and nth(1) is the first real "
+            "data row), or page.locator('tr').filter(has_text=title).first to target a row by content."
         )
 
     if re.search(r"get_by_role\(['\"]dialog['\"][^)]*\bname\s*=", code):
@@ -143,13 +207,12 @@ def validate_spec_semantics(code: str) -> Optional[str]:
     # whose fields are not yet hand-verified and are resolved via the live-discovery fallback).
     # Treating an empty-field page as fully specced would make the unknown-fill-labels check below
     # conclude that NO label is valid and reject every fill — blocking any correct spec for that page.
-    def _has_field_facts(facts) -> bool:
-        return len(facts.required_for_draft) + len(facts.required_for_publish) + len(facts.optional_fields) > 0
-
+    # "Declares fields" is the same predicate the plan_validator live-discovery gate keys on, so both
+    # modules share one canonical helper (_page_facts_declare_fields) rather than each defining its own.
     all_navigated_have_facts = (
         len(navigated_paths) > 0 and
         all(
-            PAGE_FACTS.get(p) is not None and _has_field_facts(PAGE_FACTS[p])
+            PAGE_FACTS.get(p) is not None and _page_facts_declare_fields(PAGE_FACTS[p])
             for p in navigated_paths
         )
     )
@@ -208,9 +271,50 @@ def validate_spec_semantics(code: str) -> Optional[str]:
                 f"(NOT r'{base}/(?!new)' — that form requires a trailing slash and fails when the redirect goes to {base} without one)"
             )
 
-    if re.search(r'details\s+(omitted|not\s+specified)|omitted\s+(as|because)', code, flags=re.IGNORECASE):
+    # Vacuous-emptiness false pass: locator.count() does NOT auto-wait, and to_have_count(0) is
+    # satisfied the instant a locator matches nothing. Every list on this dashboard renders its rows
+    # asynchronously AFTER page.goto() resolves, so a deletion flow that guards its loop with
+    # `while rows.count() > 0` or asserts success with to_have_count(0) — without first proving the
+    # rows actually rendered — passes vacuously: during the initial render gap count() is 0, the loop
+    # body never runs (nothing is deleted), and to_have_count(0) passes on its first poll. This was the
+    # confirmed "delete all QA galleries" false pass (2026-07-02): green test, zero rows deleted.
+    # Require a positive existence wait (rows.first.wait_for(state='visible'), or the endorsed
+    # single-row row.wait_for(state='visible')) BEFORE the count guard / emptiness assertion, so a
+    # final count of 0 means "removed", not "never loaded".
+    uses_count_guard = bool(re.search(r"\b(?:while|if)\b[^\n:]*\.count\(\)", code))
+    asserts_empty = bool(re.search(r"\.to_have_count\(\s*0\b", code))
+    if uses_count_guard or asserts_empty:
+        proves_rows_rendered = bool(
+            re.search(r"\.wait_for\(\s*state\s*=\s*['\"](?:visible|attached)['\"]", code) or
+            re.search(r"\.to_have_count\(\s*[1-9][0-9]*\b", code) or
+            re.search(r"\.to_be_visible\(", code)
+        )
+        if not proves_rows_rendered:
+            issues.append(
+                'spec relies on locator.count() as a loop guard and/or asserts deletion success with '
+                'to_have_count(0), but never first proves the target rows rendered. locator.count() does NOT '
+                'auto-wait, and to_have_count(0) is satisfied the instant the locator matches nothing, so during '
+                'the async list-render gap right after page.goto() the count is 0: the delete loop body never runs '
+                '(nothing is deleted) and the emptiness assertion passes vacuously — a green test that deletes '
+                'nothing (confirmed "delete all QA galleries" false pass). Before the loop / assertion, wait for the '
+                "list to actually render: rows = page.locator('tr').filter(has_text=title); "
+                "rows.first.wait_for(state='visible', timeout=15000). Then keep the delete loop guarded by "
+                'rows.count() AFTER that wait, and the final expect(rows).to_have_count(0, timeout=15000) is '
+                'meaningful (0 == removed, not 0 == never loaded).'
+            )
+
+    if re.search(
+        r'details\s+(omitted|not\s+specified)|omitted\s+(as|because)'
+        r'|assuming\s+(?:there\s+are\s+)?(?:other|additional|more)\s+(?:required\s+)?fields?'
+        r'|fill\s+(?:them|it|the\s+(?:rest|other\s+fields?))\s+here'
+        r'|other\s+required\s+field'
+        r'|<[a-z ]*required[a-z ]*>',
+        code,
+        flags=re.IGNORECASE,
+    ):
         issues.append(
-            'spec contains a "details omitted" comment, indicating one or more '
+            'spec contains a placeholder comment (e.g. "details omitted", "assuming there are other '
+            'required fields", "fill them here"), indicating one or more '
             'plan steps were dropped instead of translated to code. EVERY step in the plan must produce code. '
             'For value comboboxes with "first available option", use '
             "page.locator('.ant-select-dropdown').last.locator('.ant-select-item-option').first.click()."
@@ -266,6 +370,11 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             'leaves Publish/Save permanently disabled even with a valid unique value. '
             "Replace every flagged call with safe_sequential_fill(page, '<field>', value, delay=50)."
         )
+
+    # NOTE: the Title->Permalink debounce wait (page.wait_for_timeout(500) between the two fills) is no
+    # longer validated/rejected here. It is inserted deterministically for EVERY flow by
+    # spec_sanitizer._insert_permalink_debounce_wait whenever a 'Title *' fill is followed by a Permalink
+    # fill, so there is nothing for the generator to get wrong and no reason to burn a retry over it.
 
     hardcoded_virtualized_titles = find_hardcoded_virtualized_titles(code)
     if len(hardcoded_virtualized_titles) > 0:
@@ -357,3 +466,54 @@ def validate_spec_data_uniqueness(code: str) -> Optional[str]:
             )
 
     return None
+
+
+def _extract_plan_fill_targets(plan_steps: List[str]) -> List[str]:
+    """Field labels the plan explicitly prescribes filling or selecting, all of which gate the
+    Publish/Save/Update button. Reuses extract_fill_labels for safe_fill/safe_sequential_fill +
+    textbox targets (it already handles every fill syntax and filters placeholders), and adds
+    comboboxes (Primary Category, etc.) — which extract_fill_labels does not cover but which
+    equally block submit when omitted."""
+    text = '\n'.join(plan_steps)
+    labels: List[str] = list(extract_fill_labels(text))
+    for m in re.finditer(
+        r"get_by_role\(\s*['\"]combobox['\"]\s*,\s*name\s*=\s*(['\"])([^'\"]+)\1", text
+    ):
+        labels.append(m.group(2))
+    return list(dict.fromkeys(labels))
+
+
+def validate_spec_matches_plan(code: str, plan_steps: List[str]) -> Optional[str]:
+    """Reject a spec that silently drops a field the plan told it to fill/select.
+
+    validate_spec_semantics can only enforce required fields for pages with hand-verified
+    PAGE_FACTS; pages with empty facts (e.g. /posts/live-blog/create) fall through it entirely.
+    This check is facts-independent: it trusts the PLAN as the source of truth. Whatever field the
+    plan names, the spec must reference — on ANY page, verified or not. This closes the hole where
+    the generator wrote only 'Title *' and a "assuming there are other required fields" comment,
+    dropping the Permalink and Primary Category the plan prescribed, so Publish stayed disabled.
+    """
+    if not plan_steps:
+        return None
+    plan_targets = _extract_plan_fill_targets(plan_steps)
+    if not plan_targets:
+        return None
+    # Only fields with distinctive tokens can be reliably checked; skip label-less/ambiguous ones
+    # to avoid false-positive rejection loops.
+    missing = [
+        lbl for lbl in plan_targets
+        if _field_distinctive_tokens(lbl) and not _is_field_referenced(lbl, code)
+    ]
+    if not missing:
+        return None
+    quoted = ', '.join(f'"{l}"' for l in missing)
+    return (
+        f'The plan prescribes filling/selecting these field(s) that the generated spec never '
+        f'implements: {quoted}. The generator dropped required plan steps (often replaced with a '
+        f'placeholder comment). EVERY field the plan names must be implemented with real code — a '
+        f'single omitted required field leaves the Publish/Save/Update button permanently disabled '
+        f'and the test times out. For each missing field: use '
+        f"safe_sequential_fill(page, '<label>', <value>, delay=50) for text/permalink fields, or for a "
+        f"combobox click get_by_role('combobox', name='<label>') then "
+        f"page.locator('.ant-select-dropdown').last.locator('.ant-select-item-option').first.click()."
+    )

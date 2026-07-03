@@ -19,7 +19,11 @@ from pipeline.prompts.generator_prompt import build_generator_system_prompt
 from pipeline.tools.generator_tools import GENERATOR_CUSTOM_TOOLS
 from pipeline.transforms.plan_parser import parse_plan_md, extract_scenario_url
 from pipeline.transforms.spec_sanitizer import sanitize_spec
-from pipeline.transforms.spec_validator import validate_spec_semantics, validate_spec_data_uniqueness
+from pipeline.transforms.spec_validator import (
+    validate_spec_semantics,
+    validate_spec_data_uniqueness,
+    validate_spec_matches_plan,
+)
 
 
 class GeneratorService:
@@ -102,6 +106,7 @@ class GeneratorService:
             rejection_message = (
                 validate_spec_data_uniqueness(raw_content)
                 or validate_spec_semantics(raw_content)
+                or validate_spec_matches_plan(raw_content, scenario.steps)
             )
             if rejection_message:
                 return rejection_message

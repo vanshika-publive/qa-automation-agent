@@ -45,6 +45,15 @@ def _is_field_referenced(field_name: str, content: str) -> bool:
     return all(re.search(rf'\b{re.escape(tok)}\b', content, flags=re.IGNORECASE) for tok in tokens)
 
 
+def _page_facts_declare_fields(facts) -> bool:
+    """True only if this PAGE_FACTS entry actually lists form fields. Entries that exist purely
+    for routing/notes (empty field lists) return False so the live-snapshot required-field
+    discovery still runs for them instead of being silently skipped."""
+    return bool(
+        facts.required_for_draft or facts.required_for_publish or facts.optional_fields
+    )
+
+
 def normalize_field_name(s: str) -> str:
     result = re.sub(r'\\([()*])', r'\1', s)
     result = result.replace('*', '')
@@ -174,12 +183,21 @@ def validate_plan_content(
             if not _is_field_referenced(required.field, content):
                 missing_required_fields.append(f'{visited} -> "{required.field}"')
 
-    # Live-discovered required fields: for any visited page NOT in PAGE_FACTS, read the
-    # asterisk-marked required fields straight from the snapshot captured for that page and
-    # require each to be filled. Extends the required-fields guarantee to EVERY flow, not just
-    # the hand-maintained known pages.
+    # Live-discovered required fields: for any visited page whose PAGE_FACTS entry does NOT
+    # declare fields, read the asterisk-marked required fields straight from the snapshot
+    # captured for that page and require each to be filled. Extends the required-fields
+    # guarantee to EVERY flow, not just the hand-maintained known pages.
+    #
+    # The gate is "does this entry actually declare fields?" -- NOT "is there an entry at all?".
+    # Some pages exist in PAGE_FACTS purely for routing/notes with empty field lists (e.g.
+    # /posts/live-blog/create, not yet hand-verified). Keying on entry-presence alone let those
+    # stub pages skip BOTH the facts branch (no fields to check) AND this live branch, so a
+    # required field like the Permalink went unenforced and left Publish permanently disabled.
     for visited in visited_paths_in_plan:
-        if PAGE_FACTS.get(visited) is not None or not plan_submits_form:
+        facts = PAGE_FACTS.get(visited)
+        if not plan_submits_form:
+            continue
+        if facts is not None and _page_facts_declare_fields(facts):
             continue
         snap = None
         for url, snapshot in snapshot_cache.items():
@@ -293,7 +311,14 @@ def validate_plan_content(
         r'topmost|latest|\bedit\b|\bdelet|\bpublish|\brename\b|\bupdate\b',
         content, flags=re.IGNORECASE
     ))
-    visits_bare_published_list = '/posts/published' in visited_paths_in_plan
+    # `visited_paths_in_plan` strips query strings (the extracted path doubles as a PAGE_FACTS
+    # dict key), so it CANNOT tell a bare /posts/published from a filtered one — both collapse to
+    # '/posts/published'. Detecting "bare" from that list therefore false-positives on a correctly
+    # filtered URL (…/posts/published?page_type=Article…) and rejects a valid plan forever (confirmed
+    # 12-iteration loop, 2026-07-03). Inspect the raw plan text instead: a /posts/published navigation
+    # is only "bare" when it lacks the page_type= content-type filter.
+    _published_refs = re.findall(r"/posts/published(?!/geographies)(?:\?[^\s'\"`)]*)?", content)
+    visits_bare_published_list = any('page_type=' not in ref for ref in _published_refs)
     content_type_bleed = (
         visits_bare_published_list and targets_single_item_action and len(mentioned_content_types) == 1
     )
@@ -396,8 +421,15 @@ def validate_plan_content(
         clicks_btn = bool(re.search(rf"[Cc]lick[^\n]*name\s*=\s*['\"]{re.escape(btn)}['\"]", content))
         if not clicks_btn:
             continue
+        # Plans are written in PROSE, so the enabled-wait step reads either as code
+        # ("expect(get_by_role('button', name='Publish')).to_be_enabled(...)") or as prose
+        # ("Expect get_by_role('button', name='Publish') to be enabled with timeout=15000").
+        # Accept BOTH the underscore code form and the spaced prose form on the button's line —
+        # requiring only the underscore literal rejected valid prose plans forever (12-iter loop,
+        # confirmed on web-story create 2026-07-03).
         has_enabled_wait = bool(re.search(
-            rf"name\s*=\s*['\"]{re.escape(btn)}['\"][^\n]*to_be_enabled", content
+            rf"name\s*=\s*['\"]{re.escape(btn)}['\"][^\n]*(?:to_be_enabled|to\s+be\s+enabled|be\s+enabled)",
+            content, flags=re.IGNORECASE
         ))
         if not has_enabled_wait:
             missing_enabled_wait.append(btn)
@@ -421,13 +453,30 @@ def validate_plan_content(
 
     hardcoded_virtualized_titles = find_hardcoded_virtualized_titles(content)
 
+    # Vacuous-emptiness false pass (see spec_validator.py for the full mechanism): locator.count()
+    # does NOT auto-wait and to_have_count(0) is satisfied the instant a locator matches nothing, so a
+    # deletion plan that guards its loop with .count() or asserts success with to_have_count(0) —
+    # without first proving the rows rendered — becomes a green test that deletes nothing. Confirmed
+    # "delete all QA galleries" false pass (2026-07-02). The endorsed delete pattern already waits for
+    # the row (dashboard_facts: row.wait_for(state='visible')), so correct plans are not flagged.
+    plan_asserts_empty = (
+        bool(re.search(r"\.to_have_count\(\s*0\b", content)) or
+        bool(re.search(r"\b(?:while|for each|for every)\b[^\n]*\.count\(\)", content, flags=re.IGNORECASE))
+    )
+    plan_proves_rows_rendered = bool(
+        re.search(r"\.wait_for\(\s*state\s*=\s*['\"](?:visible|attached)['\"]", content) or
+        re.search(r"\.to_have_count\(\s*[1-9][0-9]*\b", content) or
+        re.search(r"\.to_be_visible\(", content)
+    )
+    emptiness_without_existence = plan_asserts_empty and not plan_proves_rows_rendered
+
     if (
         not has_flow or not has_scenario or not has_steps or has_errors or
         missing_permalink or len(unvalidated_paths) > 0 or has_placeholder or
         len(unverified_titles) > 0 or len(missing_required_fields) > 0 or
         len(forbidden_goto_matches) > 0 or wrong_save_button or len(unknown_fill_labels) > 0 or
         len(missing_enabled_wait) > 0 or len(hardcoded_virtualized_titles) > 0 or
-        content_type_bleed or len(wrong_fill_react_in_plan) > 0
+        content_type_bleed or len(wrong_fill_react_in_plan) > 0 or emptiness_without_existence
     ):
         issues: List[str] = []
         if not has_flow:
@@ -529,6 +578,19 @@ def validate_plan_content(
                 f"and call planner_save_plan again. Replace page.goto('/posts/published') with "
                 f"page.goto('{filter_url}') so the row you act on is guaranteed to be a \"{label}\"."
                 f'{offending_quote}'
+            )
+        if emptiness_without_existence:
+            issues.append(
+                'plan asserts deletion success with to_have_count(0) (and/or loops on locator.count()) but never '
+                'first proves the target rows rendered. locator.count() does NOT auto-wait, and to_have_count(0) is '
+                'satisfied the instant the locator matches nothing, so during the async list-render gap right after '
+                'page.goto() the count is 0: the delete loop is skipped (nothing is deleted) and the emptiness '
+                'assertion passes vacuously — a green test that deletes nothing (confirmed "delete all QA galleries" '
+                'false pass). Add a step BEFORE the loop/assertion that waits for the list to actually render: '
+                "\"Wait for the list to load using rows = page.locator('tr').filter(has_text=title); "
+                "rows.first.wait_for(state='visible', timeout=15000)\". Then the delete loop guarded by rows.count() "
+                'and the final expect(rows).to_have_count(0, timeout=15000) become meaningful (0 == removed, not '
+                '0 == never loaded).'
             )
         if len(hardcoded_virtualized_titles) > 0:
             quoted = ', '.join(f'{name} -> "{title}"' for name, title in hardcoded_virtualized_titles)
