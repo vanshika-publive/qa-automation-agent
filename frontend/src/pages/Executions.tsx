@@ -3,13 +3,16 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Execution } from '../types';
 import ComparePanel from '../components/ComparePanel';
-import ExpandedTestResults, { StatusPill } from '../components/ExpandedTestResults';
+import ExpandedTestResults from '../components/ExpandedTestResults';
+import { StatusPill } from '../components/StatusPill';
 import RunSuiteModal from '../components/RunSuiteModal';
 import FilterDrawer, { STATUS_OPTIONS } from '../components/FilterDrawer';
 import PaginationBar from '../components/PaginationBar';
-import { formatDuration, fmtDatetime, fmtDate, fmtMSS, relTime, fmtTableDatetime } from '../utils/formatters';
+import { formatDuration, fmtDatetime, fmtDate, fmtMSS, fmtTableDatetime } from '../utils/formatters';
 import { ACCENTS, STATUS_BG } from '../utils/status';
 import LogViewerModal from '../components/LogViewerModal';
+import { Spinner } from '../components/Spinner';
+import { Button, IconButton } from '../components/Button';
 import { useExecutions } from '../hooks/useExecutions';
 import {
   Folder, FolderOpen, X, Calendar, ListFilter, PlayCircle, Play,
@@ -164,10 +167,10 @@ export default function Executions() {
               <h1 className="text-xl font-bold text-text-primary">{exec.selectedTestName}</h1>
             </div>
           </div>
-          <button onClick={() => setRunModal(true)} className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0">
+          <Button onClick={() => setRunModal(true)}>
             <Play size={16} />
             Run Again
-          </button>
+          </Button>
         </div>
       );
     }
@@ -186,10 +189,10 @@ export default function Executions() {
               <h1 className="text-xl font-bold text-text-primary">{selectedCollection.name}</h1>
             </div>
           </div>
-          <button onClick={() => setRunModal(true)} className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0">
+          <Button onClick={() => setRunModal(true)}>
             <Play size={16} />
             Run Suite
-          </button>
+          </Button>
         </div>
       );
     }
@@ -205,10 +208,10 @@ export default function Executions() {
               : 'No executions yet'}
           </p>
         </div>
-        <button onClick={() => setRunModal(true)} className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0">
+        <Button onClick={() => setRunModal(true)}>
           <Play size={16} />
           Run Suite
-        </button>
+        </Button>
       </div>
     );
   }
@@ -219,7 +222,7 @@ export default function Executions() {
     if (exec.isLoadingTestExecs) {
       return (
         <div className="flex items-center justify-center py-20">
-          <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+          <Spinner />
         </div>
       );
     }
@@ -232,10 +235,10 @@ export default function Executions() {
           </div>
           <h2 className="text-base font-semibold text-text-primary mb-1.5">No runs yet</h2>
           <p className="text-sm text-text-secondary max-w-xs mb-5">Run this test to see execution history here.</p>
-          <button onClick={() => setRunModal(true)} className="inline-flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors">
+          <Button onClick={() => setRunModal(true)}>
             <Play size={16} />
             Run Now
-          </button>
+          </Button>
         </div>
       );
     }
@@ -293,25 +296,25 @@ export default function Executions() {
                   </td>
                   <td className="py-4 pr-5">
                     <div className="flex items-center justify-end gap-1">
-                      <button
+                      <IconButton
+                        tone="primary"
                         onClick={(ev) => { ev.stopPropagation(); if (e.status !== 'running' && exec.retryingId !== e.id) exec.retryMutation.mutate(e); }}
                         disabled={e.status === 'running' || exec.retryingId === e.id}
                         title="Retry"
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                       >
                         {exec.retryingId === e.id
                           ? <span className="w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin block" />
                           : <RotateCcw size={16} />
                         }
-                      </button>
-                      <button
+                      </IconButton>
+                      <IconButton
+                        tone="error"
                         onClick={(ev) => { ev.stopPropagation(); if (e.status !== 'running') exec.deleteMutation.mutate(e.id); }}
                         disabled={e.status === 'running' || exec.deleteMutation.isPending}
                         title="Delete"
-                        className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-error hover:bg-error/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                       >
                         <Trash2 size={16} />
-                      </button>
+                      </IconButton>
                       <ChevronDown size={18} className={`text-text-secondary transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
                     </div>
                   </td>
@@ -497,35 +500,33 @@ export default function Executions() {
                       <BarChart3 size={16} />
                     </a>
                   )}
-                  <button title="Re-run" onClick={() => exec.retryMutation.mutate(e)} disabled={exec.retryMutation.isPending}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-primary hover:bg-primary/10 border border-transparent hover:border-border-subtle transition-colors disabled:opacity-40">
+                  <IconButton tone="primary" title="Re-run" onClick={() => exec.retryMutation.mutate(e)} disabled={exec.retryMutation.isPending}
+                    className="border border-transparent hover:border-border-subtle">
                     <RotateCcw size={16} />
-                  </button>
+                  </IconButton>
                 </>
               )}
               {e.status === 'running' && (
                 <>
-                  <button title="Stop"
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-error hover:bg-error/10 border border-transparent hover:border-border-subtle transition-colors">
-                    <Square size={16} />
-                  </button>
-                  <button title="View log" onClick={() => setLogExec(e)}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-primary hover:bg-primary/10 border border-transparent hover:border-border-subtle transition-colors">
+                  <IconButton tone="error" title="Stop"
+                    onClick={() => { if (window.confirm('Stop this running execution?')) exec.stopMutation.mutate(e.id); }}
+                    disabled={exec.stoppingId === e.id}
+                    className="border border-transparent hover:border-border-subtle">
+                    {exec.stoppingId === e.id
+                      ? <span className="w-3.5 h-3.5 border-2 border-error/30 border-t-error rounded-full animate-spin block" />
+                      : <Square size={16} />}
+                  </IconButton>
+                  <IconButton tone="primary" title="View log" onClick={() => setLogExec(e)}
+                    className="border border-transparent hover:border-border-subtle">
                     <Terminal size={16} />
-                  </button>
+                  </IconButton>
                 </>
               )}
-              {e.status === 'queued' && (
-                <button title="Cancel"
-                  className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-error hover:bg-error/10 border border-transparent hover:border-border-subtle transition-colors">
-                  <X size={16} />
-                </button>
-              )}
               {e.status !== 'running' && (
-                <button title="Delete" onClick={() => exec.deleteMutation.mutate(e.id)} disabled={exec.deleteMutation.isPending}
-                  className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-error hover:bg-error/10 border border-transparent hover:border-border-subtle transition-colors disabled:opacity-40">
+                <IconButton tone="error" title="Delete" onClick={() => exec.deleteMutation.mutate(e.id)} disabled={exec.deleteMutation.isPending}
+                  className="border border-transparent hover:border-border-subtle">
                   <Trash2 size={16} />
-                </button>
+                </IconButton>
               )}
             </div>
           </td>

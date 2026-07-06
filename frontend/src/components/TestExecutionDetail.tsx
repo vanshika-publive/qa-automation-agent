@@ -1,34 +1,10 @@
 import { useState } from 'react';
-import { CheckCircle2, XCircle, RefreshCw, HelpCircle, SkipForward, ChevronDown, ChevronRight, type LucideIcon } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { formatDuration, fmtDatetime } from '../utils/formatters';
-import type { Execution } from '../types';
+import { StatusPill, TestStatusBadge } from './StatusPill';
 import { useTestExecutionHistory } from '../hooks/useTestExecutionHistory';
 
-const STATUS_ICON_MAP: Record<string, LucideIcon> = {
-  check_circle: CheckCircle2,
-  cancel: XCircle,
-  sync: RefreshCw,
-  help: HelpCircle,
-  skip_next: SkipForward,
-};
-
 const STEP_ORDER = ['orchestrator', 'planner', 'generator', 'runner'] as const;
-
-function StatusBadge({ status }: { status: Execution['status'] }) {
-  const cfg = {
-    passed:  { bg: 'bg-success/10 text-success border-success/20',                        icon: 'check_circle' },
-    failed:  { bg: 'bg-error/10 text-error border-error/20',                              icon: 'cancel'       },
-    running: { bg: 'bg-warning/10 text-warning border-warning/20',                        icon: 'sync'         },
-    queued:  { bg: 'bg-surface-muted text-text-secondary border-border-subtle',           icon: 'schedule'     },
-  }[status] ?? { bg: 'bg-surface-muted text-text-secondary border-border-subtle', icon: 'help' };
-  const StatusIcon = STATUS_ICON_MAP[cfg.icon] ?? HelpCircle;
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${cfg.bg}`}>
-      <StatusIcon size={11} className={status === 'running' ? 'animate-spin' : ''} />
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
-  );
-}
 
 export default function TestExecutionDetail({ testId, colSpan, asPanel }: { testId: string; colSpan: number; asPanel?: boolean }) {
   const [expandedExecId, setExpandedExecId] = useState<string | null>(null);
@@ -67,7 +43,7 @@ export default function TestExecutionDetail({ testId, colSpan, asPanel }: { test
                   }`}
                 >
                   <span className="font-mono-code text-sm font-semibold text-primary w-8 shrink-0">#{runNumber}</span>
-                  <StatusBadge status={run.status} />
+                  <StatusPill status={run.status} />
                   <span className="text-sm font-medium text-text-primary">{run.testName}</span>
                   <span className="text-xs text-text-secondary">{fmtDatetime(run.startedAt)}</span>
                   {run.durationMs != null && (
@@ -152,12 +128,7 @@ export default function TestExecutionDetail({ testId, colSpan, asPanel }: { test
                                       )}
                                     </td>
                                     <td className="px-3 py-2.5">
-                                      <span className={`inline-flex items-center gap-1 text-xs font-semibold ${
-                                        t.status === 'passed' ? 'text-success' : t.status === 'skipped' ? 'text-text-secondary' : 'text-error'
-                                      }`}>
-                                        {t.status === 'passed' ? <CheckCircle2 size={13} /> : t.status === 'skipped' ? <SkipForward size={13} /> : <XCircle size={13} />}
-                                        {t.status.charAt(0).toUpperCase() + t.status.slice(1)}
-                                      </span>
+                                      <TestStatusBadge status={t.status} />
                                     </td>
                                     <td className="px-3 py-2.5">
                                       <span className="text-xs text-text-secondary font-mono-code">{formatDuration(t.durationMs)}</span>

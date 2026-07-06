@@ -81,6 +81,20 @@ class ExecutionService:
         execution.save()
 
     @staticmethod
+    def request_stop(execution_id: str) -> None:
+        """Signal a running pipeline to abort. Raises if the run isn't running.
+
+        The pipeline thread owns the final status transition — it notices the flag at the
+        next stage boundary (or has its pytest subprocess killed immediately) and finalizes
+        the execution as failed with a "Stopped by user" reason.
+        """
+        execution = Execution.objects.get(id=execution_id)
+        if not execution.is_running:
+            raise PermissionError('Only a running execution can be stopped')
+        from pipeline.utils.cancellation import CancellationRegistry
+        CancellationRegistry.request(execution_id)
+
+    @staticmethod
     def parse_results_json(report_dir: str, project_root: str):
         if not report_dir:
             return None

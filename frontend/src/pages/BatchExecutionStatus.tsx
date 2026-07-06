@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Folder, CheckCircle2, XCircle, RefreshCw, MinusCircle, ChevronRight } from 'lucide-react';
-import { StatusPill } from '../components/ExpandedTestResults';
+import { StatusPill } from '../components/StatusPill';
 import { useBatchExecutionStatus, BatchRow } from '../hooks/useBatchExecutionStatus';
 
 function SkippedPill() {

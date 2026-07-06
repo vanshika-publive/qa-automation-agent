@@ -5,6 +5,9 @@ import CollectionFilterDrawer from '../components/CollectionFilterDrawer';
 import RunAllModal from '../components/RunAllModal';
 import RunAllCollectionsModal from '../components/RunAllCollectionsModal';
 import PaginationBar from '../components/PaginationBar';
+import { Modal } from '../components/Modal';
+import { PageLoader } from '../components/PageLoader';
+import { Button, IconButton } from '../components/Button';
 import { useCollections } from '../hooks/useCollections';
 import {
   Sparkles, Check, ArrowRight, CheckCircle2, FlaskConical,
@@ -113,102 +116,49 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 
 // ── Modals ────────────────────────────────────────────────────────────────────
 
-function CreateCollectionModal({
+function CollectionNameModal({
+  title, submitLabel, submittingLabel, initialName = '', placeholder,
   loading, error, onClose, onSubmit,
 }: {
+  title: string; submitLabel: string; submittingLabel: string;
+  initialName?: string; placeholder?: string;
   loading: boolean; error: string; onClose: () => void; onSubmit: (name: string) => void;
 }) {
-  const [name, setName] = useState('');
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-surface-main rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <div className="px-6 py-4 border-b border-border-subtle flex items-center justify-between">
-          <h2 className="font-semibold text-text-primary">New Collection</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors">
-            <X size={20} />
-          </button>
-        </div>
-        <form
-          onSubmit={(e) => { e.preventDefault(); if (name.trim()) onSubmit(name.trim()); }}
-          className="px-6 py-5 space-y-4"
-        >
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1.5">
-              Collection name <span className="text-error">*</span>
-            </label>
-            <input
-              autoFocus
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Article Creation"
-              className="w-full border border-border-subtle rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40"
-            />
-          </div>
-          {error && <p className="text-sm text-error bg-error/5 border border-error/20 rounded-lg px-3 py-2">{error}</p>}
-          <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onClose} className="flex-1 border border-border-subtle rounded-xl py-2.5 text-sm font-medium text-text-secondary hover:bg-surface-muted transition-colors">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!name.trim() || loading}
-              className="flex-1 bg-primary text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? 'Creating…' : 'Create'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-function RenameCollectionModal({
-  initialName, loading, error, onClose, onSubmit,
-}: {
-  initialName: string; loading: boolean; error: string; onClose: () => void; onSubmit: (name: string) => void;
-}) {
   const [name, setName] = useState(initialName);
+  const trimmed = name.trim();
+  const canSubmit = !!trimmed && trimmed !== initialName && !loading;
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-surface-main rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <div className="px-6 py-4 border-b border-border-subtle flex items-center justify-between">
-          <h2 className="font-semibold text-text-primary">Rename Collection</h2>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors">
-            <X size={20} />
-          </button>
-        </div>
-        <form
-          onSubmit={(e) => { e.preventDefault(); if (name.trim() && name.trim() !== initialName) onSubmit(name.trim()); }}
-          className="px-6 py-5 space-y-4"
-        >
-          <div>
-            <label className="block text-sm font-medium text-text-primary mb-1.5">Collection name</label>
-            <input
-              autoFocus
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full border border-border-subtle rounded-lg px-3 py-2.5 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40"
-            />
-          </div>
-          {error && <p className="text-sm text-error bg-error/5 border border-error/20 rounded-lg px-3 py-2">{error}</p>}
-          <div className="flex gap-3 pt-1">
-            <button type="button" onClick={onClose} className="flex-1 border border-border-subtle rounded-xl py-2.5 text-sm font-medium text-text-secondary hover:bg-surface-muted transition-colors">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!name.trim() || name.trim() === initialName || loading}
-              className="flex-1 bg-primary text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {loading ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        </form>
+    <Modal onClose={onClose} size="sm">
+      <div className="px-6 py-4 border-b border-border-subtle flex items-center justify-between">
+        <h2 className="font-semibold text-text-primary">{title}</h2>
+        <IconButton onClick={onClose} size={32}><X size={20} /></IconButton>
       </div>
-    </div>
+      <form
+        onSubmit={(e) => { e.preventDefault(); if (canSubmit) onSubmit(trimmed); }}
+        className="px-6 py-5 space-y-4"
+      >
+        <div>
+          <label className="block text-sm font-medium text-text-primary mb-1.5">
+            Collection name <span className="text-error">*</span>
+          </label>
+          <input
+            autoFocus
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={placeholder}
+            className="w-full border border-border-subtle rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40"
+          />
+        </div>
+        {error && <p className="text-sm text-error bg-error/5 border border-error/20 rounded-lg px-3 py-2">{error}</p>}
+        <div className="flex gap-3 pt-1">
+          <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
+          <Button type="submit" disabled={!canSubmit} className="flex-1">
+            {loading ? submittingLabel : submitLabel}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 
@@ -282,9 +232,7 @@ export default function Collections() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[calc(100vh-64px)]">
-        <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-      </div>
+      <PageLoader />
     );
   }
 
@@ -293,7 +241,11 @@ export default function Collections() {
       <>
         <EmptyState onCreate={() => setCreateOpen(true)} />
         {createOpen && (
-          <CreateCollectionModal
+          <CollectionNameModal
+            title="New Collection"
+            submitLabel="Create"
+            submittingLabel="Creating…"
+            placeholder="e.g. Article Creation"
             loading={createMutation.isPending}
             error={createMutation.error?.message ?? ''}
             onClose={() => { setCreateOpen(false); createMutation.reset(); }}
@@ -326,13 +278,10 @@ export default function Collections() {
             <PlayCircle size={18} />
             Run All Collections
           </button>
-          <button
-            onClick={() => { setCreateOpen(true); createMutation.reset(); }}
-            className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0 active:scale-[0.98]"
-          >
+          <Button onClick={() => { setCreateOpen(true); createMutation.reset(); }}>
             <FolderPlus size={18} />
             New Collection
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -462,27 +411,18 @@ export default function Collections() {
                     </td>
                     <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-0.5 opacity-40 group-hover:opacity-100 transition-opacity duration-150">
-                        <button
-                          onClick={() => setRunAllColIds([col.id])}
-                          title="Run all specs"
-                          className="w-7 h-7 flex items-center justify-center rounded-lg text-success hover:bg-success/10 transition-colors"
-                        >
+                        <IconButton tone="success" onClick={() => setRunAllColIds([col.id])} title="Run all specs">
                           <Play size={17} />
-                        </button>
-                        <button
+                        </IconButton>
+                        <IconButton
                           onClick={(e) => { e.stopPropagation(); setRenamingCol({ id: col.id, name: col.name }); renameMutation.reset(); }}
                           title="Rename collection"
-                          className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors"
                         >
                           <Pencil size={17} />
-                        </button>
-                        <button
-                          onClick={(e) => handleDeleteSingle(col.id, e)}
-                          title="Delete collection"
-                          className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-error/10 hover:text-error transition-colors"
-                        >
+                        </IconButton>
+                        <IconButton tone="error" onClick={(e) => handleDeleteSingle(col.id, e)} title="Delete collection">
                           <Trash2 size={17} />
-                        </button>
+                        </IconButton>
                       </div>
                     </td>
                   </tr>
@@ -504,7 +444,11 @@ export default function Collections() {
       {/* Modals */}
 
       {createOpen && (
-        <CreateCollectionModal
+        <CollectionNameModal
+          title="New Collection"
+          submitLabel="Create"
+          submittingLabel="Creating…"
+          placeholder="e.g. Article Creation"
           loading={createMutation.isPending}
           error={createMutation.error?.message ?? ''}
           onClose={() => { setCreateOpen(false); createMutation.reset(); }}
@@ -513,7 +457,10 @@ export default function Collections() {
       )}
 
       {renamingCol && (
-        <RenameCollectionModal
+        <CollectionNameModal
+          title="Rename Collection"
+          submitLabel="Save"
+          submittingLabel="Saving…"
           initialName={renamingCol.name}
           loading={renameMutation.isPending}
           error={renameMutation.error?.message ?? ''}

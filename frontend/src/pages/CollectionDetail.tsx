@@ -7,6 +7,9 @@ import CreateTestSlideOver from '../components/CreateTestSlideOver';
 import EditTestSlideOver from '../components/EditTestSlideOver';
 import SpecEditor from '../components/SpecEditor';
 import RunAllModal from '../components/RunAllModal';
+import { Modal } from '../components/Modal';
+import { PageLoader } from '../components/PageLoader';
+import { Button, IconButton } from '../components/Button';
 import { ACCENTS } from '../utils/status';
 import { useCollections } from '../hooks/useCollections';
 import { useCollectionTests } from '../hooks/useCollectionTests';
@@ -60,9 +63,7 @@ export default function CollectionDetail() {
 
   if (isLoadingCollections) {
     return (
-      <div className="flex items-center justify-center min-h-[calc(100vh-64px)]">
-        <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-      </div>
+      <PageLoader />
     );
   }
 
@@ -102,26 +103,19 @@ export default function CollectionDetail() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button
+          <Button
+            variant="secondary"
             onClick={() => specs.length > 0 && setRunAllOpen(true)}
             disabled={specs.length === 0}
             title={specs.length === 0 ? 'No spec files yet' : `Run all ${specs.length} spec file${specs.length === 1 ? '' : 's'}`}
-            className={`inline-flex items-center gap-1.5 border border-border-subtle rounded-xl px-4 py-2.5 text-sm font-medium transition-colors ${
-              specs.length === 0
-                ? 'text-text-secondary opacity-40 cursor-not-allowed'
-                : 'text-text-secondary hover:bg-surface-muted'
-            }`}
           >
             <PlayCircle size={16} />
             Run Suite
-          </button>
-          <button
-            onClick={() => setSlideOverOpen(true)}
-            className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0 active:scale-[0.98]"
-          >
+          </Button>
+          <Button onClick={() => setSlideOverOpen(true)}>
             <Plus size={16} />
             Add Test
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -196,38 +190,24 @@ export default function CollectionDetail() {
                         className="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
                         onClick={(e) => e.stopPropagation()}
                       >
-                        <button
+                        <IconButton
+                          tone={test.specFile ? 'success' : 'warning'}
                           onClick={() => setRunModal({ testId: test.id, testName: test.name })}
                           title={test.specFile ? 'Re-run pipeline' : 'Run pipeline'}
-                          className={`w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${
-                            test.specFile ? 'text-success hover:bg-success/10' : 'text-warning hover:bg-warning/10'
-                          }`}
                         >
                           <Play size={15} />
-                        </button>
-                        <button
-                          onClick={() => setEditingTest(test)}
-                          title="Edit test"
-                          className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors"
-                        >
+                        </IconButton>
+                        <IconButton onClick={() => setEditingTest(test)} title="Edit test">
                           <Pencil size={15} />
-                        </button>
+                        </IconButton>
                         {test.specFile && (
-                          <button
-                            onClick={() => setSpecEditing(test)}
-                            title="Edit spec code"
-                            className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:text-primary hover:bg-primary/5 transition-colors"
-                          >
+                          <IconButton tone="primary" onClick={() => setSpecEditing(test)} title="Edit spec code">
                             <Code2 size={15} />
-                          </button>
+                          </IconButton>
                         )}
-                        <button
-                          onClick={() => handleDeleteTest(test.id)}
-                          title="Delete test"
-                          className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-error/10 hover:text-error transition-colors"
-                        >
+                        <IconButton tone="error" onClick={() => handleDeleteTest(test.id)} title="Delete test">
                           <Trash2 size={15} />
-                        </button>
+                        </IconButton>
                       </div>
                     </td>
                     <td className="pr-4 py-3.5">
@@ -300,34 +280,28 @@ export default function CollectionDetail() {
       )}
 
       {planModal && (
-        <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6"
-          onClick={() => setPlanModal(null)}
+        <Modal
+          onClose={() => setPlanModal(null)}
+          size="lg"
+          backdropClassName="bg-black/60 backdrop-blur-sm"
+          cardClassName="border border-border-subtle max-h-[80vh] flex flex-col"
         >
-          <div
-            className="bg-surface-main rounded-2xl border border-border-subtle w-full max-w-3xl max-h-[80vh] flex flex-col shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle shrink-0">
-              <div className="flex items-center gap-2">
-                <FileText size={16} className="text-text-secondary" />
-                <h2 className="text-sm font-semibold text-text-primary">plan.md</h2>
-                <span className="text-xs text-text-secondary truncate max-w-xs">{planModal.testName}</span>
-              </div>
-              <button
-                onClick={() => setPlanModal(null)}
-                className="w-7 h-7 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors"
-              >
-                <X size={16} />
-              </button>
+          <div className="flex items-center justify-between px-5 py-4 border-b border-border-subtle shrink-0">
+            <div className="flex items-center gap-2">
+              <FileText size={16} className="text-text-secondary" />
+              <h2 className="text-sm font-semibold text-text-primary">plan.md</h2>
+              <span className="text-xs text-text-secondary truncate max-w-xs">{planModal.testName}</span>
             </div>
-            <div className="overflow-y-auto px-5 py-4">
-              <pre className="text-sm text-text-primary font-mono leading-relaxed whitespace-pre-wrap">
-                {planModal.content}
-              </pre>
-            </div>
+            <IconButton onClick={() => setPlanModal(null)}>
+              <X size={16} />
+            </IconButton>
           </div>
-        </div>
+          <div className="overflow-y-auto px-5 py-4">
+            <pre className="text-sm text-text-primary font-mono leading-relaxed whitespace-pre-wrap">
+              {planModal.content}
+            </pre>
+          </div>
+        </Modal>
       )}
     </div>
   );
