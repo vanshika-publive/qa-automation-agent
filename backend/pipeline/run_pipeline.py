@@ -172,6 +172,10 @@ class PipelineRunner:
                     capture.stop()
                     err_msg = f'{err}\n{traceback.format_exc()}'
                     log = '\n\n'.join(filter(None, [captured_log, err_msg]))
+                    # A stage may attach a structured diagnosis (e.g. the planner's blocked-flow
+                    # report). Persist it beside results.json so failure_summary can surface it in
+                    # the "Failure reason" panel — otherwise a pre-runner failure has no reason.
+                    PipelineRunner._write_step_failure(reports_dir, getattr(err, 'diagnosis', None))
                     StepManager.update(step_id, 'failed', log, DateTimeUtils.now_iso())
                     on_step({'step_name': step_name, 'status': 'failed', 'log': log})
                     overall_status = 'failed'
@@ -295,6 +299,23 @@ class PipelineRunner:
         finally:
             CredentialManager.clear()
             StepManager.finalize_execution(execution_id, overall_status, start_ms, summary)
+
+    @staticmethod
+    def _write_step_failure(reports_dir: str, diagnosis) -> None:
+        """Persist a stage's structured failure diagnosis to reports_dir/step-failure.json.
+
+        No-op unless the stage attached a dict diagnosis. Best-effort: a write failure here
+        must never mask the original stage error.
+        """
+        if not isinstance(diagnosis, dict):
+            return
+        try:
+            os.makedirs(reports_dir, exist_ok=True)
+            Path(os.path.join(reports_dir, 'step-failure.json')).write_text(
+                json.dumps(diagnosis, indent=2), encoding='utf-8'
+            )
+        except Exception as exc:
+            print(f'[pipeline] could not write step-failure.json: {exc}', file=sys.stderr)
 
     @staticmethod
     def _fetch_run_context(test_id: str, environment_id: str, include_prompt: bool = True) -> dict:
