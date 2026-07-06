@@ -1,52 +1,8 @@
-import { CheckCircle2, XCircle, SkipForward, RefreshCw, ExternalLink, Circle, HelpCircle, type LucideIcon } from 'lucide-react';
+import { CheckCircle2, XCircle, ExternalLink, Circle } from 'lucide-react';
 import { useExpandedTestResults } from '../hooks/useExpandedTestResults';
-import { Execution, TestResult } from '../types';
+import { Execution } from '../types';
 import { formatDuration } from '../utils/formatters';
-
-const STATUS_ICON_MAP: Record<string, LucideIcon> = {
-  check_circle: CheckCircle2,
-  cancel: XCircle,
-  sync: RefreshCw,
-  radio_button_unchecked: Circle,
-  skip_next: SkipForward,
-};
-
-
-export function StatusPill({ status }: { status: Execution['status'] }) {
-  const cfgMap: Record<Execution['status'], { cls: string; icon: string; label: string; spin: boolean }> = {
-    passed:  { cls: 'bg-success/10 text-success border-success/20',               icon: 'check_circle', label: 'Passed',  spin: false },
-    failed:  { cls: 'bg-error/10 text-error border-error/20',                     icon: 'cancel',       label: 'Failed',  spin: false },
-    running: { cls: 'bg-warning/10 text-warning border-warning/20',               icon: 'sync',         label: 'Running', spin: true  },
-    queued:  { cls: 'bg-surface-muted text-text-secondary border-border-subtle',  icon: 'schedule',     label: 'Queued',  spin: false },
-  };
-  const cfg = cfgMap[status] ?? cfgMap.failed;
-
-  const StatusIcon = STATUS_ICON_MAP[cfg.icon] ?? HelpCircle;
-  return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full border text-xs font-semibold ${cfg.cls}`}>
-      <StatusIcon size={12} className={cfg.spin ? 'animate-spin' : ''} />
-      {cfg.label}
-    </span>
-  );
-}
-
-function TestStatusBadge({ status }: { status: TestResult['status'] }) {
-  if (status === 'passed') return (
-    <span className="inline-flex items-center gap-1 text-xs font-semibold text-success">
-      <CheckCircle2 size={14} />Passed
-    </span>
-  );
-  if (status === 'skipped') return (
-    <span className="inline-flex items-center gap-1 text-xs font-medium text-text-secondary">
-      <SkipForward size={14} />Skipped
-    </span>
-  );
-  return (
-    <span className="inline-flex items-center gap-1 text-xs font-semibold text-error">
-      <XCircle size={14} />Failed
-    </span>
-  );
-}
+import { TestStatusBadge } from './StatusPill';
 
 export default function ExpandedTestResults({ execution, colSpan = 7 }: { execution: Execution; colSpan?: number }) {
   const { tests, isLoading, isPending, showStepDetails, steps } = useExpandedTestResults(execution);

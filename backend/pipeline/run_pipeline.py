@@ -11,6 +11,7 @@ from django.conf import settings
 from core.models import Test, Environment, Execution, ExecutionStep
 from pipeline.infrastructure.login_helper import SessionManager
 from pipeline.infrastructure.publisher import PublisherDetector
+from pipeline.utils.cancellation import CancellationRegistry
 from pipeline.utils.credential_manager import CredentialManager
 from pipeline.utils.log_capture import LogCapture
 from pipeline.utils.step_manager import StepManager
@@ -20,7 +21,23 @@ from utils.slug import to_collection_slug
 PROJECT_ROOT = settings.PLAYWRIGHT_PROJECT_ROOT
 
 
+class PipelineCancelled(RuntimeError):
+    """Raised when a run is stopped by the user mid-flight.
+
+    Carries a `diagnosis` dict so the per-stage failure handler persists it to
+    step-failure.json, letting the "Failure reason" panel show why the run ended.
+    """
+    def __init__(self, message: str = 'Stopped by user.'):
+        super().__init__(message)
+        self.diagnosis = {'category': 'Cancelled', 'summary': message, 'locator': None}
+
+
 class PipelineRunner:
+
+    @staticmethod
+    def _raise_if_cancelled(execution_id: str) -> None:
+        if CancellationRegistry.is_cancelled(execution_id):
+            raise PipelineCancelled()
 
     @staticmethod
     def run(execution_id: str, test_id: str, environment_id: str, on_step=None) -> None:
@@ -99,6 +116,10 @@ class PipelineRunner:
 
                 capture.start()
                 try:
+                    # A stop requested before this stage begins aborts here; a stop during
+                    # the runner is caught right after its subprocess is killed (below).
+                    PipelineRunner._raise_if_cancelled(execution_id)
+
                     if step_name == 'orchestrator':
                         from pipeline.services.orchestrator_service import OrchestratorService
                         test_plan = OrchestratorService.run(test_prompt, env_row['base_url'])
@@ -154,7 +175,11 @@ class PipelineRunner:
                             'dashboard_email': env_row['login_email'],
                             'dashboard_password': env_row['login_password'],
                             'dashboard_publisher': env_row.get('publisher', ''),
-                        })
+                        }, execution_id=execution_id)
+                        # A stop kills pytest, which makes run() return normally with
+                        # whatever partial results exist — force a failure so a stopped run
+                        # never reports as passed.
+                        PipelineRunner._raise_if_cancelled(execution_id)
                         if (summary or {}).get('failed', 0) > 0:
                             overall_status = 'failed'
 
@@ -212,6 +237,7 @@ class PipelineRunner:
 
         finally:
             CredentialManager.clear()
+            CancellationRegistry.discard(execution_id)
             StepManager.finalize_execution(execution_id, overall_status, start_ms, summary)
 
     @staticmethod
@@ -253,12 +279,14 @@ class PipelineRunner:
             capture.start()
             try:
                 from pipeline.services.runner_service import RunnerService
+                PipelineRunner._raise_if_cancelled(execution_id)
                 summary = RunnerService.run(reports_dir, spec_abs_path, {
                     'dashboard_url': env_row['base_url'],
                     'dashboard_email': env_row['login_email'],
                     'dashboard_password': env_row['login_password'],
                     'dashboard_publisher': env_row.get('publisher', ''),
-                })
+                }, execution_id=execution_id)
+                PipelineRunner._raise_if_cancelled(execution_id)
                 if summary.get('failed', 0) > 0:
                     overall_status = 'failed'
                 log = capture.flush()
@@ -272,6 +300,7 @@ class PipelineRunner:
                 capture.stop()
                 err_msg = f'{err}\n{traceback.format_exc()}'
                 log = '\n\n'.join(filter(None, [captured_log, err_msg]))
+                PipelineRunner._write_step_failure(reports_dir, getattr(err, 'diagnosis', None))
                 StepManager.update(step_id, 'failed', log, DateTimeUtils.now_iso())
                 on_step({'step_name': 'runner', 'status': 'failed', 'log': log})
                 overall_status = 'failed'
@@ -298,6 +327,7 @@ class PipelineRunner:
 
         finally:
             CredentialManager.clear()
+            CancellationRegistry.discard(execution_id)
             StepManager.finalize_execution(execution_id, overall_status, start_ms, summary)
 
     @staticmethod

@@ -65,6 +65,19 @@ class ExecutionDetailView(APIView):
         return Response({'id': pk})
 
 
+class ExecutionStopView(APIView):
+    """/executions/<pk>/stop"""
+
+    def post(self, request, pk=None):
+        try:
+            ExecutionService.request_stop(pk)
+        except Execution.DoesNotExist:
+            return Response({'error': 'Execution not found'}, status=status.HTTP_404_NOT_FOUND)
+        except PermissionError as e:
+            return Response({'error': str(e)}, status=status.HTTP_409_CONFLICT)
+        return Response({'id': pk})
+
+
 class ExecutionStepsView(APIView):
     """/executions/<pk>/steps"""
 

@@ -16,7 +16,7 @@ PROJECT_ROOT = settings.PLAYWRIGHT_PROJECT_ROOT
 class RunnerService:
 
     @staticmethod
-    def run(reports_dir: str, test_target=None, credentials: dict = None) -> dict:
+    def run(reports_dir: str, test_target=None, credentials: dict = None, execution_id: str = None) -> dict:
         os.makedirs(reports_dir, exist_ok=True)
         results_file = os.path.join(reports_dir, 'results.json')
         html_dir = os.path.join(reports_dir, 'html')
@@ -68,6 +68,12 @@ class RunnerService:
             start_new_session=True,
         )
 
+        # Expose the pytest process group so a stop request can SIGKILL it immediately
+        # rather than waiting out the kill timeout below.
+        if execution_id:
+            from pipeline.utils.cancellation import CancellationRegistry
+            CancellationRegistry.register_process(execution_id, proc)
+
         output_lines = []
 
         def _read_stream(stream):
@@ -90,6 +96,9 @@ class RunnerService:
             timed_out = True
         finally:
             RunnerService._terminate_process_tree(proc)
+            if execution_id:
+                from pipeline.utils.cancellation import CancellationRegistry
+                CancellationRegistry.clear_process(execution_id)
 
         stdout_thread.join(timeout=5)
         stderr_thread.join(timeout=5)

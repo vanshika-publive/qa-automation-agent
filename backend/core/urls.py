@@ -30,5 +30,6 @@ urlpatterns = [
     path('executions/<str:pk>/steps', executions.ExecutionStepsView.as_view()),
     path('executions/<str:pk>/tests', executions.ExecutionTestsView.as_view()),
     path('executions/<str:pk>/files', executions.ExecutionFilesView.as_view()),
+    path('executions/<str:pk>/stop', executions.ExecutionStopView.as_view()),
     path('executions/<str:pk>/stream', executions.ExecutionStreamView.as_view()),
 ]

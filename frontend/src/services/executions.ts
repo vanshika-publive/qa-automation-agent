@@ -44,6 +44,9 @@ export const executionsService = {
   delete: (id: string) =>
     api.del<ApiResponse<{ id: string }>>(`/executions/${id}`),
 
+  stop: (id: string) =>
+    api.post<ApiResponse<{ id: string }>>(`/executions/${id}/stop`, {}),
+
   retry: (exec: Pick<Execution, 'testId' | 'environmentId'>) =>
     api.post<ApiResponse<{ executionId: string }>>(
       `/executions/tests/${exec.testId}/run`,

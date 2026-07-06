@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { EnvironmentSaveBody } from '../services/environments';
 import { Environment } from '../types';
 import { useEnvironments } from '../hooks/useEnvironments';
+import { relTime } from '../utils/formatters';
+import { Modal } from '../components/Modal';
+import { Button, IconButton } from '../components/Button';
 import {
   AlertCircle, Link, Mail, Key, Eye, EyeOff, CheckCircle2,
   Building2, Lock, AlertTriangle, Clock, Pencil, Trash2,
@@ -9,14 +12,6 @@ import {
 } from 'lucide-react';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function timeAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  if (diff < 60_000) return 'just now';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
-  return `${Math.floor(diff / 86_400_000)}d ago`;
-}
 
 function envDotColor(name: string): string {
   const n = name.toLowerCase();
@@ -81,14 +76,12 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
     (isEdit || loginPassword.trim().length > 0);
 
   return (
-    <div
-      className="fixed inset-0 bg-surface-sidebar/40 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-      onClick={onClose}
+    <Modal
+      onClose={onClose}
+      size="md"
+      backdropClassName="bg-surface-sidebar/40 backdrop-blur-sm"
+      cardClassName="max-h-[92vh] flex flex-col"
     >
-      <div
-        className="bg-surface-main rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[92vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
         <div className="flex items-center justify-between px-6 py-4 border-b border-border-subtle flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
@@ -101,12 +94,9 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
               {isEdit ? 'Edit environment' : 'Add environment'}
             </h2>
           </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-muted transition-colors"
-          >
+          <IconButton onClick={onClose} size={32}>
             <Plus size={20} className="rotate-45" />
-          </button>
+          </IconButton>
         </div>
 
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
@@ -281,25 +271,14 @@ function EnvironmentModal({ initial, onClose, onSave, isPending, serverError }: 
           </div>
 
           <div className="flex gap-3 px-6 py-4 border-t border-border-subtle flex-shrink-0 bg-surface-muted/30">
-            <button type="button" onClick={onClose} className="flex-1 border border-border-subtle rounded-xl py-2.5 text-sm font-medium text-text-secondary hover:bg-surface-muted transition-colors">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isPending || !isFormValid}
-              className={`flex-1 bg-primary text-white rounded-xl py-2.5 text-sm font-semibold transition-all flex items-center justify-center gap-2 ${
-                !isFormValid || isPending
-                  ? 'opacity-60 cursor-not-allowed'
-                  : 'hover:bg-primary/90 hover:-translate-y-0.5 hover:shadow-md hover:shadow-primary/25 active:translate-y-0'
-              }`}
-            >
+            <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
+            <Button type="submit" disabled={isPending || !isFormValid} className="flex-1">
               {isPending && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
               {isEdit ? 'Save Changes' : 'Create environment'}
-            </button>
+            </Button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -312,9 +291,8 @@ function DeleteConfirmModal({
   isPending: boolean;
 }) {
   return (
-    <div className="fixed inset-0 bg-surface-sidebar/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-surface-main rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <div className="px-6 pt-6 pb-4">
+    <Modal onClose={onClose} size="sm" backdropClassName="bg-surface-sidebar/40 backdrop-blur-sm">
+      <div className="px-6 pt-6 pb-4">
           <div className="w-12 h-12 rounded-2xl bg-error/10 flex items-center justify-center mb-4">
             <Trash2 size={24} className="text-error" />
           </div>
@@ -325,20 +303,13 @@ function DeleteConfirmModal({
           </p>
         </div>
         <div className="flex gap-3 px-6 pb-6">
-          <button onClick={onClose} className="flex-1 border border-border-subtle rounded-xl py-2.5 text-sm font-medium text-text-secondary hover:bg-surface-muted transition-colors">
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={isPending}
-            className="flex-1 bg-error text-white rounded-xl py-2.5 text-sm font-semibold hover:bg-error/90 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
-          >
+          <Button variant="secondary" onClick={onClose} className="flex-1">Cancel</Button>
+          <Button variant="danger" onClick={onConfirm} disabled={isPending} className="flex-1">
             {isPending && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}
             Delete
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -424,7 +395,7 @@ function EnvironmentCard({
 
       <div className="flex items-center gap-1.5 text-xs text-text-secondary">
         <Clock size={16} />
-        Created: {timeAgo(env.createdAt)}
+        Created: {relTime(env.createdAt)}
       </div>
 
       <div className="mt-auto pt-3 border-t border-border-subtle flex justify-end gap-2">
@@ -449,13 +420,10 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       <p className="text-sm text-text-secondary max-w-xs mb-6 leading-relaxed">
         Each environment holds a base URL and login credentials for the dashboard under test.
       </p>
-      <button
-        onClick={onCreate}
-        className="inline-flex items-center gap-2 bg-primary text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-primary/90 transition-colors"
-      >
+      <Button onClick={onCreate}>
         <Plus size={18} />
         Add Environment
-      </button>
+      </Button>
     </div>
   );
 }
@@ -481,13 +449,10 @@ export default function Environments() {
             Each environment has its own base URL and login credentials. Tests run under the environment you select.
           </p>
         </div>
-        <button
-          onClick={openCreate}
-          className="inline-flex items-center gap-2 bg-primary text-white px-4 py-2.5 rounded-lg text-sm font-semibold shadow-sm hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-md hover:shadow-primary/20 active:translate-y-0"
-        >
+        <Button onClick={openCreate}>
           <Plus size={18} />
           Add Environment
-        </button>
+        </Button>
       </div>
 
       {/* Content */}

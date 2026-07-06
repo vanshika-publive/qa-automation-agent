@@ -3,58 +3,15 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useExecutionDetail } from '../hooks/useExecutionDetail';
 import { ExecStep, TestResult, Execution, ExecutionDetail as ExecutionDetailData } from '../types';
 import { relTime, fmtDatetime, fmtMSS } from '../utils/formatters';
+import { StatusPill, TestStatusBadge } from '../components/StatusPill';
+import { PageLoader } from '../components/PageLoader';
+import { Button, IconButton } from '../components/Button';
 import {
-  CheckCircle2, XCircle, RefreshCw, Clock, HelpCircle, MinusCircle,
-  ArrowRight, Code2, FileText, ChevronDown, ArrowLeft, ChevronRight,
+  Clock, ArrowRight, Code2, FileText, ChevronDown, ArrowLeft, ChevronRight,
   RotateCcw, Timer, Network, Trash2, ExternalLink, AlertTriangle,
 } from 'lucide-react';
 
 const STEP_ORDER = ['orchestrator', 'planner', 'generator', 'runner'] as const;
-
-function StatusBadge({ status }: { status: Execution['status'] }) {
-  const cfg = {
-    passed:  { cls: 'bg-success/10 text-success border-success/20',   label: 'Passed'  },
-    failed:  { cls: 'bg-error/10 text-error border-error/20',         label: 'Failed'  },
-    running: { cls: 'bg-warning/10 text-warning border-warning/20',   label: 'Running' },
-    queued:  { cls: 'bg-surface-muted text-text-secondary border-border-subtle', label: 'Queued' },
-  }[status] ?? { cls: '', label: status };
-
-  function StatusIcon() {
-    if (status === 'passed') return <CheckCircle2 size={14} />;
-    if (status === 'failed') return <XCircle size={14} />;
-    if (status === 'running') return <RefreshCw size={14} className="animate-spin" />;
-    if (status === 'queued') return <Clock size={14} />;
-    return <HelpCircle size={14} />;
-  }
-
-  return (
-    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full border text-sm font-semibold ${cfg.cls}`}>
-      <StatusIcon />
-      {cfg.label}
-    </span>
-  );
-}
-
-function TestResultBadge({ status }: { status: TestResult['status'] }) {
-  const cfg = {
-    passed:  { cls: 'text-success' },
-    failed:  { cls: 'text-error'   },
-    skipped: { cls: 'text-warning' },
-  }[status];
-
-  function ResultIcon() {
-    if (status === 'passed') return <CheckCircle2 size={13} />;
-    if (status === 'failed') return <XCircle size={13} />;
-    return <MinusCircle size={13} />;
-  }
-
-  return (
-    <span className={`inline-flex items-center gap-1 text-xs font-semibold ${cfg.cls}`}>
-      <ResultIcon />
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
-  );
-}
 
 function PipelineSteps({ steps }: { steps: ExecStep[] }) {
   const stepMap = Object.fromEntries(steps.map((s) => [s.stepName, s]));
@@ -148,7 +105,7 @@ function TestResultsTable({ results, pending }: { results: TestResult[]; pending
           </div>
           {rows.map((r, i) => (
             <div key={i} className="px-5 py-3 border-b border-border-subtle last:border-b-0 flex items-start gap-3">
-              <TestResultBadge status={r.status} />
+              <TestStatusBadge status={r.status} />
               <div className="flex-1 min-w-0">
                 <span className="text-sm text-text-primary">{r.title}</span>
                 {r.error && (
@@ -240,13 +197,6 @@ function RunHistory({ history, currentId, retryMutation, deleteMutation }: {
   const navigate = useNavigate();
   if (history.length === 0) return null;
 
-  function HistoryStatusIcon({ status }: { status: Execution['status'] }) {
-    if (status === 'passed') return <CheckCircle2 size={11} />;
-    if (status === 'failed') return <XCircle size={11} />;
-    if (status === 'running') return <RefreshCw size={11} />;
-    return <Clock size={11} />;
-  }
-
   return (
     <section className="bg-surface-main rounded-2xl border border-border-subtle overflow-hidden mb-5">
       <div className="px-5 py-4 border-b border-border-subtle">
@@ -282,15 +232,7 @@ function RunHistory({ history, currentId, retryMutation, deleteMutation }: {
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs font-semibold ${
-                    e.status === 'passed' ? 'bg-success/10 text-success border-success/20' :
-                    e.status === 'failed' ? 'bg-error/10 text-error border-error/20' :
-                    e.status === 'running' ? 'bg-warning/10 text-warning border-warning/20' :
-                    'bg-surface-muted text-text-secondary border-border-subtle'
-                  }`}>
-                    <HistoryStatusIcon status={e.status} />
-                    {e.status.charAt(0).toUpperCase() + e.status.slice(1)}
-                  </span>
+                  <StatusPill status={e.status} />
                 </td>
                 <td className="px-4 py-3">
                   <span className="text-sm font-semibold text-success">{e.passCount}</span>
@@ -321,26 +263,26 @@ function RunHistory({ history, currentId, retryMutation, deleteMutation }: {
                         <ExternalLink size={15} />
                       </a>
                     )}
-                    <button
+                    <IconButton
+                      tone="primary"
                       onClick={() => retryMutation.mutate()}
                       disabled={e.status === 'running' || retryMutation.isPending}
                       title="Re-run"
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       {retryMutation.isPending
                         ? <span className="w-3.5 h-3.5 border-2 border-primary/30 border-t-primary rounded-full animate-spin block" />
                         : <RotateCcw size={15} />}
-                    </button>
-                    <button
+                    </IconButton>
+                    <IconButton
+                      tone="error"
                       onClick={() => deleteMutation.mutate(e.id)}
                       disabled={e.status === 'running' || isDeleting}
                       title="Delete"
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-text-secondary hover:text-error hover:bg-error/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       {isDeleting
                         ? <span className="w-3.5 h-3.5 border-2 border-error/30 border-t-error rounded-full animate-spin block" />
                         : <Trash2 size={15} />}
-                    </button>
+                    </IconButton>
                   </div>
                 </td>
               </tr>
@@ -392,9 +334,7 @@ export default function ExecutionDetail() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[calc(100vh-64px)]">
-        <div className="w-8 h-8 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-      </div>
+      <PageLoader />
     );
   }
 
@@ -430,20 +370,19 @@ export default function ExecutionDetail() {
             <h1 className="text-xl font-bold text-text-primary">{exec.testName}</h1>
           </div>
         </div>
-        <button
+        <Button
           onClick={() => retryMutation.mutate()}
           disabled={exec.status === 'running' || retryMutation.isPending}
-          className="inline-flex items-center gap-2 bg-primary text-white rounded-xl px-4 py-2.5 text-sm font-semibold hover:bg-primary/90 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/25 active:translate-y-0 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
         >
           {retryMutation.isPending
             ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Re-running…</>
             : <><RotateCcw size={16} />Re-run</>
           }
-        </button>
+        </Button>
       </div>
 
       <div className="bg-surface-main rounded-2xl border border-border-subtle p-5 mb-5 flex flex-wrap items-center gap-4">
-        <StatusBadge status={exec.status} />
+        <StatusPill status={exec.status} size="md" />
         <div className="flex flex-wrap items-center gap-4 text-sm text-text-secondary">
           <span className="flex items-center gap-1.5">
             <Clock size={14} />

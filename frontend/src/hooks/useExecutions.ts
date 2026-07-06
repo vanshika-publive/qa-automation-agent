@@ -19,6 +19,7 @@ export function useExecutions(
   const [selectedIds,    setSelectedIds]     = useState<Set<string>>(new Set());
   const [expandedId,     setExpandedId]      = useState<string | null>(null);
   const [retryingId,     setRetryingId]      = useState<string | null>(null);
+  const [stoppingId,     setStoppingId]      = useState<string | null>(null);
   const [appliedFilters, setAppliedFilters]  = useState<FilterState>(DEFAULT_FILTERS);
   const [search,         setSearchRaw]       = useState('');
 
@@ -137,6 +138,13 @@ export function useExecutions(
     onSuccess: () => qc.invalidateQueries({ queryKey: ['executions'] }),
   });
 
+  const stopMutation = useMutation({
+    mutationFn: (id: string) => executionsService.stop(id),
+    onMutate: (id) => setStoppingId(id),
+    onSettled: () => setStoppingId(null),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['executions'] }),
+  });
+
   function applyFilters(f: FilterState) { setAppliedFilters(f); setTablePage(1); }
   function clearFilters() { setAppliedFilters(DEFAULT_FILTERS); setTablePage(1); }
   function removeFilter(key: keyof FilterState | 'dateRange') {
@@ -180,8 +188,10 @@ export function useExecutions(
     applyFilters, clearFilters, removeFilter,
     expandedId, setExpandedId,
     retryingId,
+    stoppingId,
     now,
     deleteMutation,
     retryMutation,
+    stopMutation,
   };
 }
