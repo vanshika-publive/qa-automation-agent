@@ -97,17 +97,37 @@ class ExecutionService:
 
     @staticmethod
     def failure_summary(report_dir: str, project_root: str):
-        """Classified reason for an execution's failure, from the first failed test.
+        """Classified reason for an execution's failure.
 
-        Returns {category, summary, locator} or None when nothing failed / no results.
+        Prefers the first failed pytest test (runner stage); when there is no test result
+        (a pre-runner stage failed, e.g. the planner), falls back to the structured diagnosis
+        the pipeline wrote to step-failure.json. Returns {category, summary, locator} or None.
         """
         results = ExecutionService.parse_results_json(report_dir, project_root) or []
         first_failed = next(
             (r for r in results if r['status'] == 'failed' and r.get('error')), None
         )
-        if not first_failed:
+        if first_failed:
+            return classify_failure(first_failed['error'])
+        return ExecutionService._step_failure_summary(report_dir, project_root)
+
+    @staticmethod
+    def _step_failure_summary(report_dir: str, project_root: str):
+        """{category, summary, locator} from a pre-runner stage's step-failure.json, or None."""
+        if not report_dir:
             return None
-        return classify_failure(first_failed['error'])
+        path = os.path.join(project_root, 'reports', report_dir, 'step-failure.json')
+        if not os.path.isfile(path):
+            return None
+        try:
+            diagnosis = json.loads(Path(path).read_text(encoding='utf-8'))
+        except Exception:
+            return None
+        return {
+            'category': diagnosis.get('category'),
+            'summary': diagnosis.get('summary'),
+            'locator': diagnosis.get('locator'),
+        }
 
     @staticmethod
     def results_as_steps(report_dir: str, project_root: str) -> list:

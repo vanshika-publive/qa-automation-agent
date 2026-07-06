@@ -34,6 +34,15 @@ class PlannerService:
         model = ai['model']
         bridge = MCPBridge()
         snapshot_cache = {}
+        # Diagnosis state — initialized before the try so a crash during setup (before the
+        # agentic loop starts) can still produce a structured failure report, not a bare
+        # traceback. iteration starts at -1 so a pre-loop crash reports 0 iterations attempted.
+        plan_saved = False
+        iteration = -1
+        snapshot_call_count = 0
+        plan_rejection_count = 0
+        last_action = None
+        last_rejection = None
 
         try:
             mcp_tools = bridge.list_tools()
@@ -68,12 +77,9 @@ class PlannerService:
                 },
             ]
 
-            plan_saved = False
             setup_page_count = 0
             last_setup_url = ''
-            plan_rejection_count = 0
             plan_just_rejected = False
-            snapshot_call_count = 0
             # Each flow needs a genuine navigate+snapshot pass on its target page (plus a few
             # combobox snapshots), so scale the snapshot budget with flow count instead of a flat
             # cap — capped below MAX_PLANNER_ITERATIONS so a runaway snapshot loop still gets cut off.
@@ -126,6 +132,7 @@ class PlannerService:
                 for call in tool_calls:
                     name = call.function.name
                     args = AgentUtils.parse_tool_args(call.function.arguments)
+                    last_action = f'{name}({json.dumps(args)[:120]})'
                     # planner_save_plan is logged in full (not the 120-char summary other tool calls
                     # get) — truncating it hid the actual plan text on repeated-rejection loops, making
                     # it impossible to tell whether the model resubmitted the same broken URL or made a
@@ -146,6 +153,7 @@ class PlannerService:
                     if plan_just_rejected_flag:
                         plan_rejection_count += 1
                         plan_just_rejected = True
+                        last_rejection = result_str
                     if plan_saved_flag:
                         plan_saved = True
                     max_chars = AgentUtils.MAX_SNAPSHOT_RESULT_CHARS if name == 'browser_snapshot' else None
@@ -210,14 +218,131 @@ class PlannerService:
                     break
 
             if not plan_saved:
-                raise RuntimeError(
-                    f'Planner hit the {MAX_PLANNER_ITERATIONS}-iteration limit without saving a plan.\n'
-                    'The model may be stuck in a loop. Try running again or simplify your prompt.'
+                diagnosis = PlannerService._build_failure_diagnosis(
+                    iterations=iteration + 1,
+                    snapshots=snapshot_call_count,
+                    rejections=plan_rejection_count,
+                    last_action=last_action,
+                    last_rejection=last_rejection,
+                    snapshot_cache=snapshot_cache,
                 )
+                err = RuntimeError(diagnosis['message'])
+                # Carried through the pipeline's generic except handler, which persists it to
+                # reports/<report_dir>/step-failure.json so the "Failure reason" panel can show
+                # WHY the planner stalled instead of a bare traceback.
+                err.diagnosis = diagnosis['report']
+                raise err
             print(f'Planner complete — plan saved to {plan_path}')
 
+        except Exception as err:
+            # Any exit without a saved plan must carry a diagnosis. The clean iteration-limit
+            # case above already attached one; this catches the other paths — a crash during
+            # setup or mid-loop (MCP / OpenAI / auth errors) — so the Failure reason panel still
+            # explains the stall instead of showing only a traceback. The original error message
+            # and traceback are preserved; we only annotate, then re-raise.
+            if not plan_saved and getattr(err, 'diagnosis', None) is None:
+                diagnosis = PlannerService._build_failure_diagnosis(
+                    iterations=iteration + 1,
+                    snapshots=snapshot_call_count,
+                    rejections=plan_rejection_count,
+                    last_action=last_action,
+                    last_rejection=last_rejection,
+                    snapshot_cache=snapshot_cache,
+                    error=err,
+                )
+                err.diagnosis = diagnosis['report']
+            raise
         finally:
             bridge.close()
+
+    @staticmethod
+    def _build_failure_diagnosis(iterations, snapshots, rejections,
+                                 last_action, last_rejection, snapshot_cache, error=None):
+        """Turn the planner's end-state into a structured, human-readable failure report.
+
+        Returns {'message': <multi-line text for the step log>, 'report': <dict>}. The report
+        dict is persisted as step-failure.json and its {category, summary, locator} keys drive
+        the existing "Failure reason" panel, so a stalled planner reads like a real diagnosis
+        instead of "stuck in a loop, try again".
+
+        `error` is set when the planner exited on an exception (setup/mid-loop crash) rather than
+        by exhausting its iteration budget; the summary then leads with that error.
+        """
+        last_page = None
+        last_snapshot_excerpt = None
+        if snapshot_cache:
+            last_page, last_snapshot = next(reversed(snapshot_cache.items()))
+            last_snapshot_excerpt = (last_snapshot or '')[:800]
+
+        if error is not None:
+            category = 'Planner error'
+            summary = (
+                f'The planner stopped with an error before saving a plan: '
+                f'{PlannerService._truncate(PlannerService._first_line(str(error)), 200)}. '
+                f'Last action: {last_action or "none"}'
+                + (f' — last page observed: {last_page}' if last_page else '')
+            )
+        elif rejections and last_rejection:
+            category = 'Planner blocked'
+            reason = PlannerService._strip_rejection_prefix(last_rejection)
+            summary = (
+                f'The planner drafted a plan but the validator rejected it {rejections}× and it '
+                f'was never saved. Last rejection: {PlannerService._truncate(reason, 240)}'
+            )
+        else:
+            category = 'Planner blocked'
+            summary = (
+                f'The planner ran {iterations} iterations ({snapshots} snapshots) without saving a '
+                f'valid plan. Last action: {last_action or "none"}'
+                + (f' — last page observed: {last_page}' if last_page else '')
+            )
+
+        report = {
+            'step': 'planner',
+            'category': category,
+            'summary': summary,
+            'locator': last_action,
+            'iterations': iterations,
+            'snapshots': snapshots,
+            'rejections': rejections,
+            'last_action': last_action,
+            'last_rejection': last_rejection or None,
+            'last_page': last_page,
+            'last_snapshot_excerpt': last_snapshot_excerpt,
+        }
+
+        message = (
+            'PLANNER COULD NOT PRODUCE A PLAN\n'
+            f'Reason: {summary}\n'
+            f'Iterations: {iterations}/{MAX_PLANNER_ITERATIONS}   '
+            f'Snapshots: {snapshots}   Rejections: {rejections}\n'
+            f'Last action: {last_action or "none"}\n'
+            f'Last page observed: {last_page or "none"}\n'
+            + (f'Last validator rejection:\n{PlannerService._strip_rejection_prefix(last_rejection)}\n'
+               if last_rejection else '')
+            + '\nThe flow may be genuinely blocked, or the model may be looping. '
+              'The full tool-call trace is in the planner step log above.'
+        )
+        return {'message': message, 'report': report}
+
+    @staticmethod
+    def _strip_rejection_prefix(text):
+        """Drop the 'PLAN REJECTED — ' wrapper and trailing period from a rejection tool-result."""
+        cleaned = re.sub(r'^\s*PLAN REJECTED\s*[—-]\s*', '', str(text or '')).strip()
+        return cleaned.rstrip('.')
+
+    @staticmethod
+    def _truncate(text, limit):
+        text = str(text or '').strip()
+        return text if len(text) <= limit else text[:limit].rstrip() + '…'
+
+    @staticmethod
+    def _first_line(text):
+        for line in str(text or '').splitlines():
+            line = line.strip()
+            if line:
+                return line
+        return str(text or '').strip()
 
     @staticmethod
     def _handle_tool(name, args, bridge, test_plan, plan_path, snapshot_cache,

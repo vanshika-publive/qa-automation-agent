@@ -386,7 +386,9 @@ RULE 3c — SEARCH BOXES (applies to EVERY page — do not treat as per-flow):
   (that '.pl-search-bar button' selector exists ONLY on /media — never use it on the posts/published list pages).
 
 RULE 4 — IMPORTS:
-  import re
+  import re          # ONLY if the test actually uses a regex (re.compile in a to_have_url/to_have_text
+                     # assertion). If the test has no regex — e.g. a settings edit verified with
+                     # to_have_value — OMIT this line; an unused import is dead code.
   import time
   from playwright.sync_api import expect
   from helpers import safe_fill, safe_sequential_fill
@@ -394,7 +396,7 @@ RULE 4 — IMPORTS:
   from helpers import safe_fill, safe_sequential_fill, random_desktop_png
 
 RULE 5 — STRUCTURE:
-  import re
+  import re          # only when a regex is used — see RULE 4
   import time
   from playwright.sync_api import expect
   from helpers import safe_fill, safe_sequential_fill
@@ -422,6 +424,42 @@ RULE 7 — DO NOT INVENT FIELDS:
   Verified Page Facts for the navigated page. Specifically: entity pages (geography, food, horoscope, etc.)
   have NO "Meta Description", "Banner Description", "Focus Keyphrase", or "English Title ( Permalink )"
   textboxes. Never add those steps to an entity-page test even if the publish flow on other pages requires them.
+
+RULE 8 — EDITING A PERSISTED SETTING (applies to EVERY "change X and confirm it saved" flow, NOT per-page):
+  This covers any test that EDITS an existing, server-persisted value rather than creating a fresh timestamped
+  entity — i.e. everything under /configurations (Site title, Site description, Timezone, Navigation, Theme,
+  Branding, ...) and any other singleton setting. For these, three things are MANDATORY, in this order:
+    (1) REPLACE WITH REAL KEYSTROKES — use safe_sequential_fill, NEVER safe_fill. These fields are
+        React-controlled and pre-filled; safe_fill uses .fill(), which sets the DOM value WITHOUT firing
+        React's onChange, so Save persists the OLD value while the box still shows the new text. The test then
+        passes while nothing was saved. safe_sequential_fill types real keys (select-all + delete + keystrokes)
+        so React tracks the change and Save submits the new value.
+    (2) VERIFY AFTER A RELOAD — after clicking Save, call page.reload(), RE-locate the field, then
+        expect(field).to_have_value(new_value, timeout=15000). NEVER assert on the same field WITHOUT reloading:
+        that only echoes back what you typed and passes even when the save silently failed. The reload is what
+        proves the value round-tripped through the server.
+    (3) CAPTURE + RESTORE IN A finally BLOCK — these are shared, publisher-wide config values (not throwaway
+        timestamped data), so the test MUST leave them exactly as found. Read the original BEFORE editing and
+        restore it in finally so it runs even if the assertion fails.
+  Canonical shape (adapt the label and Save-button name to the page you observed):
+    field = page.get_by_role('textbox', name='Site description')
+    field.wait_for(state='visible')
+    original_value = field.input_value()
+    try:
+        safe_sequential_fill(page, 'Site description', f'QA Description {ts}')
+        page.get_by_role('button', name='Save').click()
+        page.reload()
+        field = page.get_by_role('textbox', name='Site description')
+        field.wait_for(state='visible')
+        expect(field).to_have_value(f'QA Description {ts}', timeout=15000)
+    finally:
+        field = page.get_by_role('textbox', name='Site description')
+        field.wait_for(state='visible')
+        safe_sequential_fill(page, 'Site description', original_value)
+        page.get_by_role('button', name='Save').click()
+        expect(field).to_have_value(original_value, timeout=15000)
+  This does NOT apply to create flows (article/tag/category/etc.): those make a fresh timestamped entity that
+  needs no restore, and their post-create check (row visible in the list, or URL change) already proves the save.
 ---------------------------------------------------"""
 
 
