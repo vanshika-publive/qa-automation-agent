@@ -116,7 +116,7 @@ Key rules:
 
 ## AI pipeline (`backend/pipeline/`)
 
-Entry point: `pipeline/run_pipeline.py:PipelineRunner.run()`, called from a **daemon thread** (no Celery/RQ). Four stages run sequentially; one `ExecutionStep` row per stage captures stdout/stderr via a `LogCapture`/`_TeeWriter` redirect. A stage failure aborts remaining stages.
+Entry point: `pipeline/run_pipeline.py:PipelineRunner.run()`, called from a **daemon thread** (no Celery/RQ). Four stages run sequentially; one `ExecutionStep` row per stage captures stdout/stderr via a `LogCapture`/`_TeeWriter` redirect. A stage failure aborts remaining stages. Runs are cooperatively cancellable via `pipeline/utils/cancellation.py` (backs the `POST /executions/<id>/stop` endpoint).
 
 Before any stage: resolves prompt + collection slug, refreshes the stored session, detects the active publisher (thread-locally via `pipeline/utils/credential_manager.py`).
 
@@ -125,9 +125,9 @@ Pipeline subpackage layout:
 pipeline/
 ├── services/        # one class per stage: OrchestratorService, PlannerService, GeneratorService, RunnerService
 ├── infrastructure/  # ai_client.py, mcp_bridge.py, login_helper.py, publisher.py
-├── utils/           # agent_utils.py, credential_manager.py, log_capture.py, step_manager.py
+├── utils/           # agent_utils.py, cancellation.py, credential_manager.py, log_capture.py, step_manager.py
 ├── tools/           # planner_tools.py, generator_tools.py — OpenAI tool schemas
-├── prompts/         # orchestrator_prompt.py, planner_prompt.py, generator_prompt.py
+├── prompts/         # orchestrator_prompt.py, planner_prompt.py, generator_prompt.py, _shared.py
 ├── transforms/      # plan_parser.py, plan_validator.py, spec_validator.py, spec_sanitizer.py
 ├── knowledge/       # dashboard_facts.py, heuristics_loader.py
 └── run_pipeline.py  # PipelineRunner entry point
@@ -178,6 +178,7 @@ Base path `/api/`. No authentication (`AllowAny`). All responses use the `{ data
 - `GET /executions/<id>/steps` — per-test pytest results parsed live from `results.json`
 - `GET /executions/<id>/tests` — same results, flattened with a `pending` flag while running
 - `GET /executions/<id>/files` — returns generated spec source + `plan.md` for this run
+- `POST /executions/<id>/stop` — request cooperative cancellation of a running execution
 - `DELETE /executions/<id>` — soft-delete (409 if `status='running'`)
 - `GET/PUT /tests/<id>/spec`, `POST /tests/<id>/run-spec` — view/edit/re-run a generated spec (skips orchestrator/planner/generator)
 - `GET /collections/<id>/specs`, `GET /specs/view?file=...`, `DELETE /specs?file=...` — list/read/delete spec files on disk
@@ -189,7 +190,7 @@ Base path `/api/`. No authentication (`AllowAny`). All responses use the `{ data
 
 ## Frontend pages
 
-Single `Layout` (240px dark `Sidebar` + `TopBar`) wraps 5 routes:
+Single `Layout` (240px dark `Sidebar` + `TopBar`) wraps 6 routes:
 
 | Route | Page | Purpose |
 |---|---|---|
@@ -197,6 +198,7 @@ Single `Layout` (240px dark `Sidebar` + `TopBar`) wraps 5 routes:
 | `/collections/:id` | `CollectionDetail.tsx` | Tests within a collection; inline execution history; "Run Suite" |
 | `/executions` | `Executions.tsx` | 3-level drill-down via `?col=`/`?test=` params; ComparePanel |
 | `/executions/:id` | `ExecutionDetail.tsx` | 4-stage pipeline timeline, per-test results, plan.md + spec viewer, Re-run |
+| `/executions/batch` | `BatchExecutionStatus.tsx` | Live status of a batch run (run-all-specs / run-all-collections) |
 | `/environments` | `Environments.tsx` | Card grid CRUD; detected publisher field (read-only) |
 
 Real-time updates: SSE (`EventSource`) for in-flight pipeline runs; React Query `refetchInterval` for list/detail polling (only while `status === 'running' | 'queued'`).
@@ -245,7 +247,7 @@ backend/
 ├── config/          # Django project package: settings.py, urls.py, wsgi/asgi
 ├── core/            # CRUD app: models/, serializers/, views/, services/, decorators, managers
 ├── pipeline/        # AI pipeline (see above) — no DB models of its own
-├── utils/           # Shared helpers: datetime_utils.py, slug.py, errors.py, json_utils.py, markdown.py
+├── utils/           # Shared helpers: datetime_utils.py, slug.py, failure_classifier.py, json_utils.py, markdown.py
 ├── capture_session.py
 └── manage.py
 ```
