@@ -415,8 +415,8 @@ export default function Executions() {
   // ── Level 1: main executions table ────────────────────────────────────────
 
   function renderCollectionFolders() {
-    const liveRows    = exec.filteredTableExecs.filter((e) => e.status === 'running' || e.status === 'queued');
-    const historyRows = exec.filteredTableExecs.filter((e) => e.status === 'passed'  || e.status === 'failed');
+    const liveRows    = exec.tableExecs.filter((e) => e.status === 'running' || e.status === 'queued');
+    const historyRows = exec.tableExecs.filter((e) => e.status === 'passed'  || e.status === 'failed');
     const allVisible  = [...liveRows, ...historyRows];
     const allChecked  = allVisible.length > 0 && allVisible.every((e) => exec.selectedIds.has(e.id));
     const someChecked = allVisible.some((e) => exec.selectedIds.has(e.id));
@@ -620,7 +620,7 @@ export default function Executions() {
                 {liveRows.map(renderRow)}
                 {historyRows.length > 0 && <tr><td colSpan={8} className={sectionHeaderCls}>History</td></tr>}
                 {historyRows.map(renderRow)}
-                {exec.filteredTableExecs.length === 0 && (
+                {exec.tableExecs.length === 0 && (
                   <tr>
                     <td colSpan={8} className="px-[14px] py-12 text-center text-sm text-text-secondary">
                       {exec.search.trim()
