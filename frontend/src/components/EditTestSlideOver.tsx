@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Test } from '../types';
 import { useCollections } from '../hooks/useCollections';
-import { useEnvironments } from '../hooks/useEnvironments';
+import { useActiveEnvironments } from '../hooks/useActiveEnvironments';
 import { X, ChevronDown, CheckCircle, Plus } from 'lucide-react';
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
@@ -40,9 +40,8 @@ export default function EditTestSlideOver({
   const [duplicate, setDuplicate]     = useState(false);
 
   const { collections }  = useCollections();
-  const { environments } = useEnvironments();
+  const { environments: allEnvironments } = useActiveEnvironments();
   const allCollections   = collections;
-  const allEnvironments  = environments.filter((e) => e.isActive);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };

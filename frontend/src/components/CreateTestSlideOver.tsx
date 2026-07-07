@@ -5,7 +5,7 @@ import { Check, X, ChevronDown, AlertTriangle, XCircle, CheckCircle2, ArrowRight
 import { Collection, StepName, StepStatus } from '../types';
 import { collectionsService } from '../services/collections';
 import { executionsService } from '../services/executions';
-import { useEnvironments } from '../hooks/useEnvironments';
+import { useActiveEnvironments } from '../hooks/useActiveEnvironments';
 import { EDITOR_BG, sseStreamUrl } from '../constants';
 
 interface StepState {
@@ -159,8 +159,7 @@ export default function CreateTestSlideOver({
   const sseRef = useRef<EventSource | null>(null);
   const unmountedRef = useRef(false);
 
-  const { environments } = useEnvironments();
-  const activeEnvs = environments.filter((e) => e.isActive);
+  const { environments: activeEnvs } = useActiveEnvironments();
   const [environmentId, setEnvironmentId] = useState('');
 
   const [visible, setVisible] = useState(false);

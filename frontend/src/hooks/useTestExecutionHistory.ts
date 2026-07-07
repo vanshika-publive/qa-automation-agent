@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { executionsService } from '../services/executions';
+import { isActiveStatus } from '../utils/polling';
 import type { Execution } from '../types';
 
 export function useTestExecutionHistory(testId: string, expandedExecId: string | null) {
@@ -18,7 +19,7 @@ export function useTestExecutionHistory(testId: string, expandedExecId: string |
     queryFn: () => executionsService.getDetail(openId!),
     enabled: !!openId,
     staleTime: 10_000,
-    refetchInterval: selectedRun?.status === 'running' ? 2000 : false,
+    refetchInterval: isActiveStatus(selectedRun?.status) ? 2000 : false,
   });
 
   const resultsQ = useQuery({

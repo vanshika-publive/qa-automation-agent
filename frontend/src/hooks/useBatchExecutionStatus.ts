@@ -1,6 +1,7 @@
 import { useQueries } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { executionsService } from '../services/executions';
+import { pollWhileActiveDetail } from '../utils/polling';
 
 export interface BatchRow {
   collectionId: string;
@@ -27,10 +28,7 @@ export function useBatchExecutionStatus() {
       queryKey: ['execution', id],
       queryFn: () => executionsService.getDetail(id),
       enabled: !!id,
-      refetchInterval: (query: any) => {
-        const s = query.state.data?.data?.status;
-        return s === 'running' || s === 'queued' ? 2000 : false;
-      },
+      refetchInterval: pollWhileActiveDetail(2000),
     })),
   });
 

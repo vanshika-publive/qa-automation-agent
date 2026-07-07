@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useCollections } from '../hooks/useCollections';
 import { useCollectionTests } from '../hooks/useCollectionTests';
-import { useEnvironments } from '../hooks/useEnvironments';
+import { useActiveEnvironments } from '../hooks/useActiveEnvironments';
 import { useRunSuite } from '../hooks/useRunActions';
 import { PlayCircle, X, AlertTriangle, Play } from 'lucide-react';
 
@@ -13,9 +13,8 @@ export default function RunSuiteModal({ onClose, onRun }: { onClose: () => void;
 
   const { collections, isLoading: collectionsLoading } = useCollections();
   const { tests } = useCollectionTests(collectionId || null);
-  const { environments: allEnvironments, isLoading: envsLoading } = useEnvironments();
+  const { environments, isLoading: envsLoading } = useActiveEnvironments();
 
-  const environments = allEnvironments.filter((e) => e.isActive);
   const effectiveEnvId = envId || environments[0]?.id || '';
 
   const runMut = useRunSuite();

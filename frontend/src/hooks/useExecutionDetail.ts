@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { executionsService } from '../services/executions';
+import { pollWhileActiveDetail } from '../utils/polling';
 
 export function useExecutionDetail(id: string) {
   const qc = useQueryClient();
@@ -9,10 +10,7 @@ export function useExecutionDetail(id: string) {
   const detailQ = useQuery({
     queryKey: ['execution', id],
     queryFn: () => executionsService.getDetail(id),
-    refetchInterval: (query) => {
-      const s = query.state.data?.data?.status;
-      return s === 'running' || s === 'queued' ? 2000 : false;
-    },
+    refetchInterval: pollWhileActiveDetail(2000),
     enabled: !!id,
   });
 
