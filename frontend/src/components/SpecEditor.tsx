@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { testsService } from '../services/tests';
-import { useEnvironments } from '../hooks/useEnvironments';
+import { useActiveEnvironments } from '../hooks/useActiveEnvironments';
 import { EDITOR_BG, EDITOR_BORDER, EDITOR_FONT_FAMILY, EDITOR_LINE_HEIGHT, sseStreamUrl } from '../constants';
 import { Play, Save, CheckCircle2, XCircle, X, FileText } from 'lucide-react';
 
@@ -44,8 +44,7 @@ export default function SpecEditor({ test, isOpen, onClose, onRunStarted, overri
   const isModified = content !== originalContent;
   const lineCount = content.split('\n').length;
 
-  const { environments: allEnvironments } = useEnvironments();
-  const environments = allEnvironments.filter((e) => e.isActive);
+  const { environments } = useActiveEnvironments();
 
   useEffect(() => {
     if (environments.length > 0 && !selectedEnvId) {

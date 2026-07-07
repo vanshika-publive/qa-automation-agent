@@ -1,12 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 import { executionsService } from '../services/executions';
+import { isActiveStatus } from '../utils/polling';
 import { Execution } from '../types';
 
 export function useExpandedTestResults(execution: Execution) {
   const resultsQuery = useQuery({
     queryKey: ['execution-tests', execution.id],
     queryFn: () => executionsService.getTestResults(execution.id),
-    refetchInterval: execution.status === 'running' ? 3000 : false,
+    refetchInterval: isActiveStatus(execution.status) ? 3000 : false,
     staleTime: 0,
   });
 

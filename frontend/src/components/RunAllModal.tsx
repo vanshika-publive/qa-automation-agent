@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useEnvironments } from '../hooks/useEnvironments';
+import { useActiveEnvironments } from '../hooks/useActiveEnvironments';
 import { useRunAll } from '../hooks/useRunActions';
 import { X } from 'lucide-react';
 
 export default function RunAllModal({ collectionIds, onClose }: { collectionIds: string[]; onClose: () => void }) {
-  const { environments: allEnvironments } = useEnvironments();
-  const environments = allEnvironments.filter((e) => e.isActive);
+  const { environments } = useActiveEnvironments();
   const [envId, setEnvId] = useState(environments[0]?.id ?? '');
 
   useEffect(() => {

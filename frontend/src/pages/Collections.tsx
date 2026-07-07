@@ -9,6 +9,7 @@ import { Modal } from '../components/Modal';
 import { PageLoader } from '../components/PageLoader';
 import { Button, IconButton } from '../components/Button';
 import { useCollections } from '../hooks/useCollections';
+import { useRowSelection } from '../hooks/useRowSelection';
 import {
   Sparkles, Check, ArrowRight, CheckCircle2, FlaskConical,
   X, FolderPlus, Search, Calendar, Play, Trash2, Folder,
@@ -168,7 +169,7 @@ export default function Collections() {
   const navigate = useNavigate();
 
   const [createOpen,     setCreateOpen]     = useState(false);
-  const [selectedColIds, setSelectedColIds] = useState<Set<string>>(new Set());
+  const colSelection = useRowSelection();
   const [renamingCol,    setRenamingCol]    = useState<{ id: string; name: string } | null>(null);
   const [runAllColIds,   setRunAllColIds]   = useState<string[] | null>(null);
   const [runAllEnvOpen,  setRunAllEnvOpen]  = useState(false);
@@ -187,38 +188,33 @@ export default function Collections() {
   // Sync select-all checkbox indeterminate state
   useEffect(() => {
     if (!selectAllRef.current) return;
-    const all = filteredCollections.length > 0 && filteredCollections.every((c) => selectedColIds.has(c.id));
-    const some = filteredCollections.some((c) => selectedColIds.has(c.id));
+    const all = filteredCollections.length > 0 && filteredCollections.every((c) => colSelection.selected.has(c.id));
+    const some = filteredCollections.some((c) => colSelection.selected.has(c.id));
     selectAllRef.current.indeterminate = some && !all;
     selectAllRef.current.checked = all;
-  }, [selectedColIds, filteredCollections]);
+  }, [colSelection.selected, filteredCollections]);
 
   function handleDeleteSelected() {
-    const count = selectedColIds.size;
+    const count = colSelection.selected.size;
     if (!window.confirm(`Delete ${count} collection${count === 1 ? '' : 's'} and all their tests?`)) return;
-    selectedColIds.forEach((id) => deleteCollectionMutation.mutate(id));
-    setSelectedColIds(new Set());
+    colSelection.selected.forEach((id) => deleteCollectionMutation.mutate(id));
+    colSelection.clear();
   }
 
   function handleDeleteSingle(id: string, e: React.MouseEvent) {
     e.stopPropagation();
     if (!window.confirm('Delete this collection and all its tests?')) return;
     deleteCollectionMutation.mutate(id);
-    setSelectedColIds((prev) => { const next = new Set(prev); next.delete(id); return next; });
+    colSelection.remove(id);
   }
 
   function toggleColSelection(id: string, e: React.MouseEvent) {
     e.stopPropagation();
-    setSelectedColIds((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+    colSelection.toggle(id);
   }
 
   function toggleSelectAll() {
-    const allSelected = filteredCollections.every((c) => selectedColIds.has(c.id));
-    setSelectedColIds(allSelected ? new Set() : new Set(filteredCollections.map((c) => c.id)));
+    colSelection.toggleAll(filteredCollections.map((c) => c.id));
   }
 
   function handleCreateCollection(name: string) {
@@ -314,21 +310,21 @@ export default function Collections() {
         )}
 
         <div className="ml-auto flex items-center gap-2">
-          {selectedColIds.size > 0 && (
+          {colSelection.selected.size > 0 && (
             <>
               <button
-                onClick={() => setRunAllColIds(Array.from(selectedColIds))}
+                onClick={() => setRunAllColIds(Array.from(colSelection.selected))}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-success/30 bg-success/5 text-success hover:bg-success/10 transition-all duration-150 active:scale-[0.98]"
               >
                 <Play size={16} />
-                Run {selectedColIds.size} selected
+                Run {colSelection.selected.size} selected
               </button>
               <button
                 onClick={handleDeleteSelected}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium border border-error/30 bg-error/5 text-error hover:bg-error/10 transition-all duration-150 active:scale-[0.98]"
               >
                 <Trash2 size={16} />
-                Delete {selectedColIds.size} selected
+                Delete {colSelection.selected.size} selected
               </button>
             </>
           )}
@@ -375,7 +371,7 @@ export default function Collections() {
               </tr>
             ) : (
               pagedCollections.map((col) => {
-                const isChecked = selectedColIds.has(col.id);
+                const isChecked = colSelection.selected.has(col.id);
                 return (
                   <tr
                     key={col.id}

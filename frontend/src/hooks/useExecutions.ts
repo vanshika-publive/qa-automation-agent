@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { FilterState, DEFAULT_FILTERS } from '../components/FilterDrawer';
 import { executionsService } from '../services/executions';
 import { collectionsService } from '../services/collections';
+import { pollWhileActive } from '../utils/polling';
+import { useRowSelection } from './useRowSelection';
 import { Execution } from '../types';
 
 const RUN_LIST_PAGE_SIZE = 10;
@@ -16,7 +18,7 @@ export function useExecutions(
 
   const [tablePage,      setTablePage]      = useState(1);
   const [runListPage,    setRunListPage]     = useState(0);
-  const [selectedIds,    setSelectedIds]     = useState<Set<string>>(new Set());
+  const selection = useRowSelection();
   const [expandedId,     setExpandedId]      = useState<string | null>(null);
   const [retryingId,     setRetryingId]      = useState<string | null>(null);
   const [stoppingId,     setStoppingId]      = useState<string | null>(null);
@@ -43,20 +45,14 @@ export function useExecutions(
       pageSize:     TABLE_PAGE_SIZE,
     }),
     enabled: !selectedColId && !selectedTestId,
-    refetchInterval: (q) => {
-      const data = q.state.data?.data ?? [];
-      return data.some((e) => e.status === 'running' || e.status === 'queued') ? 5000 : false;
-    },
+    refetchInterval: pollWhileActive(5000),
   });
 
   const colExecsQuery = useQuery({
     queryKey: ['executions', 'col', selectedColId],
     queryFn: () => executionsService.getAll({ collectionId: selectedColId!, pageSize: 100 }),
     enabled: !!selectedColId && !selectedTestId,
-    refetchInterval: (q) => {
-      const data = q.state.data?.data ?? [];
-      return data.some((e) => e.status === 'running') ? 3000 : false;
-    },
+    refetchInterval: pollWhileActive(3000),
   });
 
   const testsQuery = useQuery({
@@ -69,10 +65,7 @@ export function useExecutions(
     queryKey: ['executions', 'test', selectedTestId],
     queryFn: () => executionsService.getAll({ testId: selectedTestId!, pageSize: 20 }),
     enabled: !!selectedTestId,
-    refetchInterval: (q) => {
-      const data = q.state.data?.data ?? [];
-      return data.some((e) => e.status === 'running') ? 3000 : false;
-    },
+    refetchInterval: pollWhileActive(3000),
   });
 
   const collections     = collectionsQuery.data?.data ?? [];
@@ -99,12 +92,10 @@ export function useExecutions(
     return map;
   }, [colExecs]);
 
-  const filteredTableExecs = tableExecs;
-
   const compareExecutions = useMemo(() => {
-    const ids = Array.from(selectedIds).slice(0, 2);
+    const ids = Array.from(selection.selected).slice(0, 2);
     return ids.map((id) => tableExecs.find((e) => e.id === id)).filter(Boolean) as Execution[];
-  }, [selectedIds, tableExecs]);
+  }, [selection.selected, tableExecs]);
 
   const runListTotalPages = Math.ceil(testExecs.length / RUN_LIST_PAGE_SIZE);
   const runListSlice = testExecs.slice(
@@ -155,23 +146,9 @@ export function useExecutions(
     setTablePage(1);
   }
 
-  function clearSelection() { setSelectedIds(new Set()); }
-
-  function toggleRow(id: string) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }
-  function toggleAll(ids: string[]) {
-    const allChecked = ids.length > 0 && ids.every((id) => selectedIds.has(id));
-    setSelectedIds(allChecked ? new Set() : new Set(ids));
-  }
-
   return {
     collections,
-    tableExecs, filteredTableExecs, tablePagination,
+    tableExecs, tablePagination,
     execsByTestId,
     tests, testExecs,
     runListSlice, runListTotalPages,
@@ -182,7 +159,10 @@ export function useExecutions(
     isLoadingTestExecs: testExecsQuery.isLoading,
     tablePage, setTablePage,
     runListPage, setRunListPage,
-    selectedIds, toggleRow, toggleAll, clearSelection,
+    selectedIds: selection.selected,
+    toggleRow: selection.toggle,
+    toggleAll: selection.toggleAll,
+    clearSelection: selection.clear,
     search, setSearch,
     appliedFilters, activeFilterCount,
     applyFilters, clearFilters, removeFilter,

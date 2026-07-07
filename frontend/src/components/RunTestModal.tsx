@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useEnvironments } from '../hooks/useEnvironments';
+import { useActiveEnvironments } from '../hooks/useActiveEnvironments';
 import { useRunTest } from '../hooks/useRunActions';
 import { X, Play } from 'lucide-react';
 
@@ -13,8 +13,7 @@ export default function RunTestModal({ testId, testName, onClose }: RunTestModal
   const [selectedEnvId, setSelectedEnvId] = useState('');
   const [error, setError] = useState('');
 
-  const { environments: allEnvironments, isLoading: envsLoading } = useEnvironments();
-  const environments = allEnvironments.filter((e) => e.isActive);
+  const { environments, isLoading: envsLoading } = useActiveEnvironments();
 
   useEffect(() => {
     if (environments.length && !selectedEnvId) {
