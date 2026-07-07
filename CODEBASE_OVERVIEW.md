@@ -75,16 +75,17 @@ automation-agent-2/
 ├── backend/                # Django + DRF API server + AI pipeline
 │   ├── config/             # Django project (settings, urls, wsgi/asgi)
 │   ├── core/               # CRUD app: Collection/Test/Environment/Execution models + views
-│   │   ├── models.py            # ORM models (soft delete, UUID PKs, ISO timestamps)
+│   │   ├── models/              # ORM models package, one file per resource (soft delete, UUID PKs, ISO timestamps)
 │   │   ├── decorators.py        # @validate_body(Serializer) + @fetch_object(Model, msg)
 │   │   ├── serializers/         # camelCase I/O serializers, one file per resource
 │   │   ├── views/               # APIView classes, one per URL (health/collections/environments/tests/executions)
 │   │   ├── urls.py              # explicit path() entries — no SimpleRouter
 │   │   ├── services/            # business logic layer (collection/test/environment/execution)
+│   │   ├── managers.py          # SoftDeleteManager (default) + all_objects
 │   │   ├── renderers.py         # EnvelopeRenderer → {data, error} wrapper
 │   │   └── exceptions.py        # envelope_exception_handler
-│   ├── pipeline/           # the AI agent pipeline (orchestrator/planner/generator/runner) — NO db models
-│   ├── utils/              # tiny shared helpers (slug, json, markdown, errors)
+│   ├── pipeline/           # the AI agent pipeline — subpackages: services/ infrastructure/ utils/ tools/ prompts/ transforms/ knowledge/ (NO db models)
+│   ├── utils/              # tiny shared helpers (slug, json, markdown, datetime, failure_classifier)
 │   ├── capture_session.py  # one-off script: manually clear MFA, save reusable browser session
 │   ├── manage.py
 │   ├── requirements.txt
@@ -142,7 +143,7 @@ Key relationships / business rules:
   `data/reports/` tree on disk; pass/fail counts and per-test results are *not* fully
   duplicated into Postgres — `results.json` on disk is the source of truth for
   per-test detail (parsed on demand by `core/views/executions.py`).
-- **Environment.publisher** is never set by the user — `pipeline/publisher.py` reads it
+- **Environment.publisher** is never set by the user — `pipeline/infrastructure/publisher.py` reads it
   live from the dashboard's own `GET /api/user/` (using the stored session cookies) and
   the backend caches the detected name onto the row. The system deliberately **never
   switches publisher**; it only reports which one the current session is on.
@@ -197,13 +198,15 @@ match `frontend/src/types.ts` exactly.
 | `GET /executions/<id>/steps` | per-test pytest results parsed live from `results.json` |
 | `GET /executions/<id>/tests` | same, flattened test list with `pending` flag while running |
 | `GET /executions/<id>/files` | returns the generated spec source + plan.md content for this run |
+| `POST /executions/<id>/stop` | requests **cooperative cancellation** of a running execution (see §6) |
 | `GET /executions/<id>/stream` | **Server-Sent Events** — polls DB every 0.8s and streams `{execution, steps}` JSON until the run leaves `'running'` |
 | `POST /executions/tests/<test_id>/run` | **kicks off the full 4-stage pipeline** in a background thread, returns `{executionId}` immediately (202) |
 | `POST /collections/<id>/run-all-specs` | runs every existing spec file in a collection as one Execution |
 | `GET /reports/<path>` | static file serving of `data/reports/` (HTML report viewer), wired directly in `config/urls.py`, not under `/api` |
 
-Both "run" endpoints spawn a **daemon thread** that calls `django.setup()` then
-`pipeline.run_pipeline.run_pipeline(...)` / `run_spec_file(...)` — there's no task
+Both "run" endpoints spawn a **daemon thread** (in `core/services/execution_service.py`:
+`launch_pipeline`/`launch_spec_run`) that calls `django.setup()` then
+`PipelineRunner.run(...)` / `PipelineRunner.run_spec(...)` — there's no task
 queue (no Celery/RQ); concurrency is just raw Python threads, and progress is observed
 by the frontend via polling/SSE against the DB rows the thread writes to.
 
@@ -211,19 +214,25 @@ by the frontend via polling/SSE against the DB rows the thread writes to.
 
 ## 6. The AI test-generation pipeline (`backend/pipeline/`)
 
-This is the core IP of the project. Entry point: `pipeline/run_pipeline.py:run_pipeline()`,
-called from a background thread per Execution. It runs four stages in order, writing one
-`ExecutionStep` row per stage (`orchestrator → planner → generator → runner`), capturing
-each stage's stdout/stderr into that step's `log` via a `LogCapture`/`_TeeWriter`
-redirect. A stage failure aborts the remaining stages but still finalizes the Execution.
+This is the core IP of the project. Entry point: `pipeline/run_pipeline.py:PipelineRunner.run()`
+(a static method), called from a background thread per Execution. It runs four stages in
+order, writing one `ExecutionStep` row per stage (`orchestrator → planner → generator →
+runner`), capturing each stage's stdout/stderr into that step's `log` via a
+`LogCapture`/`_TeeWriter` redirect. A stage failure aborts the remaining stages but still
+finalizes the Execution. Runs are **cooperatively cancellable**: `PipelineRunner`
+checks a `_CancellationRegistry` (`pipeline/utils/cancellation.py`) between steps and
+raises `PipelineCancelled` when the `POST /executions/<id>/stop` endpoint has flagged the
+run.
 
 Before any stage: it resolves the Test's prompt + Collection slug, refreshes the stored
-browser session (`login_helper.refresh_session`), detects the **active publisher** from
-that session (`pipeline/publisher.py`), and stashes both as **thread-local runtime
-credentials** (`pipeline/credential_manager.py`) so every downstream module can call
-`get_credentials()`/`get_publisher()` without threading parameters through every call.
+browser session (`pipeline/infrastructure/login_helper.py:SessionManager.refresh`),
+detects the **active publisher** from that session
+(`pipeline/infrastructure/publisher.py:PublisherDetector.detect`), and stashes both as
+**thread-local runtime credentials** (`pipeline/utils/credential_manager.py`) so every
+downstream module can call `get_credentials()`/`get_publisher()` without threading
+parameters through every call.
 
-### 6.1 Stage 1 — Orchestrator (`pipeline/orchestrator.py`)
+### 6.1 Stage 1 — Orchestrator (`pipeline/services/orchestrator_service.py: OrchestratorService`)
 
 Pure LLM call, no browser. Sends the user's free-text prompt + URL + detected publisher
 + any matching "dashboard knowledge" facts (see §6.7) to `gpt-4o` with
@@ -246,10 +255,10 @@ permalink field" step before a "publish" step) as a belt-and-suspenders fix — 
 `pipeline/knowledge/dashboard_facts.py`'s `detect_intent`/`expand_preconditions`, not the
 LLM.
 
-### 6.2 Stage 2 — Planner agent (`pipeline/planner_agent.py`)
+### 6.2 Stage 2 — Planner agent (`pipeline/services/planner_service.py: PlannerService`)
 
 An **agentic loop** (max 20 iterations, `gpt-4o`, `tool_choice='required'`) that drives a
-real headless browser through `pipeline/mcp_bridge.py` to *discover* the dashboard
+real headless browser through `pipeline/infrastructure/mcp_bridge.py` to *discover* the dashboard
 rather than guess at it. Tools available: 2 custom (`planner_setup_page`,
 `planner_save_plan`) plus a filtered subset of Playwright MCP tools
 (`browser_navigate`, `browser_snapshot`, `browser_click`, `browser_hover`,
@@ -269,7 +278,7 @@ for this publisher," not as an auth bug. On success it writes:
 - a sibling `plan-snapshots.json` — every ARIA snapshot seen this session, keyed by URL,
   reused as locator ground-truth by the next stage.
 
-### 6.3 Stage 3 — Generator agent (`pipeline/generator_agent.py`)
+### 6.3 Stage 3 — Generator agent (`pipeline/services/generator_service.py: GeneratorService`)
 
 Parses `plan.md` into `Scenario` objects (`pipeline/transforms/plan_parser.py`, one per
 `### Scenario:` block) and, **for each scenario independently**, runs another agentic
@@ -305,7 +314,7 @@ scenario already exists on disk, generation is skipped (idempotent re-runs).
 After writing, `run_pipeline.py` also does a final **Python `compile()` syntax check**
 on every generated file before handing off to the runner.
 
-### 6.4 Stage 4 — Runner (`pipeline/runner.py`)
+### 6.4 Stage 4 — Runner (`pipeline/services/runner_service.py: RunnerService`)
 
 No LLM involved. Shells out to `pytest` (`subprocess.Popen`, own process group via
 `start_new_session=True` so the whole tree — pytest + chromium + ffmpeg — can be
@@ -320,24 +329,24 @@ prints a small box-drawn summary to the captured log.
 
 ### 6.5 Supporting infrastructure
 
-- **`pipeline/mcp_bridge.py` (`MCPBridge`)** — spawns
+- **`pipeline/infrastructure/mcp_bridge.py` (`MCPBridge`)** — spawns
   `backend/node_modules/@playwright/mcp`'s CLI as a child process and speaks raw
   JSON-RPC 2.0 over stdin/stdout (hand-rolled, no SDK), one background reader thread
   dispatching responses to whichever call is waiting via a `threading.Event`. Re-uses
   `data/.auth/session.json` as Playwright `storage_state` if present, and does a
   warm-up navigation to `<dashboard>/home` on startup. A fresh `MCPBridge` (and thus a
   fresh real browser instance) is spawned per planner run and per generator scenario.
-- **`pipeline/ai_client.py`** — thin wrapper creating an `OpenAI()` client from
+- **`pipeline/infrastructure/ai_client.py`** — thin wrapper creating an `OpenAI()` client from
   `OPENAI_API_KEY`; model is the single constant `AI_MODEL = 'gpt-4o'`
   (`pipeline/constants.py`). **The pipeline is OpenAI-powered, not Claude-powered.**
-- **`pipeline/credential_manager.py`** — thread-local credential/publisher store with
+- **`pipeline/utils/credential_manager.py`** — thread-local credential/publisher store with
   env-var fallback; nothing here is persisted, it's purely request/run-scoped.
-- **`pipeline/agent_utils.py`** — shared agent-loop plumbing: MCP-tool→OpenAI-tool-schema
+- **`pipeline/utils/agent_utils.py`** — shared agent-loop plumbing: MCP-tool→OpenAI-tool-schema
   conversion, tool-result truncation (8000 chars, cut at a line boundary), conversation
   history pruning (keep last N assistant "turns" + the first 2 system/user messages),
   and `call_with_retry` (exponential-ish backoff on 429/502/503/connection errors).
-- **`pipeline/login_helper.py`** — see §7.
-- **`pipeline/publisher.py`** — see §7.
+- **`pipeline/infrastructure/login_helper.py`** — see §7.
+- **`pipeline/infrastructure/publisher.py`** — see §7.
 
 ### 6.6 Knowledge base (`pipeline/knowledge/`)
 
@@ -394,14 +403,14 @@ email+password login. The whole auth strategy is built around that constraint:
    session-only cookies to expire ~24h out (`SESSION_EXPIRY_SECONDS`), and hard-fails if
    no real auth cookie (`session` / `publisher_agency`) was captured.
 2. Every run reuses that one stored session file rather than logging in fresh.
-   `pipeline/login_helper.py: refresh_session()` checks cookie validity (ignoring
+   `pipeline/infrastructure/login_helper.py: SessionManager.refresh()` checks cookie validity (ignoring
    transient cookies like Cloudflare's `__cf_bm` or analytics cookies — only `session`
    and `publisher_agency` count) and **only** attempts a scripted login if the stored
    session is actually expired; if a scripted attempt lands on `/mfa`, it fails loudly
    instead of silently saving a useless session.
 3. Because the dashboard is **multi-tenant**, the same session is always pinned to one
-   publisher org via the `publisher_agency` cookie — not via URL. `pipeline/publisher.py:
-   detect_active_publisher()` calls the dashboard's own `GET /api/user/` with the stored
+   publisher org via the `publisher_agency` cookie — not via URL. `pipeline/infrastructure/publisher.py:
+   PublisherDetector.detect()` calls the dashboard's own `GET /api/user/` with the stored
    cookies and returns `{name, slug, id, domain}`. This is called at the start of every
    pipeline run, **logged**, and cached onto the `Environment.publisher` column —
    the system is explicitly designed to **never switch publishers itself**; switching
@@ -440,7 +449,7 @@ backend's envelope error string.
 
 ### 8.2 Routing & pages (`frontend/src/App.tsx`)
 
-Single `Layout` (fixed 240px dark `Sidebar` + `TopBar`) wraps 5 routed pages:
+Single `Layout` (fixed 240px dark `Sidebar` + `TopBar`) wraps 6 routed pages:
 
 | Route | Page component | Purpose |
 |---|---|---|
@@ -448,6 +457,7 @@ Single `Layout` (fixed 240px dark `Sidebar` + `TopBar`) wraps 5 routed pages:
 | `/collections/:id` | `CollectionDetail.tsx` | Tests within one collection; each row expands inline (`TestExecutionDetail`) to show its run history; per-test run/edit/edit-spec/delete actions; "Run Suite" runs every generated spec in the collection. |
 | `/executions` | `Executions.tsx` | **3-level drill-down** via URL search params (`?col=`, `?test=`): all executions (Live/History sections, filters, multi-select → `ComparePanel`) → per-collection test "folder" cards → per-test run list. Row actions include retry, delete, live log viewer (`LogViewerModal`, SSE), and a link to the static HTML report. |
 | `/executions/:id` | `ExecutionDetail.tsx` | One run: status banner, 4-stage `PipelineSteps` timeline (click a stage to expand its captured log), per-test results table grouped by file, collapsible `plan.md` viewer, collapsible generated-spec code viewer, full run history table for that test, "Re-run" button. |
+| `/executions/batch` | `BatchExecutionStatus.tsx` | Live status of a batch run (run-all-specs / run-all-collections), polling each child execution until all finish. |
 | `/environments` | `Environments.tsx` | Card grid CRUD for Environments — name/base URL/description/active toggle/login email+password (password optional on edit — blank keeps the existing one) — plus a read-only detected-Publisher field. |
 
 Notable modals/slide-overs used across pages: `CreateTestSlideOver` (creating a test
