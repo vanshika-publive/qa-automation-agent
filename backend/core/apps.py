@@ -71,6 +71,9 @@ class CoreConfig(AppConfig):
                 ['ps', '-ax', '-o', 'pid=,command='],
                 capture_output=True, text=True, timeout=10,
             )
+        except FileNotFoundError:
+            # 'ps' not available in slim container images — skip silently.
+            return
         except Exception:
             logger.exception('reaper: could not list processes')
             return
