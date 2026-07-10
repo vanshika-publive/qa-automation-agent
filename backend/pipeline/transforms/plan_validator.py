@@ -45,6 +45,47 @@ def _is_field_referenced(field_name: str, content: str) -> bool:
     return all(re.search(rf'\b{re.escape(tok)}\b', content, flags=re.IGNORECASE) for tok in tokens)
 
 
+_COMBOBOX_PLACEHOLDERS = ('select', 'choose', 'please', 'search', 'info-circle', 'none', '-')
+
+
+def _prefilled_combobox_names(snap: str) -> set:
+    """Names of comboboxes that ALREADY show a selected value in the snapshot (pre-filled defaults
+    like Response Type -> 'HTML', or Credits -> the logged-in user). In the accessibility tree such
+    a select renders as a `combobox "Name *"` line immediately followed by a `generic "<value>"`
+    node carrying the chosen value. These are already satisfied and must not be treated as required
+    (clicking them hangs the run). Returns normalized names."""
+    names = set()
+    lines = (snap or '').split('\n')
+    for i, line in enumerate(lines):
+        m = re.search(r'combobox\s+"([^"]+)"', line)
+        if not m:
+            continue
+        name = m.group(1)
+        for nxt in lines[i + 1:i + 3]:
+            vm = re.search(r'\bgeneric\s+"([^"]+)"', nxt)
+            if not vm:
+                continue
+            value = vm.group(1).strip()
+            low = value.lower()
+            if value and re.search(r'[A-Za-z0-9]{2,}', value) and not any(p in low for p in _COMBOBOX_PLACEHOLDERS):
+                names.add(normalize_field_name(name))
+            break
+    return names
+
+
+def _snapshot_is_error_page(snap: str) -> bool:
+    """True when a captured snapshot is the dashboard's crash/not-found screen rather than a real
+    page. Used to reject plans that page.goto() a guessed URL which only "worked" because the
+    navigation happened — landing on an error page, not a usable form/list."""
+    low = (snap or '').lower()
+    return (
+        'something went wrong' in low or
+        'page not found' in low or
+        'page doesn' in low or            # "page doesn't exist"
+        'oops' in low and 'went wrong' in low
+    )
+
+
 def _page_facts_declare_fields(facts) -> bool:
     """True only if this PAGE_FACTS entry actually lists form fields. Entries that exist purely
     for routing/notes (empty field lists) return False so the live-snapshot required-field
@@ -170,6 +211,7 @@ def validate_plan_content(
     ))
 
     missing_required_fields: List[str] = []
+    prefilled_combobox_all: Set[str] = set()
     for visited in visited_paths_in_plan:
         facts = PAGE_FACTS.get(visited)
         if not facts or not plan_submits_form:
@@ -272,10 +314,18 @@ def validate_plan_content(
                 continue
             live_required.append(label)
 
+        # A required combobox that ALREADY shows a selected value (a pre-filled default, e.g.
+        # "Response Type *" -> "HTML") is already satisfied and must NOT be demanded — clicking such
+        # a control times out at runtime (its value span intercepts the click), so forcing the plan
+        # to "handle" it produces a guaranteed-failing step. Drop these from the required set.
+        prefilled = _prefilled_combobox_names(snap)
+        prefilled_combobox_all |= prefilled
         for raw_name in dict.fromkeys(live_required):
             # ARIA names often embed icon text like "info-circle"; strip it before matching.
             field_name = re.sub(r'\s*info-circle\s*', ' ', raw_name, flags=re.IGNORECASE).strip()
             if not re.search(r'[A-Za-z]{2,}', field_name):
+                continue
+            if normalize_field_name(field_name) in prefilled:
                 continue
             if not _is_field_referenced(field_name, content):
                 missing_required_fields.append(f'{visited} -> "{field_name}"')
@@ -331,13 +381,44 @@ def validate_plan_content(
         except Exception:
             visited_url_paths.append(u)
 
-    unvalidated_paths = [
-        p for p in visited_paths_in_plan
-        if not (
-            any(p.startswith(prefix) for prefix in KNOWN_PATH_PREFIXES) or
-            (len(snapshot_cache) > 0 and any(v_path.find(p) != -1 for v_path in visited_url_paths))
-        )
-    ]
+    def _was_visited(path: str) -> bool:
+        return len(snapshot_cache) > 0 and any(v_path.find(path) != -1 for v_path in visited_url_paths)
+
+    # A create/edit destination (…/create, …/new, …/edit/<id>) must be REACHED AND CONFIRMED live,
+    # never accepted just because it matches a known prefix. Confirmed 2026-07-08: the planner wrote
+    # page.goto('/posts/blank-canvas/create') — a plausible-looking but non-existent URL it never
+    # visited — and it slipped through purely on the '/posts/' prefix, producing a plan that 404s at
+    # runtime. Grounding create/edit URLs in an actual visit forces the planner to discover the real
+    # page (the error-page rescue hands it the live create routes) instead of inventing one.
+    def _is_create_like(path: str) -> bool:
+        return bool(re.search(r'/(?:create|new)(?:\?|$)|/edit/', path))
+
+    unvalidated_paths = []
+    for p in visited_paths_in_plan:
+        if _is_create_like(p):
+            if not _was_visited(p):
+                unvalidated_paths.append(p)
+        elif not (any(p.startswith(prefix) for prefix in KNOWN_PATH_PREFIXES) or _was_visited(p)):
+            unvalidated_paths.append(p)
+
+    # Error-page goto guard (general, no hardcoding): a plan whose page.goto() lands on the
+    # dashboard's crash screen ("Oops, something went wrong") is worthless — yet such a URL slips
+    # past the unvalidated-paths check above, because the planner DID navigate there so the URL is
+    # "visited". Confirmed 2026-07-08: the planner guessed /canvas/create for a "blank canvas" flow,
+    # got the error page, and wrote a plan on top of it anyway. Reject any goto whose captured
+    # snapshot is an error page, which forces the planner to discover the REAL create page by
+    # clicking through the UI instead of inventing a URL.
+    error_page_goto_paths: List[str] = []
+    for visited in visited_paths_in_plan:
+        for url, snapshot in snapshot_cache.items():
+            try:
+                snap_path = urlparse(url).path
+            except Exception:
+                snap_path = url
+            if visited and snap_path.find(visited) != -1:
+                if _snapshot_is_error_page(snapshot):
+                    error_page_goto_paths.append(visited)
+                break
 
     # Entity pages (geography, food, horoscope) publish in one click. Flag plans that visit a
     # one-click-publish page and use 'Save as Draft' -- unless they also visit a real draft page.
@@ -453,6 +534,16 @@ def validate_plan_content(
 
     hardcoded_virtualized_titles = find_hardcoded_virtualized_titles(content)
 
+    # A plan step that CLICKS a pre-filled combobox (already showing a default value) will hang at
+    # runtime — the selected-value span intercepts the click. Such a control needs no interaction.
+    # Flag any get_by_role('combobox', name='<prefilled>') the plan clicks so it gets removed.
+    prefilled_combobox_interactions: List[str] = []
+    for cb_name in prefilled_combobox_all:
+        for m in re.finditer(r"get_by_role\(\s*['\"]combobox['\"]\s*,\s*name\s*=\s*['\"]([^'\"]+)['\"]", content):
+            if normalize_field_name(m.group(1)) == cb_name:
+                prefilled_combobox_interactions.append(m.group(1))
+                break
+
     # Vacuous-emptiness false pass (see spec_validator.py for the full mechanism): locator.count()
     # does NOT auto-wait and to_have_count(0) is satisfied the instant a locator matches nothing, so a
     # deletion plan that guards its loop with .count() or asserts success with to_have_count(0) —
@@ -472,11 +563,13 @@ def validate_plan_content(
 
     if (
         not has_flow or not has_scenario or not has_steps or has_errors or
-        missing_permalink or len(unvalidated_paths) > 0 or has_placeholder or
+        missing_permalink or len(unvalidated_paths) > 0 or len(error_page_goto_paths) > 0 or
+        has_placeholder or
         len(unverified_titles) > 0 or len(missing_required_fields) > 0 or
         len(forbidden_goto_matches) > 0 or wrong_save_button or len(unknown_fill_labels) > 0 or
         len(missing_enabled_wait) > 0 or len(hardcoded_virtualized_titles) > 0 or
-        content_type_bleed or len(wrong_fill_react_in_plan) > 0 or emptiness_without_existence
+        content_type_bleed or len(wrong_fill_react_in_plan) > 0 or emptiness_without_existence or
+        len(prefilled_combobox_interactions) > 0
     ):
         issues: List[str] = []
         if not has_flow:
@@ -500,11 +593,36 @@ def validate_plan_content(
                 "Add a step: \"Use safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-{ts}', delay=50) to fill the permalink field\""
             )
         if len(unvalidated_paths) > 0:
+            # If the session already visited real create/edit pages, hand their exact URLs back so
+            # the model can paste the correct one instead of re-guessing. This is what actually
+            # unblocks the loop: the create page reached via the sidebar/popover (or the auto-guide)
+            # is already in snapshot_cache; surface it verbatim.
+            visited_create_urls = [
+                u for u in snapshot_cache.keys()
+                if re.search(r'/(?:create|new)(?:\?|$)|/edit/', urlparse(u).path if '://' in u else u)
+            ]
+            visited_hint = (
+                '\nYou DID visit these real create/edit pages this session — use one of these EXACT '
+                f'URLs in page.goto() instead of guessing: {", ".join(visited_create_urls)}'
+                if visited_create_urls else ''
+            )
             issues.append(
                 f'unverified URL path(s): {", ".join(unvalidated_paths)} -- '
                 'these were not visited during this session and do not match any known dashboard route. '
-                'Navigate there by clicking: snapshot the sidebar -> browser_click the feature link/Create button -> '
-                'snapshot to confirm the URL -> use that URL in the plan.'
+                'A create/edit URL must be one you actually reached and snapshotted — do NOT invent a '
+                'plausible-looking path. Navigate there by clicking: snapshot the sidebar -> browser_click '
+                'the feature link/Create button -> snapshot to confirm the URL -> use that URL in the plan.'
+                f'{visited_hint}'
+            )
+        if len(error_page_goto_paths) > 0:
+            issues.append(
+                f'page.goto() target(s) that landed on the "Oops, something went wrong" error page: '
+                f'{", ".join(error_page_goto_paths)} -- this is a GUESSED URL that does not exist, not a '
+                'real page. Do NOT write a plan on top of an error page. Discover the real create page by '
+                'driving the UI: navigate to /posts/published, find the content type in the left "Content '
+                'Type" list, click its "+" Create button to open the "Choose a … Type" popover, then click '
+                'the option you want. Read the "- Page URL:" from the resulting snapshot and use THAT exact '
+                'URL in your page.goto() step. Never invent a URL like /canvas/create.'
             )
         if len(unverified_titles) > 0:
             quoted = ', '.join(f'"{t}"' for t in unverified_titles)
@@ -603,6 +721,16 @@ def validate_plan_content(
                 ".locator('.ant-select-item-option').first.wait_for(state='visible') and .click() -- or, if a "
                 "specific option is required, cb.fill('<name>') to filter first, then click the first "
                 '.ant-select-item-option match. Never use get_by_title() for this combobox.'
+            )
+        if len(prefilled_combobox_interactions) > 0:
+            quoted = ', '.join(f'"{n}"' for n in prefilled_combobox_interactions)
+            issues.append(
+                f'plan clicks/opens combobox(es) that are ALREADY pre-filled with a default value: '
+                f'{quoted}. An Ant Design select that already shows a value renders that value on top '
+                'of the control, so clicking it TIMES OUT and kills the run. These fields are already '
+                'satisfied — REMOVE the click/select step(s) for them entirely (do not open them, do '
+                'not pick an option). If you want to note them, add a plain note like "Response Type '
+                'is pre-set to its default — no action needed" instead of an interaction step.'
             )
         if len(wrong_fill_react_in_plan) > 0:
             quoted = ', '.join(f'"{l}"' for l in wrong_fill_react_in_plan)

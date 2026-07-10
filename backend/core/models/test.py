@@ -20,6 +20,8 @@ class Test(models.Model):
     status = models.TextField(default='active')
     environment_ids = models.TextField(default='[]')
     generated_spec_filenames = models.TextField(default='[]')
+    latest_good_plan = models.TextField(default='')
+    failed_at_step = models.TextField(null=True, blank=True)
     created_at = models.TextField()
     deleted_at = models.TextField(null=True, blank=True)
 

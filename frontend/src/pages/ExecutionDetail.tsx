@@ -1,15 +1,25 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useExecutionDetail } from '../hooks/useExecutionDetail';
-import { ExecStep, TestResult, Execution, ExecutionDetail as ExecutionDetailData } from '../types';
+import { usePlanningMemory } from '../hooks/usePlanningMemory';
+import {
+  ExecStep, TestResult, Execution, ExecutionDetail as ExecutionDetailData, PLANNING_MEMORY_MAX,
+} from '../types';
 import { relTime, fmtDatetime, fmtMSS } from '../utils/formatters';
 import { StatusPill, TestStatusBadge } from '../components/StatusPill';
 import { PageLoader } from '../components/PageLoader';
 import { Button, IconButton } from '../components/Button';
 import {
   Clock, ArrowRight, Code2, FileText, ChevronDown, ArrowLeft, ChevronRight,
-  RotateCcw, Timer, Network, Trash2, ExternalLink, AlertTriangle,
+  RotateCcw, Timer, Network, Trash2, ExternalLink, AlertTriangle, Wrench, Send, Info,
 } from 'lucide-react';
+
+/** Numbered steps of the plan's first scenario (mirrors the backend's first-scenario target). */
+function parsePlanSteps(planContent: string): string[] {
+  const block = planContent.match(/\*\*Steps:?\*\*\s*\n([\s\S]*?)(?=\n\s*\*\*Expected|$)/);
+  if (!block) return [];
+  return [...block[1].matchAll(/^\s*\d+\.\s+(.+)$/gm)].map((m) => m[1].trim());
+}
 
 const STEP_ORDER = ['orchestrator', 'planner', 'generator', 'runner'] as const;
 
@@ -323,6 +333,103 @@ function FailureBanner({ exec }: { exec: ExecutionDetailData }) {
   );
 }
 
+function CorrectiveReplanPanel({ exec, planContent }: { exec: ExecutionDetailData; planContent: string }) {
+  const { entries, correctionMutation } = usePlanningMemory(exec.testId);
+  const steps = parsePlanSteps(planContent);
+  const [failedAtStep, setFailedAtStep] = useState<number | null>(null);
+  const [correction, setCorrection] = useState('');
+  const [scopeHint, setScopeHint] = useState(false);
+
+  if (steps.length === 0) return null;
+
+  const full = entries.length >= PLANNING_MEMORY_MAX;
+
+  function handleSubmit() {
+    if (!failedAtStep || !correction.trim()) return;
+    correctionMutation.mutate(
+      { failedAtStep, correction: correction.trim(), environmentId: exec.environmentId },
+      { onSuccess: (res) => setScopeHint(res.data?.advisory?.kind === 'scope') },
+    );
+  }
+
+  return (
+    <section className="bg-surface-main rounded-2xl border border-border-subtle p-5 mb-5">
+      <div className="flex items-center gap-2 mb-1">
+        <Wrench size={16} className="text-text-secondary" />
+        <h2 className="text-sm font-semibold text-text-primary">Correct this run</h2>
+      </div>
+      <p className="text-xs text-text-secondary mb-4">
+        Pick the step where it went wrong and describe the fix. The steps before it are kept
+        as-is; only the rest is re-planned, then saved as this test's known-good plan.
+      </p>
+
+      {full ? (
+        <p className="text-sm text-text-secondary bg-surface-muted rounded-xl px-4 py-3 border border-border-subtle">
+          Planning memory is full ({PLANNING_MEMORY_MAX} corrections). Open the test and edit or
+          delete a guidance entry to make room before correcting again.
+        </p>
+      ) : (
+        <>
+          <div className="space-y-1 mb-4 max-h-64 overflow-y-auto">
+            {steps.map((step, i) => {
+              const n = i + 1;
+              const selected = failedAtStep === n;
+              return (
+                <button
+                  key={n}
+                  onClick={() => setFailedAtStep(n)}
+                  className={[
+                    'w-full text-left flex items-start gap-2 px-3 py-2 rounded-lg border transition-all text-xs',
+                    selected
+                      ? 'border-primary bg-primary/5 text-text-primary'
+                      : 'border-border-subtle text-text-secondary hover:border-primary/40',
+                  ].join(' ')}
+                >
+                  <span className={`font-mono font-semibold flex-shrink-0 ${selected ? 'text-primary' : 'text-text-secondary'}`}>
+                    {n}.
+                  </span>
+                  <span className="whitespace-pre-wrap">{step}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <textarea
+            value={correction}
+            onChange={(e) => setCorrection(e.target.value)}
+            rows={3}
+            placeholder="e.g. Go to Posts → Create instead of clicking Assets"
+            className="w-full border border-border-subtle rounded-xl px-4 py-3 text-sm text-text-primary placeholder:text-text-secondary focus:ring-2 focus:ring-primary focus:border-primary outline-none resize-none mb-3"
+          />
+
+          {scopeHint && (
+            <div className="flex items-start gap-2 text-xs bg-warning/5 border border-warning/20 rounded-xl px-3 py-2 mb-3">
+              <Info size={14} className="text-warning flex-shrink-0 mt-0.5" />
+              <span className="text-text-primary">
+                This looks like it might change what's being tested rather than how to navigate —
+                if so, edit the test description. The replan is running regardless.
+              </span>
+            </div>
+          )}
+
+          {correctionMutation.isError && (
+            <p className="text-sm text-error mb-3">{(correctionMutation.error as Error)?.message}</p>
+          )}
+
+          <Button
+            onClick={handleSubmit}
+            disabled={!failedAtStep || !correction.trim() || correctionMutation.isPending}
+          >
+            {correctionMutation.isPending
+              ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Replanning…</>
+              : <><Send size={16} />Submit correction &amp; replan</>}
+          </Button>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function ExecutionDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -415,6 +522,9 @@ export default function ExecutionDetail() {
       </div>
 
       <FailureBanner exec={exec} />
+      {exec.status === 'failed' && files?.planContent && (
+        <CorrectiveReplanPanel exec={exec} planContent={files.planContent} />
+      )}
       <PipelineSteps steps={steps} />
       <TestResultsTable results={testResults} pending={testResultsPending} />
       {files?.planContent && steps.some(s => s.stepName === 'planner' && s.status === 'passed') && (

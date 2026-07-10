@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import health, collections, environments, tests, executions
+from .views import health, collections, environments, tests, executions, planning_memory
 
 urlpatterns = [
     path('health', health.HealthView.as_view()),
@@ -19,6 +19,9 @@ urlpatterns = [
     path('tests/<str:pk>/spec', tests.TestSpecView.as_view()),
     path('tests/<str:pk>/run-spec', tests.TestRunSpecView.as_view()),
     path('tests/<str:pk>/run', tests.TestRunView.as_view()),
+    path('tests/<str:pk>/planning-memory', planning_memory.TestPlanningMemoryListView.as_view()),
+    path('tests/<str:pk>/planning-memory/<str:mid>', planning_memory.TestPlanningMemoryDetailView.as_view()),
+    path('tests/<str:pk>/corrections', planning_memory.TestCorrectionsView.as_view()),
 
     path('specs/view', tests.SpecReadView.as_view()),
     path('specs', tests.SpecDeleteView.as_view()),

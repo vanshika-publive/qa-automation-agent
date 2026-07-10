@@ -102,21 +102,29 @@ Environment                 Collection
   login_email, login_password  └─< Test (FK collection)
   publisher  ← detected live        id, name, prompt, status
   is_active                         environment_ids (JSON array stored as text)
-                                    └─< Execution (FK test + FK environment)
-                                          id, status, pass/fail/total counts, report_dir
-                                          └─< ExecutionStep  (orchestrator|planner|generator|runner)
+                                    latest_good_plan, failed_at_step
+                                    ├─< Execution (FK test + FK environment)
+                                    │     id, status, pass/fail/total counts, report_dir
+                                    │     └─< ExecutionStep  (orchestrator|planner|generator|runner)
+                                    └─< TestPlanningMemory (FK test)
+                                          id, content   ← human navigation corrections, max 4
 ```
 
 Key rules:
 - `Environment.publisher` is **never set by the user** — it's detected live from the dashboard's `GET /api/user/` using stored session cookies and cached on the row. The system never switches publisher.
 - `Execution.report_dir` (`"<collection-slug>/<execution-id>"`) is the join key into `data/reports/`; per-test results live in `results.json` on disk, not fully in Postgres.
 - On every Django startup (`CoreConfig.ready()`): stuck `running` executions are marked `failed`, and two default Environments ("Beta", "Production") are seeded if the table is empty.
+- **Planning memory & good plans** (`Test.latest_good_plan` / `failed_at_step` + `TestPlanningMemory`): `latest_good_plan` is the exact `plan.md` markdown that last passed for a test — a run replays it (skipping orchestrator+planner) and only falls back to a fresh planner run when there's no good plan or the replay fails. `TestPlanningMemory` holds up to 4 **human-authored** navigation corrections injected into fresh planner prompts. The automated pipeline (`run()`/`run_spec()`) never writes planning memory — only the human `POST /tests/<id>/planning-memory` and `POST /tests/<id>/corrections` paths do.
 
 ---
 
 ## AI pipeline (`backend/pipeline/`)
 
 Entry point: `pipeline/run_pipeline.py:PipelineRunner.run()`, called from a **daemon thread** (no Celery/RQ). Four stages run sequentially; one `ExecutionStep` row per stage captures stdout/stderr via a `LogCapture`/`_TeeWriter` redirect. A stage failure aborts remaining stages. Runs are cooperatively cancellable via `pipeline/utils/cancellation.py` (backs the `POST /executions/<id>/stop` endpoint).
+
+Three `PipelineRunner` entry points share this scaffolding: `run()` (full 4-stage), `run_spec()` (runner only, replays a saved spec), and `run_correction()` (human-initiated corrective replan — planner→generator→runner over a plan whose prefix is preserved). Two feature behaviors thread through them:
+- **Replay-first**: `run()` restores `Test.latest_good_plan` to `plan.md` and **skips orchestrator+planner** when a good plan exists for the unchanged prompt; a clean pass writes `plan.md` back to `latest_good_plan`. Only a missing good plan or a failed replay triggers a fresh planner run.
+- **Planning-memory injection**: fresh planner runs inject up to 4 `TestPlanningMemory` corrections into the system prompt (via `prompts/_shared.py:_planning_memory_section`). Empty memory ⇒ the prompt is byte-identical to the pre-feature baseline. `run_correction()` additionally feeds the human correction + fixed prefix to `PlannerService.run(..., correction=)`, then `transforms/plan_parser.py:preserve_prefix_steps` guarantees the prefix is byte-identical before generator/runner; on pass it records the correction as planning memory.
 
 Before any stage: resolves prompt + collection slug, refreshes the stored session, detects the active publisher (thread-locally via `pipeline/utils/credential_manager.py`).
 
@@ -181,6 +189,8 @@ Base path `/api/`. No authentication (`AllowAny`). All responses use the `{ data
 - `POST /executions/<id>/stop` — request cooperative cancellation of a running execution
 - `DELETE /executions/<id>` — soft-delete (409 if `status='running'`)
 - `GET/PUT /tests/<id>/spec`, `POST /tests/<id>/run-spec` — view/edit/re-run a generated spec (skips orchestrator/planner/generator)
+- `GET/POST /tests/<id>/planning-memory`, `PATCH/DELETE /tests/<id>/planning-memory/<mid>` — human-authored navigation corrections (max 4; POST returns a non-blocking intent-vs-navigation `advisory`)
+- `POST /tests/<id>/corrections` `{ failedAtStep, correction, environmentId }` — **human-initiated corrective replan**: keeps the plan prefix (steps 1..N-1), re-plans the tail, and on pass saves the good plan + records the correction as planning memory (409 if memory is full)
 - `GET /collections/<id>/specs`, `GET /specs/view?file=...`, `DELETE /specs?file=...` — list/read/delete spec files on disk
 - `POST /collections/<id>/run-all-specs` — runs every existing spec in a collection as one Execution
 - `GET /environments/active-publisher` — live-detects publisher from stored session
@@ -256,9 +266,9 @@ backend/
 - `BACKEND_ROOT` — the `backend/` dir (where `node_modules/@playwright/mcp` lives)
 - `PLAYWRIGHT_PROJECT_ROOT` — the `data/` dir (overridable via env var; where all generated/runtime artifacts live)
 
-`core/models/` is a **package** (not a single file): `collection.py`, `environment.py`, `execution.py`, `test.py`, with `__init__.py` re-exporting all models.
+`core/models/` is a **package** (not a single file): `collection.py`, `environment.py`, `execution.py`, `test.py`, `planning_memory.py`, with `__init__.py` re-exporting all models.
 
-`core/services/` is the business logic layer sitting between views and models: `collection_service.py`, `environment_service.py`, `execution_service.py`, `test_service.py`. Views call services; services call ORM. Do not put ORM logic directly in views.
+`core/services/` is the business logic layer sitting between views and models: `collection_service.py`, `environment_service.py`, `execution_service.py`, `test_service.py`, `planning_memory_service.py`. Views call services; services call ORM. Do not put ORM logic directly in views.
 
 ---
 
@@ -276,7 +286,7 @@ Stacking order matters: `@fetch_object` outermost when a 404 should take priorit
 
 ## Serializer conventions
 
-Serializers live in `backend/core/serializers/` (package — one file per resource: `collection.py`, `environment.py`, `test.py`, `execution.py`, plus `__init__.py` that re-exports all classes). All **output** serializers use **camelCase** field names that match `frontend/src/types.ts` exactly (e.g. `createdAt`, `testCount`, `baseUrl`, `isActive`, `collectionId`). Never add snake_case fields to an output serializer.
+Serializers live in `backend/core/serializers/` (package — one file per resource: `collection.py`, `environment.py`, `test.py`, `execution.py`, `planning_memory.py`, plus `__init__.py` that re-exports all classes). All **output** serializers use **camelCase** field names that match `frontend/src/types.ts` exactly (e.g. `createdAt`, `testCount`, `baseUrl`, `isActive`, `collectionId`). Never add snake_case fields to an output serializer.
 
 Input serializers (`*WriteSerializer`, `*CreateSerializer`, `*UpdateSerializer`) are used exclusively through the `@validate_body` decorator — never call `.is_valid()` manually inside a view handler.
 

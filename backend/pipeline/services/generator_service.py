@@ -277,7 +277,12 @@ class GeneratorService:
                     tool_results.append({
                         'role': 'tool',
                         'tool_call_id': call.id,
-                        'content': AgentUtils.truncate_result(result, max_chars),
+                        # Surface any open overlay (popover/modal/dropdown) ahead of truncation —
+                        # see AgentUtils.surface_overlays; portaled overlays are otherwise cut off
+                        # on content-heavy pages.
+                        'content': AgentUtils.truncate_result(
+                            AgentUtils.surface_overlays(result), max_chars
+                        ),
                     })
 
                 messages.extend(tool_results)
