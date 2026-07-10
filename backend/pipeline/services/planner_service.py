@@ -14,7 +14,7 @@ from pipeline.knowledge.dashboard_facts import facts_for_all_mentioned_pages, PA
 from pipeline.constants import MAX_PLANNER_ITERATIONS, PLANNER_NUDGE_THRESHOLD
 from pipeline.prompts.planner_prompt import build_planner_system_prompt
 from pipeline.tools.planner_tools import PLANNER_CUSTOM_TOOLS
-from pipeline.transforms.plan_validator import validate_plan_content, CONTENT_TYPE_FILTER_MAP
+from pipeline.transforms.plan_validator import validate_plan_content, CONTENT_TYPE_FILTER_MAP, _snapshot_is_error_page
 
 
 class PlannerService:
@@ -27,8 +27,31 @@ class PlannerService:
         'browser_wait_for',
     }
 
+    # Substrings in a browser_click result that mean the click never actually landed — the target
+    # was in the accessibility snapshot but not truly actionable (hover-reveal, opacity:0, or
+    # overlapped by another layer). Triggers the native-click recovery in _handle_tool.
+    _CLICK_FAILED_MARKERS = (
+        'intercepts pointer events',
+        'Timeout',
+        'timeout',
+        'not visible',
+        'not stable',
+        'not enabled',
+        'waiting for element',
+        'element is not',
+        'ERROR calling browser_click',
+    )
+
     @staticmethod
-    def run(test_plan, plan_path: str) -> None:
+    def run(test_plan, plan_path: str, planning_memory=(), correction=None) -> None:
+        """Drive a live browser to discover the UI and write plan.md.
+
+        planning_memory: up-to-4 human navigation corrections for this test, injected into
+            the system prompt. Empty -> prompt is byte-identical to the pre-feature baseline.
+        correction: optional dict {prefix_steps, failed_at_step, text} for a human-initiated
+            corrective replan. When set, the planner is told to keep the prefix and re-plan
+            the tail from the correction; the caller enforces prefix preservation afterward.
+        """
         ai = AiClientFactory.create()
         openai = ai['client']
         model = ai['model']
@@ -62,19 +85,18 @@ class PlannerService:
                 f'+ {len(facts) if facts else 0} chars of page facts into planner prompt'
             )
             planner_system_prompt = build_planner_system_prompt(
-                heuristics, facts, CredentialManager.get_publisher()
+                heuristics, facts, CredentialManager.get_publisher(), planning_memory
             )
 
+            user_content = (
+                f'Here is the TestPlan to implement:\n\n'
+                f'{json.dumps(PlannerService._to_dict(test_plan), indent=2)}\n\n'
+                f'{PlannerService._correction_directive(correction)}'
+                f'Start immediately by calling planner_setup_page with url: {test_plan.url}'
+            )
             messages = [
                 {'role': 'system', 'content': planner_system_prompt},
-                {
-                    'role': 'user',
-                    'content': (
-                        f'Here is the TestPlan to implement:\n\n'
-                        f'{json.dumps(PlannerService._to_dict(test_plan), indent=2)}\n\n'
-                        f'Start immediately by calling planner_setup_page with url: {test_plan.url}'
-                    ),
-                },
+                {'role': 'user', 'content': user_content},
             ]
 
             setup_page_count = 0
@@ -160,7 +182,12 @@ class PlannerService:
                     tool_results.append({
                         'role': 'tool',
                         'tool_call_id': call.id,
-                        'content': AgentUtils.truncate_result(result_str, max_chars),
+                        # Lift any open overlay (popover/modal/dropdown) to the front before
+                        # truncation — portaled overlays serialize last and are otherwise cut off
+                        # on big pages, hiding the very option the click just opened.
+                        'content': AgentUtils.truncate_result(
+                            AgentUtils.surface_overlays(result_str), max_chars
+                        ),
                     })
 
                 messages.extend(tool_results)
@@ -415,8 +442,29 @@ class PlannerService:
                                 f'WARNING: Navigating to {target_url} redirected to the login page. '
                                 f'This feature is NOT available for this publisher.'
                             )
+                        elif _snapshot_is_error_page(snapshot):
+                            result = PlannerService._guide_to_create_page(
+                                bridge, test_plan.url, test_plan, snapshot_cache, attempted_url=target_url
+                            )
                         else:
                             result = f'Navigated to {target_url}. Page snapshot:\n{AgentUtils.truncate_result(snapshot, 3000)}'
+                            # On the FIRST landing of a content-creation flow, hand the planner the
+                            # real create routes read live from the "Content Type" sidebar (including
+                            # popover sub-types like Blank Canvas). This grounds it in actual URLs so
+                            # it never has to guess a create path — nothing is hardcoded, the routes
+                            # come straight from the live DOM.
+                            print(f'[planner:setup] count={setup_page_count} '
+                                  f'creation_flow={PlannerService._is_creation_flow(test_plan)} '
+                                  f'title={getattr(test_plan, "title", None)!r}')
+                            if setup_page_count == 1 and PlannerService._is_creation_flow(test_plan):
+                                guide = PlannerService._guide_to_create_page(
+                                    bridge, test_plan.url, test_plan, snapshot_cache
+                                )
+                                if guide:
+                                    result = (
+                                        f'{result}\n\nThis is a content-creation flow, so the real '
+                                        f'create page was located live for you:\n{guide}'
+                                    )
                     except Exception:
                         result = f'Navigated to {target_url}. Call browser_snapshot (no args) to see the page.'
                 except Exception as err:
@@ -443,6 +491,60 @@ class PlannerService:
             except Exception as err:
                 result = f'ERROR calling {name}: {err}'
 
+        elif name == 'browser_click':
+            try:
+                result = bridge.call_tool(name, args)
+            except Exception as err:
+                result = f'ERROR calling {name}: {err}'
+            # A normal click reports success as a snapshot of the resulting page. If instead the
+            # result carries a Playwright actionability failure, the click NEVER LANDED. On this
+            # dashboard that is routine, not exceptional: the "Content Type" sub-sidebar (the
+            # per-type rows plus their "+" Create buttons) and the create-type popover cards are
+            # emitted into the accessibility snapshot even while their panel is opacity:0 (e.g. on
+            # Home) or painted behind the main content, so pointer events fall through and the click
+            # times out ("intercepts pointer events"). Recover with a NATIVE DOM click on the same
+            # target — el.click() fires the element's own handler (and, for an <a href>, navigates)
+            # regardless of opacity or pointer interception. Confirmed live 2026-07-08 that this is
+            # what lets exploration reach /posts/custom-page/blank-page/create via the Custom
+            # Content "+" -> "Blank Canvas" popover instead of stalling and hallucinating a plan.
+            target = args.get('target') or args.get('ref') or args.get('selector')
+            if target and any(m in result for m in PlannerService._CLICK_FAILED_MARKERS):
+                element_desc = args.get('element') or 'the element'
+                try:
+                    bridge.call_tool('browser_evaluate', {
+                        'target': target,
+                        'element': element_desc,
+                        'function': '(el) => { el.scrollIntoView({block: "center"}); el.click(); }',
+                    })
+                    snapshot = bridge.call_tool('browser_snapshot', {})
+                    url_match = re.search(r'^- Page URL:\s*(\S+)', snapshot, flags=re.MULTILINE)
+                    cache_key = url_match.group(1) if url_match else f'snapshot-{id(snapshot)}'
+                    snapshot_cache[cache_key] = snapshot
+                    result = (
+                        f'A normal click on {element_desc} could not land — it was present in the '
+                        f'snapshot but not directly clickable (a hover-reveal / opacity:0 / overlapped '
+                        f'element, which is normal for this dashboard\'s Content Type sidebar and its '
+                        f'create-type popovers). Recovered automatically with a native click. Below is '
+                        f'the RESULTING page — CONTINUE the flow from here (read its "- Page URL:" and '
+                        f'any popover/menu that opened); do NOT abandon the flow or fall back to a '
+                        f'guessed/hardcoded plan:\n{snapshot}'
+                    )
+                except Exception as rec_err:
+                    result = (
+                        f'{result}\n\nNative-click recovery also failed: {rec_err}. If this element '
+                        f'is a link or a create option, read its target URL from the snapshot and '
+                        f'reach the page with planner_setup_page instead of clicking.'
+                    )
+            # @playwright/mcp returns the resulting page's snapshot as the click result. Cache it so
+            # a page reached by CLICKING (e.g. the Blank Canvas create page opened via the Custom
+            # Content "+" popover) counts as "visited" for the plan validator AND feeds its live
+            # required-field discovery — otherwise the validator can't see the page the planner
+            # navigated to by clicking and rejects the (correct) page.goto() as unverified, and can't
+            # enforce the page's real required fields.
+            click_url = re.search(r'^- Page URL:\s*(\S+)', result, flags=re.MULTILINE)
+            if click_url:
+                snapshot_cache[click_url.group(1)] = result
+
         else:
             try:
                 result = bridge.call_tool(name, args)
@@ -456,10 +558,148 @@ class PlannerService:
                     url_match = re.search(r'^- Page URL:\s*(\S+)', result, flags=re.MULTILINE)
                     cache_key = url_match.group(1) if url_match else f'snapshot-{id(result)}'
                     snapshot_cache[cache_key] = result
+                    # If the LLM snapshotted a page it reached via a guessed create URL and it is the
+                    # "Something went wrong" screen, hand it the real create routes discovered live —
+                    # this is the point where the full page text is guaranteed present.
+                    if _snapshot_is_error_page(result):
+                        result = PlannerService._guide_to_create_page(
+                            bridge, test_plan.url, test_plan, snapshot_cache, attempted_url=cache_key
+                        )
             except Exception as err:
                 result = f'ERROR calling {name}: {err}'
 
         return result, setup_page_count, last_setup_url, plan_just_rejected, plan_saved
+
+    @staticmethod
+    def _is_creation_flow(test_plan) -> bool:
+        """True when the test is about creating/adding new content — the case where the planner
+        benefits from being handed the live create-route map up front."""
+        try:
+            parts = [str(test_plan.title or '')]
+            for f in test_plan.flows:
+                parts += [str(f.name or ''), str(f.description or '')]
+                parts += [str(s) for s in (f.steps or [])]
+            text = ' '.join(parts).lower()
+        except Exception:
+            return False
+        # Prefix match (no trailing \b) so "create"/"creation"/"adding" all count — a trailing
+        # boundary would only match the bare tokens "creat"/"add" and miss every real title.
+        return bool(re.search(r'\b(creat|add|new|publish|make|compos)', text))
+
+    @staticmethod
+    def _discover_create_routes(bridge, base_url: str) -> list:
+        """Read the live 'Content Type' sidebar to enumerate the REAL create routes as (label, url).
+
+        Nothing is hardcoded: navigate to the posts listing (where the sidebar is interactive),
+        open every '+' Create popover — which reveals nested options such as Custom Content ->
+        Template Page / Blank Canvas — and collect every create link straight from the DOM.
+        Returns a list of (label, absolute_url); [] on any failure.
+        """
+        try:
+            bridge.call_tool('browser_navigate', {'url': f"{base_url.rstrip('/')}/posts/published?content=true"})
+            # Open the per-type '+' create popovers so their nested option links render into the DOM.
+            bridge.call_tool('browser_evaluate', {'function': (
+                '() => { document.querySelectorAll(\'.create-redirect.popover, button[title="Create"]\')'
+                '.forEach(b => { try { b.click(); } catch (e) {} }); }'
+            )})
+            # The Ant popover renders ASYNC after the click — without a beat the very next read runs
+            # before the "Blank Canvas"/"Template Page" option links exist in the DOM (confirmed: only
+            # the bare "Create" links were found). A snapshot call blocks until the page is stable.
+            try:
+                bridge.call_tool('browser_snapshot', {})
+            except Exception:
+                pass
+            raw = bridge.call_tool('browser_evaluate', {'function': (
+                '() => { const seen = new Set(); const out = []; '
+                'document.querySelectorAll("a[href]").forEach(a => { '
+                'const h = a.getAttribute("href") || ""; '
+                'const l = (a.getAttribute("title") || a.textContent || "").trim().replace(/\\s+/g, " ").slice(0, 90); '
+                'if ((/\\/create(\\b|$|\\?)/.test(h) || /create=/.test(h)) && l && !seen.has(h)) { '
+                'seen.add(h); out.push(l + "  =>  " + h); } }); return out.join("\\n"); }'
+            )})
+            routes = []
+            for line in (raw or '').splitlines():
+                if '  =>  ' not in line:
+                    continue
+                label, href = [x.strip() for x in line.split('  =>  ', 1)]
+                if not href:
+                    continue
+                if href.startswith('/'):
+                    origin = base_url.split('/v2')[0].rstrip('/')
+                    href = f'{origin}{href}'
+                routes.append((label, href))
+            return routes
+        except Exception:
+            return []
+
+    @staticmethod
+    def _best_matching_route(test_plan, routes: list):
+        """Pick the create route whose label best matches the test's intent (by distinctive word
+        overlap). Returns (label, url) or None when nothing matches confidently."""
+        stop = {'create', 'page', 'pages', 'new', 'add', 'test', 'the', 'and', 'for', 'with',
+                'content', 'custom', 'unstructured', 'structures', 'code', 'response', 'formats'}
+        try:
+            title = (test_plan.title or '').lower()
+        except Exception:
+            title = ''
+        tokens = [t for t in re.findall(r'[a-z]{4,}', title) if t not in stop]
+        best, best_score = None, 0
+        for label, href in routes:
+            ll = label.lower()
+            score = sum(1 for t in set(tokens) if t in ll)
+            if score > best_score:
+                best, best_score = (label, href), score
+        return best if best_score > 0 else None
+
+    @staticmethod
+    def _guide_to_create_page(bridge, base_url: str, test_plan, snapshot_cache: dict, attempted_url=None) -> str:
+        """Discover the real create routes live, and if one clearly matches the test intent, NAVIGATE
+        to it and snapshot it so it is genuinely visited (URL verified + fields observable), then hand
+        the planner explicit instructions. Falls back to just listing the routes. Used both proactively
+        (first landing of a creation flow) and to rescue a navigation that hit the error page.
+        """
+        prefix = (
+            f'"{attempted_url}" is NOT a real page — it rendered the "Something went wrong" error '
+            f'screen. Do NOT write a plan on top of it and do NOT guess another URL.\n\n'
+            if attempted_url else ''
+        )
+        routes = PlannerService._discover_create_routes(bridge, base_url)
+        print(f'[planner:guide] discovered {len(routes)} create routes; '
+              f'match={PlannerService._best_matching_route(test_plan, routes)}')
+        if not routes:
+            return (prefix + 'Could not read the create routes automatically — open the left '
+                    '"Content Type" list, click the target type\'s "+" Create button, and click the '
+                    'option you need; then use the resulting page URL in page.goto().') if prefix else ''
+
+        match = PlannerService._best_matching_route(test_plan, routes)
+        routes_list = '\n'.join(f'{label}  =>  {href}' for label, href in routes)
+        if match:
+            label, url = match
+            try:
+                bridge.call_tool('browser_navigate', {'url': url})
+                snapshot = bridge.call_tool('browser_snapshot', {})
+                if not _snapshot_is_error_page(snapshot):
+                    key = url
+                    um = re.search(r'^- Page URL:\s*(\S+)', snapshot, flags=re.MULTILINE)
+                    if um:
+                        key = um.group(1)
+                    snapshot_cache[key] = snapshot
+                    return (
+                        f'{prefix}The item to create matches the "{label}" create page, which is now '
+                        f'OPEN and confirmed live at:\n{url}\n\nWrite step 1 of the plan as '
+                        f"page.goto('{url}') (this exact URL — it is verified). Then read the snapshot "
+                        f'below and add a fill/select step for EVERY control whose accessible name ends '
+                        f'in "*" (required), and an enabled-wait before the submit button. Do NOT copy '
+                        f'required fields from other content types — use ONLY what this snapshot shows:'
+                        f'\n{AgentUtils.truncate_result(snapshot, 3000)}'
+                    )
+            except Exception:
+                pass
+        return (
+            f'{prefix}REAL create routes discovered live from the "Content Type" sidebar '
+            f'(label => URL) — navigate to the matching one with planner_setup_page (so its fields '
+            f'are confirmed) and then use that exact URL in page.goto():\n{routes_list}'
+        )
 
     @staticmethod
     def _auto_fix_plan(content: str) -> str:
@@ -481,6 +721,29 @@ class PlannerService:
             # Negative lookahead skips already-correct filtered URLs and sub-paths like /published/geographies.
             content = re.sub(r'/posts/published(?![?/\w])', filter_url, content)
         return content
+
+    @staticmethod
+    def _correction_directive(correction) -> str:
+        """Preamble for a corrective replan: keep the working prefix, re-plan the tail.
+
+        Returns '' for a normal (non-correction) run so the initial message is unchanged.
+        """
+        if not correction:
+            return ''
+        prefix = correction.get('prefix_steps') or []
+        n = correction.get('failed_at_step')
+        text = (correction.get('text') or '').strip()
+        prefix_block = '\n'.join(f'{i + 1}. {s}' for i, s in enumerate(prefix)) or '(none)'
+        return (
+            'CORRECTIVE REPLAN — a human watched a failed run and gave a fix.\n'
+            f'These earlier steps ALREADY WORK and must be kept EXACTLY as-is (steps 1..{max(n - 1, 0)}):\n'
+            f'{prefix_block}\n\n'
+            f'The run went wrong at step {n}. Human correction (authoritative — this is HOW to '
+            f'navigate, follow it): "{text}"\n'
+            'Re-plan from the failing step onward using this correction. Reproduce the working '
+            'steps above verbatim as the start of the plan, then continue with the corrected path. '
+            'Browse live to confirm the corrected navigation before saving.\n\n'
+        )
 
     @staticmethod
     def _to_dict(plan) -> dict:

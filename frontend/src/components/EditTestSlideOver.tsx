@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Test } from '../types';
 import { useCollections } from '../hooks/useCollections';
 import { useActiveEnvironments } from '../hooks/useActiveEnvironments';
+import PlanningGuidancePanel from './PlanningGuidancePanel';
 import { X, ChevronDown, CheckCircle, Plus } from 'lucide-react';
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
@@ -173,6 +174,10 @@ export default function EditTestSlideOver({
                 Add
               </a>
             </div>
+          </div>
+
+          <div className="pt-2 border-t border-border-subtle">
+            <PlanningGuidancePanel testId={test.id} />
           </div>
 
           {error && (

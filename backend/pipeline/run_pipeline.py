@@ -99,6 +99,21 @@ class PipelineRunner:
                     snapshot_path = test_plan_path.replace('plan.md', 'plan-snapshots.json')
                     Path(snapshot_path).unlink(missing_ok=True)
                     plan_already_exists = False
+                    # The saved good plan was for the old prompt — it's now stale.
+                    Test.all_objects.filter(id=test_id).update(latest_good_plan='', failed_at_step=None)
+
+            # Replay-first: no reusable plan on disk but we have a last-passing plan saved for
+            # this (unchanged) prompt — restore it and replay, skipping orchestrator + planner.
+            if not plan_already_exists and ctx.get('latest_good_plan'):
+                try:
+                    stored_prompt = Path(plan_prompt_path).read_text(encoding='utf-8').strip()
+                except FileNotFoundError:
+                    stored_prompt = None
+                if stored_prompt is not None and stored_prompt == test_prompt.strip():
+                    os.makedirs(os.path.dirname(test_plan_path), exist_ok=True)
+                    Path(test_plan_path).write_text(ctx['latest_good_plan'], encoding='utf-8')
+                    plan_already_exists = True
+                    print('Replaying last-passing plan (restored from saved good plan).')
 
             PipelineRunner._prepare_environment(env_row, environment_id)
 
@@ -121,15 +136,22 @@ class PipelineRunner:
                     PipelineRunner._raise_if_cancelled(execution_id)
 
                     if step_name == 'orchestrator':
-                        from pipeline.services.orchestrator_service import OrchestratorService
-                        test_plan = OrchestratorService.run(test_prompt, env_row['base_url'])
+                        if plan_already_exists:
+                            # Replaying a saved plan — the orchestrator's TestPlan feeds only the
+                            # planner, which is skipped below, so there is nothing to derive here.
+                            print('Skipping orchestrator — replaying saved plan.')
+                        else:
+                            from pipeline.services.orchestrator_service import OrchestratorService
+                            test_plan = OrchestratorService.run(test_prompt, env_row['base_url'])
 
                     elif step_name == 'planner':
                         if plan_already_exists:
                             print(f'Reusing existing plan at {test_plan_path} — delete it to force regeneration')
                         else:
                             from pipeline.services.planner_service import PlannerService
-                            PlannerService.run(test_plan, test_plan_path)
+                            from core.services.planning_memory_service import PlanningMemoryService
+                            memory = PlanningMemoryService.contents_for_test(test_id)
+                            PlannerService.run(test_plan, test_plan_path, planning_memory=memory)
                             Path(plan_prompt_path).write_text(test_prompt.strip(), encoding='utf-8')
 
                     elif step_name == 'generator':
@@ -205,6 +227,17 @@ class PipelineRunner:
                     on_step({'step_name': step_name, 'status': 'failed', 'log': log})
                     overall_status = 'failed'
                     break
+
+            # Protect the plan that just worked: on a clean pass, save plan.md as this test's
+            # last-known-good plan so future runs replay it instead of re-planning.
+            if overall_status == 'passed' and (summary or {}).get('passed', 0) > 0:
+                try:
+                    good_plan = Path(test_plan_path).read_text(encoding='utf-8')
+                    Test.all_objects.filter(id=test_id).update(
+                        latest_good_plan=good_plan, failed_at_step=None
+                    )
+                except Exception as save_err:
+                    print(f'[pipeline] could not persist latest_good_plan: {save_err}', file=sys.stderr)
 
         except Exception as outer_err:
             overall_status = 'failed'
@@ -331,6 +364,222 @@ class PipelineRunner:
             StepManager.finalize_execution(execution_id, overall_status, start_ms, summary)
 
     @staticmethod
+    def run_correction(execution_id: str, test_id: str, environment_id: str,
+                       failed_at_step: int, correction: str, on_step=None) -> None:
+        """Human-initiated corrective replan.
+
+        Keeps the working prefix (steps 1..failed_at_step-1) of the test's plan verbatim and
+        re-plans the tail using the human's correction, then generator -> runner. On a clean
+        pass it saves the corrected plan as the new last-known-good AND records the correction
+        as a Planning Memory entry — this is the HUMAN correction path (triggered by
+        POST /tests/<id>/corrections), which is exactly where memory is allowed to be written;
+        the automated run()/run_spec() paths never touch Planning Memory.
+        """
+        if on_step is None:
+            on_step = lambda step: None
+
+        ctx = PipelineRunner._fetch_run_context(test_id, environment_id, include_prompt=True)
+        collection_slug = ctx['collection_slug']
+        env_row = ctx['env_row']
+        test_prompt = ctx['test_prompt']
+
+        test_plan_path = os.path.join(PROJECT_ROOT, 'specs', collection_slug, test_id, 'plan.md')
+        plan_prompt_path = os.path.join(PROJECT_ROOT, 'specs', collection_slug, test_id, 'plan-prompt.txt')
+        tests_dir = os.path.join(PROJECT_ROOT, 'tests', collection_slug)
+        reports_dir = os.path.join(PROJECT_ROOT, 'reports', collection_slug, execution_id)
+        report_dir = f'{collection_slug}/{execution_id}'
+
+        Execution.all_objects.filter(id=execution_id).update(report_dir=report_dir)
+
+        # The plan whose prefix we preserve: the last-known-good plan if we have one, else the
+        # current plan.md on disk.
+        source_md = ctx.get('latest_good_plan') or ''
+        if not source_md and os.path.isfile(test_plan_path):
+            source_md = Path(test_plan_path).read_text(encoding='utf-8')
+
+        pre_step_ids: dict = {}
+        for sn in ['planner', 'generator', 'runner']:
+            sid = str(uuid.uuid4())
+            ExecutionStep.all_objects.create(
+                id=sid, execution_id=execution_id, step_name=sn, status='pending',
+                log='', started_at=DateTimeUtils.now_iso(),
+            )
+            pre_step_ids[sn] = sid
+
+        start_ms = int(time.time() * 1000)
+        overall_status = 'passed'
+        summary = None
+        passed_ok = False
+        capture = LogCapture()
+
+        try:
+            if not env_row:
+                raise RuntimeError(f'Environment {environment_id} not found')
+            if not env_row['login_email'] or not env_row['login_password']:
+                raise RuntimeError(
+                    'Environment has no login credentials. '
+                    'Open Environments -> Edit and add your dashboard email and password.'
+                )
+            if not source_md:
+                raise RuntimeError(
+                    'No existing plan to correct — run the test at least once so there is a '
+                    'plan to keep the working prefix from.'
+                )
+
+            from pipeline.transforms.plan_parser import parse_plan_md, preserve_prefix_steps
+            scenarios = parse_plan_md(source_md)
+            if not scenarios:
+                raise RuntimeError('Could not parse the existing plan to correct.')
+            target = scenarios[0]
+            if failed_at_step < 1 or failed_at_step > len(target.steps):
+                raise RuntimeError(
+                    f'failedAtStep {failed_at_step} is out of range — the plan has '
+                    f'{len(target.steps)} steps.'
+                )
+            prefix_steps = target.steps[:failed_at_step - 1]
+
+            PipelineRunner._prepare_environment(env_row, environment_id)
+
+            test_plan = None
+            generated_specs = []
+
+            for step_name in ['planner', 'generator', 'runner']:
+                step_id = pre_step_ids[step_name]
+                ExecutionStep.all_objects.filter(id=step_id).update(
+                    status='running', started_at=DateTimeUtils.now_iso(),
+                )
+                on_step({'step_name': step_name, 'status': 'running'})
+
+                capture.start()
+                try:
+                    PipelineRunner._raise_if_cancelled(execution_id)
+
+                    if step_name == 'planner':
+                        from pipeline.services.orchestrator_service import OrchestratorService
+                        from pipeline.services.planner_service import PlannerService
+                        from core.services.planning_memory_service import PlanningMemoryService
+                        test_plan = OrchestratorService.run(test_prompt, env_row['base_url'])
+                        memory = PlanningMemoryService.contents_for_test(test_id)
+                        PlannerService.run(
+                            test_plan, test_plan_path, planning_memory=memory,
+                            correction={
+                                'prefix_steps': prefix_steps,
+                                'failed_at_step': failed_at_step,
+                                'text': correction,
+                            },
+                        )
+                        # Guarantee the working prefix is byte-identical, never re-derived.
+                        stitched = preserve_prefix_steps(
+                            Path(test_plan_path).read_text(encoding='utf-8'), prefix_steps
+                        )
+                        Path(test_plan_path).write_text(stitched, encoding='utf-8')
+                        Path(plan_prompt_path).write_text(test_prompt.strip(), encoding='utf-8')
+
+                    elif step_name == 'generator':
+                        if not os.path.isfile(test_plan_path):
+                            raise RuntimeError(
+                                f'Plan file not found at {test_plan_path} after the corrective replan.'
+                            )
+                        from pipeline.services.generator_service import GeneratorService
+                        generated_specs = GeneratorService.run(test_plan_path, tests_dir)
+                        for spec_file in generated_specs:
+                            try:
+                                compile(Path(spec_file).read_text(encoding='utf-8'), spec_file, 'exec')
+                            except SyntaxError as e:
+                                raise RuntimeError(f'Generated spec has Python syntax error:\n{spec_file}: {e}')
+                        if not generated_specs:
+                            raise RuntimeError(
+                                'Generator produced no spec files for the corrected plan — '
+                                'every write attempt was rejected by the validators (see the log).'
+                            )
+                        basenames = [os.path.basename(p) for p in generated_specs]
+                        Test.all_objects.filter(id=test_id).update(
+                            generated_spec_filenames=json.dumps(basenames)
+                        )
+
+                    else:
+                        from pipeline.services.runner_service import RunnerService
+                        if not generated_specs:
+                            raise RuntimeError('No generated specs to run after the corrective replan.')
+                        summary = RunnerService.run(reports_dir, generated_specs, {
+                            'dashboard_url': env_row['base_url'],
+                            'dashboard_email': env_row['login_email'],
+                            'dashboard_password': env_row['login_password'],
+                            'dashboard_publisher': env_row.get('publisher', ''),
+                        }, execution_id=execution_id)
+                        PipelineRunner._raise_if_cancelled(execution_id)
+                        if (summary or {}).get('failed', 0) > 0:
+                            overall_status = 'failed'
+
+                    log = capture.flush()
+                    capture.stop()
+                    step_status = (
+                        'failed' if step_name == 'runner' and (summary or {}).get('failed', 0) > 0
+                        else 'passed'
+                    )
+                    StepManager.update(step_id, step_status, log, DateTimeUtils.now_iso())
+                    on_step({'step_name': step_name, 'status': step_status, 'log': log})
+
+                except Exception as err:
+                    captured_log = capture.flush()
+                    capture.stop()
+                    err_msg = f'{err}\n{traceback.format_exc()}'
+                    log = '\n\n'.join(filter(None, [captured_log, err_msg]))
+                    PipelineRunner._write_step_failure(reports_dir, getattr(err, 'diagnosis', None))
+                    StepManager.update(step_id, 'failed', log, DateTimeUtils.now_iso())
+                    on_step({'step_name': step_name, 'status': 'failed', 'log': log})
+                    overall_status = 'failed'
+                    break
+
+            passed_ok = overall_status == 'passed' and (summary or {}).get('passed', 0) > 0
+
+        except Exception as outer_err:
+            overall_status = 'failed'
+            err_msg = f'{outer_err}\n{traceback.format_exc()}'
+            print(f'[correction pre-step error] {err_msg}', file=sys.stderr)
+            try:
+                now = DateTimeUtils.now_iso()
+                planner_id = pre_step_ids.get('planner')
+                if planner_id:
+                    ExecutionStep.all_objects.filter(id=planner_id).update(
+                        status='failed',
+                        log=f'Corrective replan failed before tests ran:\n\n{err_msg}',
+                        completed_at=now,
+                    )
+                on_step({'step_name': 'planner', 'status': 'failed', 'log': err_msg})
+            except Exception:
+                pass
+
+        finally:
+            if passed_ok:
+                # The correction worked: promote the corrected plan to last-known-good and
+                # persist the human's correction as Planning Memory (see method docstring).
+                try:
+                    good_plan = Path(test_plan_path).read_text(encoding='utf-8')
+                    Test.all_objects.filter(id=test_id).update(
+                        latest_good_plan=good_plan, failed_at_step=None
+                    )
+                except Exception as save_err:
+                    print(f'[correction] could not persist latest_good_plan: {save_err}', file=sys.stderr)
+                try:
+                    from core.services.planning_memory_service import (
+                        PlanningMemoryService, PlanningMemoryCapReached,
+                    )
+                    PlanningMemoryService.create(test_id, correction)
+                except PlanningMemoryCapReached:
+                    pass  # cap is guarded at the endpoint; ignore a late race
+                except Exception as mem_err:
+                    print(f'[correction] could not save planning memory: {mem_err}', file=sys.stderr)
+            else:
+                # Terminal: record where it broke so the UI can show a plain failure report
+                # instead of nudging for yet another correction.
+                marker = f'step {failed_at_step}: correction did not pass — {(correction or "")[:160]}'
+                Test.all_objects.filter(id=test_id).update(failed_at_step=marker)
+            CredentialManager.clear()
+            CancellationRegistry.discard(execution_id)
+            StepManager.finalize_execution(execution_id, overall_status, start_ms, summary)
+
+    @staticmethod
     def _write_step_failure(reports_dir: str, diagnosis) -> None:
         """Persist a stage's structured failure diagnosis to reports_dir/step-failure.json.
 
@@ -362,6 +611,7 @@ class PipelineRunner:
                 'publisher': env.publisher or '',
             } if env else None,
             'test_prompt': test.prompt if include_prompt else None,
+            'latest_good_plan': test.latest_good_plan or '',
         }
 
     @staticmethod

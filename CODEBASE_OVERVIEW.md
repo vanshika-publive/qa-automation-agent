@@ -124,12 +124,17 @@ Environment                 Collection
   publisher  ←─ detected from        id, name, prompt, status ('active'|'deleted')
                session, never        environment_ids (JSON array, stored as text)
                user-set              └─< Execution (FK test + FK environment, RESTRICT)
-  is_active, description                id, status, started_at/completed_at, duration_ms
-                                          pass_count/fail_count/total_count, report_dir
-                                          └─< ExecutionStep (FK execution, RESTRICT)
-                                                id, step_name ('orchestrator'|'planner'
-                                                |'generator'|'runner'), status, log,
-                                                started_at/completed_at
+  is_active, description                latest_good_plan, failed_at_step
+                                        ├─< Execution (FK test + FK environment, RESTRICT)
+                                        │     id, status, started_at/completed_at, duration_ms
+                                        │     pass_count/fail_count/total_count, report_dir
+                                        │     └─< ExecutionStep (FK execution, RESTRICT)
+                                        │           id, step_name ('orchestrator'|'planner'
+                                        │           |'generator'|'runner'), status, log,
+                                        │           started_at/completed_at
+                                        └─< TestPlanningMemory (FK test, RESTRICT)
+                                              id, content, created_at/updated_at
+                                              (human navigation corrections, max 4)
 ```
 
 Key relationships / business rules:
@@ -147,6 +152,14 @@ Key relationships / business rules:
   live from the dashboard's own `GET /api/user/` (using the stored session cookies) and
   the backend caches the detected name onto the row. The system deliberately **never
   switches publisher**; it only reports which one the current session is on.
+- **Planning memory & good plans** (planning-memory & corrective-replan feature).
+  `Test.latest_good_plan` is the exact `plan.md` that last passed — a normal run replays it
+  (skipping orchestrator+planner) and only re-plans fresh when it is absent or the replay
+  fails; a clean pass writes it back. `TestPlanningMemory` holds up to 4 **human-authored**
+  navigation corrections injected into fresh planner prompts. The automated pipeline never
+  writes planning memory — only the human `POST /tests/<id>/planning-memory` and
+  `POST /tests/<id>/corrections` paths do. `failed_at_step` records where a corrective replan
+  gave up (terminal state) for the UI.
 
 `backend/core/apps.py` (`CoreConfig.ready()`) runs on every Django startup:
 marks any `Execution` stuck in `status='running'` as `'failed'` (crash recovery for
@@ -169,7 +182,7 @@ default error responses into the same envelope. There is no authentication —
 `DEFAULT_PERMISSION_CLASSES = [AllowAny]` (internal tool, not exposed publicly).
 
 **View architecture:** every endpoint is an `APIView` subclass (one class per URL), with
-handlers named by HTTP verb only (`get`/`post`/`put`/`patch`/`delete`). All 23 routes
+handlers named by HTTP verb only (`get`/`post`/`put`/`patch`/`delete`). All 26 routes
 are declared explicitly as `path()` entries in `core/urls.py` — no `SimpleRouter` or
 `ViewSet`. Two decorators in `core/decorators.py` are applied at the handler level:
 `@validate_body(SerializerClass)` (validates request body, injects `data=`; 400 on
@@ -202,11 +215,14 @@ match `frontend/src/types.ts` exactly.
 | `GET /executions/<id>/stream` | **Server-Sent Events** — polls DB every 0.8s and streams `{execution, steps}` JSON until the run leaves `'running'` |
 | `POST /executions/tests/<test_id>/run` | **kicks off the full 4-stage pipeline** in a background thread, returns `{executionId}` immediately (202) |
 | `POST /collections/<id>/run-all-specs` | runs every existing spec file in a collection as one Execution |
+| `GET/POST /tests/<id>/planning-memory` | list / add a human navigation correction (max 4; POST returns a non-blocking `advisory` — navigation vs scope) |
+| `PATCH/DELETE /tests/<id>/planning-memory/<mid>` | edit / soft-delete a correction |
+| `POST /tests/<id>/corrections` | **human-initiated corrective replan** — `{failedAtStep, correction, environmentId}`; keeps the plan prefix, re-plans the tail, saves the good plan + records the correction on pass (409 when memory is full) |
 | `GET /reports/<path>` | static file serving of `data/reports/` (HTML report viewer), wired directly in `config/urls.py`, not under `/api` |
 
-Both "run" endpoints spawn a **daemon thread** (in `core/services/execution_service.py`:
-`launch_pipeline`/`launch_spec_run`) that calls `django.setup()` then
-`PipelineRunner.run(...)` / `PipelineRunner.run_spec(...)` — there's no task
+All three run endpoints spawn a **daemon thread** (in `core/services/execution_service.py`:
+`launch_pipeline` / `launch_spec_run` / `launch_correction`) that calls `django.setup()` then
+`PipelineRunner.run(...)` / `.run_spec(...)` / `.run_correction(...)` — there's no task
 queue (no Celery/RQ); concurrency is just raw Python threads, and progress is observed
 by the frontend via polling/SSE against the DB rows the thread writes to.
 
@@ -231,6 +247,27 @@ detects the **active publisher** from that session
 **thread-local runtime credentials** (`pipeline/utils/credential_manager.py`) so every
 downstream module can call `get_credentials()`/`get_publisher()` without threading
 parameters through every call.
+
+**Planning memory, replay-first & corrective replan** (three cooperating behaviors added
+for the reliability feature):
+- *Replay-first*: `run()` restores `Test.latest_good_plan` (the exact `plan.md` that last
+  passed) to disk and **skips the orchestrator + planner** whenever a good plan exists for
+  the unchanged prompt; a clean pass writes the current `plan.md` back to `latest_good_plan`.
+  A fresh planner run happens only when there is no good plan or the replay fails.
+- *Planning-memory injection*: a fresh planner run injects up to 4 human corrections from
+  `TestPlanningMemory` (`core/services/planning_memory_service.py`) into the system prompt via
+  `pipeline/prompts/_shared.py:_planning_memory_section`. Empty memory ⇒ the prompt is
+  byte-identical to the pre-feature baseline (so uncorrected tests behave exactly as before).
+- *Corrective replan* (`PipelineRunner.run_correction`, triggered by `POST /tests/<id>/corrections`):
+  a human picks the failing step N and supplies a correction. The planner re-plans with the
+  fixed prefix + correction (`PlannerService.run(..., correction=)`), then
+  `pipeline/transforms/plan_parser.py:preserve_prefix_steps` deterministically guarantees
+  steps 1..N-1 are byte-identical before generator → runner. On a pass it saves the corrected
+  plan as `latest_good_plan` **and** records the correction as a `TestPlanningMemory` entry —
+  this human-initiated path is the *only* place the pipeline writes planning memory
+  (`run()`/`run_spec()` never do). An advisory intent-vs-navigation classifier
+  (`PlanningMemoryService.classify_text`, a cheap `gpt-4o` call that degrades to `navigation`
+  on error) flags likely scope changes non-blockingly.
 
 ### 6.1 Stage 1 — Orchestrator (`pipeline/services/orchestrator_service.py: OrchestratorService`)
 
@@ -462,11 +499,15 @@ Single `Layout` (fixed 240px dark `Sidebar` + `TopBar`) wraps 6 routed pages:
 
 Notable modals/slide-overs used across pages: `CreateTestSlideOver` (creating a test
 optionally kicks off the live 4-stage pipeline with the same step-circle UI as
-`ExecutionDetail`, streamed via SSE), `EditTestSlideOver`, `SpecEditor` (full code editor
+`ExecutionDetail`, streamed via SSE), `EditTestSlideOver` (which embeds
+`PlanningGuidancePanel` — inline add/edit/delete of up to 4 navigation corrections),
+`SpecEditor` (full code editor
 for a generated `.py` file — edit, save, and re-run from the same panel, with a live
 run-status side panel), `RunTestModal`/`RunSuiteModal`/`RunAllModal` (environment picker
 + kick off a run), `FilterDrawer`/`CollectionFilterDrawer`, `ComparePanel` (side-by-side
-diff of 2 executions' steps/results).
+diff of 2 executions' steps/results). A failed `ExecutionDetail` also shows a corrective-replan
+panel (pick the failing plan step + describe the fix → `POST /tests/<id>/corrections`), backed
+by `services/planningMemory.ts` + `hooks/usePlanningMemory.ts`.
 
 ### 8.3 Real-time updates
 

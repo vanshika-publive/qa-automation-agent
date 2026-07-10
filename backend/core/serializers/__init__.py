@@ -18,6 +18,11 @@ from .execution import (
     ExecutionDetailSerializer,
     ExecutionStepSerializer,
 )
+from .planning_memory import (
+    PlanningMemorySerializer,
+    PlanningMemoryWriteSerializer,
+    CorrectionWriteSerializer,
+)
 
 __all__ = [
     'CollectionSerializer',
@@ -35,4 +40,7 @@ __all__ = [
     'ExecutionListSerializer',
     'ExecutionDetailSerializer',
     'ExecutionStepSerializer',
+    'PlanningMemorySerializer',
+    'PlanningMemoryWriteSerializer',
+    'CorrectionWriteSerializer',
 ]

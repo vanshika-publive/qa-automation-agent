@@ -64,6 +64,30 @@ def parse_plan_md(content: str) -> List[Scenario]:
     return scenarios
 
 
+def preserve_prefix_steps(plan_md: str, prefix_steps: List[str]) -> str:
+    """Force the first scenario's leading steps to be exactly `prefix_steps`.
+
+    Used by the corrective-replan flow so the human-validated prefix (steps 1..N-1) is
+    guaranteed byte-identical, not re-derived: whatever the planner wrote for those
+    positions is discarded and replaced with the originals, and everything the planner
+    produced beyond the prefix length is kept as the corrected tail. Targets the FIRST
+    Steps block (corrective replan operates on the plan's first/primary scenario).
+    """
+    if not prefix_steps:
+        return plan_md
+    pattern = re.compile(
+        r'(\*\*Steps:?\*\*\s*\n)([\s\S]*?)(?=\n\s*\*\*Expected|\Z)', flags=re.MULTILINE
+    )
+    match = pattern.search(plan_md)
+    if not match:
+        return plan_md
+    produced = re.findall(r'^\s*\d+\.\s+(.+)$', match.group(2), flags=re.MULTILINE)
+    tail = produced[len(prefix_steps):]
+    combined = list(prefix_steps) + tail
+    new_block = '\n'.join(f'{i + 1}. {step}' for i, step in enumerate(combined))
+    return plan_md[:match.start(2)] + new_block + plan_md[match.end(2):]
+
+
 def extract_scenario_url(steps: List[str], base_url: str) -> str:
     for step in steps:
         goto_match = re.search(r"page\.goto\(['\"`](https?:\/\/[^'\"`]+|\/[^'\"`]+)['\"`]\)", step)

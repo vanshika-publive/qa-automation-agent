@@ -249,6 +249,24 @@ class ExecutionService:
         threading.Thread(target=_run, daemon=True).start()
 
     @staticmethod
+    def launch_correction(
+        execution_id: str,
+        test_id: str,
+        environment_id: str,
+        failed_at_step: int,
+        correction: str,
+    ) -> None:
+        """Human-initiated corrective replan: keep the plan prefix, regenerate the tail."""
+        def _run():
+            import django
+            django.setup()
+            from pipeline.run_pipeline import PipelineRunner
+            PipelineRunner.run_correction(
+                execution_id, test_id, environment_id, failed_at_step, correction
+            )
+        threading.Thread(target=_run, daemon=True).start()
+
+    @staticmethod
     def launch_all_specs(collection_id: str, environment_id: str) -> str:
         from django.conf import settings
         first_test = Test.objects.filter(collection_id=collection_id).order_by('created_at').first()

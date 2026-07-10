@@ -93,3 +93,18 @@ export interface ExecutionFiles {
   specContent: string | null;
   planContent: string | null;
 }
+
+export interface PlanningMemoryEntry {
+  id: string;
+  testId: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Advisory intent-vs-navigation classification (non-blocking hint). */
+export interface CorrectionAdvisory {
+  kind: 'navigation' | 'scope';
+}
+
+export const PLANNING_MEMORY_MAX = 4;

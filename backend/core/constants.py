@@ -18,3 +18,8 @@ class TestStatus:
 
 class SSEConstants:
     POLL_INTERVAL_S = 1
+
+
+class PlanningMemory:
+    # Max human-authored navigation corrections retained per test.
+    MAX_ENTRIES = 4
