@@ -23,6 +23,10 @@ reports/
 specs/
 tests/
 
+# DB dumps / fixtures (may contain credentials)
+*_data.json
+backup*.sql
+
 # Misc
 dist/
 build/
