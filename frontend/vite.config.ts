@@ -15,10 +15,12 @@ export default defineConfig({
       '/api': {
         target: apiProxyTarget,
         changeOrigin: true,
+        secure: false,
       },
       '/reports': {
         target: apiProxyTarget,
         changeOrigin: true,
+        secure: false,
       },
     },
   },
