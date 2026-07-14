@@ -420,6 +420,6 @@ def build_generator_system_prompt(heuristics, facts='', publisher=''):
             f'The session is logged into "{publisher}" and the test runs against THIS publisher only. '
             'Use only categories/options observed live for this publisher; never assume another publisher\'s data.',
         )
-        + _facts_section(facts, _GENERATOR_FACTS_PREAMBLE)
         + _heuristics_section(heuristics)
+        + _facts_section(facts, _GENERATOR_FACTS_PREAMBLE)
     )

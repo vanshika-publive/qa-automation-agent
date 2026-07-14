@@ -397,7 +397,7 @@ def build_planner_system_prompt(heuristics, facts='', publisher='', planning_mem
             'Categories, tags, reporters and other option lists are per-publisher — use ONLY what you observe live here. '
             'Never switch publishers, and never assume another publisher\'s categories or routes.',
         )
-        + _facts_section(facts, _PLANNER_FACTS_PREAMBLE)
         + _heuristics_section(heuristics)
+        + _facts_section(facts, _PLANNER_FACTS_PREAMBLE)
         + _planning_memory_section(planning_memory)
     )
