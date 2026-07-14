@@ -35,11 +35,6 @@ buttons or fill any field: those mutate live data, and the generated test (not y
 
 KNOWN DASHBOARD FACTS (verified — trust these over the snapshot):
 
-General:
-- NO <nav> element. NEVER use get_by_role('navigation').
-- Sidebar links need exact: true — get_by_role('link', name='Posts', exact=True)
-- NEVER use get_by_label() — labels are <div>, not <label>. Always times out.
-
 ARTICLE CREATION (/posts/article/create) — articles PUBLISH DIRECTLY (NO save-as-draft -> edit -> publish detour):
 - Navigate directly — no "Create Article" button exists.
 - Required to enable Publish (Credits auto-fills with the logged-in user — leave it alone):
@@ -62,14 +57,6 @@ ARTICLE CREATION (/posts/article/create) — articles PUBLISH DIRECTLY (NO save-
     expect(page).to_have_url(re.compile(r'/posts/published'), timeout=15000)
 - Optional/SEO fields (NOT required to publish): safe_fill(page, 'Summary', ...), safe_fill(page, 'Meta Description', ...)
 - SAVE AS DRAFT instead (only for explicit "save as draft" flows): get_by_role('button', name='Save as Draft') -> URL /posts/draft
-- Dropdown items (Ant Design portals): when clicking an option BY NAME, ALWAYS get_by_title('exact text', exact=True).last
-  The portal renders last in the DOM — .last avoids matching sidebar links with the same title.
-  NEVER get_by_title('X') without exact=True and .last — strict mode will throw.
-  NEVER get_by_role('option') — times out.
-  CRITICAL: Category and tag names are NEVER hardcoded in this prompt — they change per publisher and over time,
-  AND long option lists are virtualized so an off-screen option is not in the DOM. For Primary Category, follow the
-  plan: either pick the first live .ant-select-item-option, or cb.fill('<name>') to filter then click the first match.
-  Never substitute a remembered category title. Category format is always 'Name ( slug )'; tag format is plain name.
 - TinyMCE: page.frame_locator('iframe[title*="Rich Text Area"]').locator('body')
 
 VIDEO CREATION (/posts/video/create) — videos PUBLISH DIRECTLY:
@@ -161,26 +148,6 @@ PUBLISHED LIST (/posts/published — articles: /posts/published?page_type=Articl
     expect(page.locator('tr').filter(has_text=title)).to_have_count(0, timeout=15000)
   NOTE: the kebab also has "Unpublish" — that sends the article back to draft and is NOT the same as Delete.
   NEVER match the dialog by title (e.g. get_by_role('dialog', name='Delete Article')) — title varies per content type.
-- CRITICAL — BULK / "delete all" delete. Two traps here, both confirmed live:
-  (a) VACUOUS PASS: locator.count() does NOT auto-wait, and expect(...).to_have_count(0) is satisfied the
-      instant a locator matches nothing. The list renders its rows asynchronously AFTER page.goto() resolves,
-      so `while rows.count() > 0:` right after the goto sees 0, the loop body never runs, and to_have_count(0)
-      passes on its first poll — a GREEN test that deleted nothing. Prove the list rendered before counting.
-  (b) SHIFT/BACKFILL: after each deletion the remaining rows shift UP, so the previous first row is instantly
-      replaced by a new first row. Do NOT wait for rows.first to detach — rows.first is a DYNAMIC locator that
-      re-resolves to the shifted-up (still-attached) row, so state='detached' never resolves and the wait times
-      out (confirmed: "locator('tr').filter(has_text='QA').first to be detached" timed out for 15s while a new
-      <tr> sat in first position). Instead, confirm each delete landed by waiting for the count to DROP BY ONE:
-    rows = page.locator('tr').filter(has_text=title)
-    rows.first.wait_for(state='visible', timeout=15000)   # MANDATORY: prove the filtered list rendered
-    remaining = rows.count()
-    while remaining > 0:
-        rows.first.locator('.published-action-dropdown').click()
-        page.locator('.ant-dropdown:not(.ant-dropdown-hidden)').last.get_by_role('menuitem', name='Delete').click()
-        page.get_by_role('dialog').get_by_role('button', name='Delete').click()
-        expect(rows).to_have_count(remaining - 1, timeout=15000)   # this delete landed; survives row shift-up
-        remaining -= 1
-    expect(page.locator('tr').filter(has_text=title)).to_have_count(0, timeout=15000)
 
 DRAFT LIST (/posts/draft) — only for "save as draft" / "discard" flows:
 - Row actions: link "Edit", link "Preview", button "Discard" — NO Delete button
@@ -189,15 +156,6 @@ DRAFT LIST (/posts/draft) — only for "save as draft" / "discard" flows:
     page.get_by_role('dialog', name='Discard Article').get_by_role('button', name='Discard').click()
 
 MEDIA LIBRARY (/media):
-- Clicking "Upload Media" fires a NATIVE OS FILE CHOOSER, not a modal. It MUST be intercepted with
-  page.expect_file_chooser() BEFORE the click, or the chooser hangs open forever and every subsequent
-  locator on the page is ambiguous (see next bullet):
-    with page.expect_file_chooser() as fc_info:
-        page.get_by_role('button', name='Upload Media').last.click()
-    fc_info.value.set_files(random_desktop_png())
-  random_desktop_png() picks a real .png at random from the Desktop — import it from helpers (see RULE 4).
-  NEVER call page.set_input_files() directly (no <input type="file"> is addressable) and NEVER pass a
-  fake/hardcoded path — the file must actually exist on disk or the chooser silently no-ops.
 - Only AFTER set_files() does the media grid get replaced by an "Upload Files" panel. Fill its required fields
   (React-controlled, pre-filled from the filename — use safe_sequential_fill to actually replace them):
     ts = int(time.time() * 1000)
@@ -222,25 +180,7 @@ WEB STORY (/posts/web-story/create) — verified live 2026-07-01:
   to settle. NEVER fill Title or Permalink before the image step.
   Correct order: (1) image via media library, (2) Title, (3) Permalink, (4) Primary Category, (5) Publish.
 - Required to enable Publish: Title *, English Title ( Permalink ) *, Primary Category *, AND the Web Story image.
-  The image is the field most often dropped — without it Publish stays disabled and the test times out on
-  expect(...).to_be_enabled().
-- The required image is NOT the "Upload ( Portrait )" / "Upload ( Landscape )" buttons — those are OPTIONAL custom
-  thumbnails under "Add Custom Thumbnails (Optional)". Targeting them does nothing for Publish. The REQUIRED control
-  is the drop-zone under the "Web Story *" heading, reachable ONLY by its visible text (it is a nameless <div>):
-    page.get_by_text('Upload your Web Story image').click()
-- That click opens an in-DOM "Media Library" modal (NOT a native file chooser). Complete it like this:
-    dialog = page.get_by_role('dialog')
-    dialog.get_by_role('checkbox').first.click()       # SELECT a grid item via its checkbox (verified live 2026-07-03)
-    page.get_by_role('button', name='Insert Media').click()   # confirm; modal closes, image attaches
-  CRITICAL — select the grid item with its CHECKBOX, NOT get_by_role('img').first. The first <img> in the dialog
-  is the upload drop-zone icon: clicking it opens a native OS file chooser (the run stalls with no file to give it).
-  Worse, the "Insert Media" button does NOT exist in the DOM until an item is actually selected — so if nothing is
-  selected, get_by_role('button', name='Insert Media') matches zero elements and times out. Clicking a checkbox is
-  what makes Insert Media appear and enable.
-  IMPORTANT — attach the image by SELECTING an existing grid item and clicking "Insert Media" (bottom-right of the
-  modal). Do NOT click the modal's "Upload Media" button: it fires a native OS file chooser that stalls the run
-  with no file to give it, leaving Publish disabled and timing out the test. The grid reliably contains images from
-  prior runs, so Insert Media always has something to attach — never take the Upload Media path.
+  The image is the field most often dropped — without it Publish stays disabled (see heuristics for the image widget pattern).
 - After image attaches:
     # Inserting the image adds a SLIDE that has its OWN 'Title *' textbox (#slide_title), so the accessible name
     # 'Title *' now matches TWO textboxes — passing the plain string 'Title *' is a strict-mode violation

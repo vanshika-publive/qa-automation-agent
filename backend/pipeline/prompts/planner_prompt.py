@@ -11,10 +11,6 @@ getByRole, /regex/, `template ${ts}`).
 
 KNOWN FACTS ABOUT THIS DASHBOARD (verified against live ARIA — use them directly and write the plan promptly;
 only if a live snapshot CLEARLY contradicts a fact should you trust the snapshot instead):
-- Sidebar links: role=link with exact names "Home", "Posts", "Featured Posts", "Media Library",
-  "Categories", "Tags", "Team", "Configuration", "Settings"
-- There is NO <nav> element and NO role="navigation" — never reference either
-- NEVER use get_by_label() — form labels are custom <div> elements, not <label> tags. Always times out.
 
 ARTICLE CREATION (/posts/article/create) — articles PUBLISH DIRECTLY from this page (no draft detour):
 - Required textboxes: "Title *" (safe_sequential_fill REQUIRED), "English Title ( Permalink ) *" (safe_sequential_fill REQUIRED — NEVER safe_fill; use a UNIQUE slug like f'qa-{ts}' every run — NEVER reuse a permalink)
@@ -79,17 +75,6 @@ PUBLISHED LIST (/posts/published — for articles: /posts/published?page_type=Ar
   page.get_by_role('dialog').get_by_role('button', name='Delete').click()
   CRITICAL: NEVER match dialog by title (e.g. get_by_role('dialog', name='Delete Article')) — the title varies per content type and hardcoding it causes failures on non-article pages.
   -> assert the row is gone. NOTE: "Unpublish" is a DIFFERENT item (back to draft), NOT Delete.
-- CRITICAL — "delete all" / bulk-delete flows (vacuous-pass trap): a plan step like "for each row, delete it"
-  followed by an Expected assertion of expect(...).to_have_count(0) will PASS while deleting nothing. Reason:
-  locator.count() does NOT auto-wait and to_have_count(0) is true the instant a locator matches nothing, so
-  during the async render gap right after page.goto() the loop is skipped and the assertion passes vacuously.
-  ALWAYS write a step that waits for the list to render BEFORE any count-based loop or emptiness assertion, e.g.
-  "Wait for the list to load: rows = page.locator('tr').filter(has_text=title); rows.first.wait_for(state='visible', timeout=15000)".
-  Then capture remaining = rows.count() and loop: delete rows.first, and after each delete wait for the count to
-  DROP BY ONE — expect(rows).to_have_count(remaining - 1, timeout=15000) — decrementing remaining each pass; finally
-  assert to_have_count(0, timeout=15000). CRITICAL: do NOT tell the generator to wait for rows.first to detach OR to
-  become visible again between deletes — after a deletion the rows SHIFT UP, so rows.first re-resolves to a different
-  still-attached row and a detach/visible wait either hangs or races. The count-drop wait is the only shift-safe signal.
 
 DRAFT LIST (/posts/draft) — only for "save as draft" / "discard" flows:
 - Table header row: "Title Content Type Created By Updated By Timeline Actions"
@@ -158,20 +143,7 @@ CUSTOM CONTENT TEMPLATE PAGE (/posts/custom-page/create — verified live 2026-0
 
 MEDIA LIBRARY (/media):
 - Search: get_by_role('textbox', name='Search by name, path, or alt text')
-- Upload: get_by_role('button', name='Upload Media').last
-  NOTE: "Upload Media" matches TWO elements — Ant's hidden <span class="ant-upload" role="button"> wrapper AND the
-  real <button class="ant-btn-primary">. Without .last this is a strict-mode violation. .last selects the real button.
-- CRITICAL: clicking "Upload Media" does NOT open a modal — it fires a NATIVE OS FILE CHOOSER immediately. This is
-  invisible to browser_snapshot (it's not part of the DOM), so plan this step as a concrete action, never as a vague
-  "handle the file chooser" placeholder:
-    1. Intercept the native chooser and select a file (a real .png picked at random from the Desktop — never a fake path).
-    2. ONLY AFTER a file is selected, the media grid is replaced by an "Upload Files" panel with fields
-       "File name *" (pre-filled from filename), "Alt text *" (pre-filled), "Caption", "Source", and
-       "Cancel"/"Upload" buttons.
-    3. Click get_by_role('button', name='Upload') to submit — this locator is ONLY safe to click once the
-       Upload Files panel has rendered. Before that, "Upload" is a substring of "Upload Media" and still matches
-       the two original-page elements above, causing a strict-mode violation. Never plan a bare "click Upload"
-       step without first sequencing the file-selection step before it.
+- Upload: get_by_role('button', name='Upload Media').last — fires a NATIVE OS FILE CHOOSER (not a modal); always .last to avoid strict-mode with the Ant span wrapper
 - Verify: after Upload, the panel closes and the new file appears in the media grid.
 
 VIDEO CREATION (/posts/video/create) — videos PUBLISH DIRECTLY:
@@ -224,32 +196,11 @@ WEB STORY (/posts/web-story/create) — verified live 2026-07-01:
   race as video: filling Permalink immediately after Title corrupts the slug. Correct order: image → Title
   → Permalink → Category → Publish. NEVER put Title/Permalink steps before the image step.
 - Required fields (ALL gate the Publish button; Publish stays disabled until every one is satisfied):
-    1. THE WEB STORY IMAGE — always first. See detailed instructions below.
-    2. safe_sequential_fill(page, 'Title *', ...)
+    1. THE WEB STORY IMAGE — always first (get_by_text('Upload your Web Story image') → Media Library modal → checkbox select → Insert Media; see heuristics for full pattern)
+    2. safe_sequential_fill(page, 'Title *', ...).first — CRITICAL: after image attaches a SLIDE adds its own 'Title *', so use .first to target the post title
     3. safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-web-story-{ts}', delay=50) — unique per run
     4. get_by_role('combobox', name='Primary Category') — Ant Design, virtualized; pick first live option
        (page.locator('.ant-select-dropdown').last.locator('.ant-select-item-option').first after wait_for visible)
-- CRITICAL — TWO DIFFERENT image widgets on this page; do NOT confuse them:
-    * OPTIONAL (skip these): buttons named "plus Upload ( Portrait )" and "plus Upload ( Landscape )" sit under the
-      "Add Custom Thumbnails (Optional)" heading. They are NOT required and filling them does NOT enable Publish.
-      NEVER target these for the required image.
-    * REQUIRED (this is the one): under the "Web Story *" (asterisk) heading there is a drop-zone whose only stable
-      handle is its visible text. Target it with get_by_text('Upload your Web Story image'). It is a nameless
-      <div>, so get_by_role('button', name=...) CANNOT reach it — use the text.
-- The required image flow is a MEDIA-LIBRARY MODAL, NOT a native file chooser:
-    1. Click get_by_text('Upload your Web Story image') — this opens the "Media Library" modal (an in-DOM dialog,
-       visible to browser_snapshot — no native OS chooser is involved here).
-    2. Select an existing grid item BY ITS CHECKBOX: get_by_role('dialog').get_by_role('checkbox').first.click().
-       Do NOT use get_by_role('img').first — the first <img> in the dialog is the upload drop-zone icon and clicking
-       it opens the native OS file chooser (the run stalls). To add a NEW image instead, click
-       get_by_role('button', name='Upload Media').last (that sub-button DOES open the native chooser — see MEDIA
-       LIBRARY above), but prefer selecting an existing item.
-    3. Selecting an item via its checkbox reveals the "Insert Media" button (it does NOT exist in the DOM until an
-       item is selected); click get_by_role('button', name='Insert Media') to confirm. The modal then closes and the
-       "Upload your Web Story image" placeholder disappears — that is how you know the required image is attached.
-- Inserting the image adds a SLIDE with its OWN 'Title *' textbox, so after the image step the post Title is
-  AMBIGUOUS: the name 'Title *' matches two textboxes. The POST title is the FIRST in DOM order — the plan's Title
-  step must target get_by_role('textbox', name='Title *').first (Permalink and Primary Category stay unique).
 - Save: expect(get_by_role('button', name='Publish')).to_be_enabled(timeout=15000) then click it. Only after the
   image is inserted (plus the three fields above) does Publish enable.
 
