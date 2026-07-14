@@ -310,6 +310,18 @@ CATEGORIES_LIST = PageFacts(
           'role), so nth(0) is the header and nth(1) is the first real data row.'),
 )
 
+TEAM_MEMBERS = PageFacts(
+    path='/team-members',
+    title='Team Members',
+    save_button='',
+    after_save_url_pattern='/team-members',
+    note=(
+        'Search: get_by_role("textbox", name="Search here..."). '
+        'Add member: get_by_role("button", name="Add Team Member"). '
+        'Navigate directly with page.goto("/team-members").'
+    ),
+)
+
 GEOGRAPHY_CREATE = PageFacts(
     path='/posts/entity/geographies/geography/create',
     title='Geography Create',
@@ -330,6 +342,15 @@ GEOGRAPHY_CREATE = PageFacts(
     save_button='Publish',
     after_save_url_pattern='/posts/published/geographies',
     published_list_path='/posts/published/geographies',
+    note=(
+        'ARTICLES CONTENT FILTER — when the plan includes an Articles filter row (the "+ Add Filter" step), '
+        'the plan MUST specify ALL THREE sub-steps with concrete locators and named options — never leave any as '
+        '"select the first available option" or the generator will omit that sub-step and Publish stays disabled. '
+        'Required pattern: (1) Filter by Field — click the combobox and name the option (e.g. "Primary Category"); '
+        '(2) Match Type — name the option (e.g. "Matches"); (3) Value — click get_by_role("combobox").last, then '
+        'click page.locator(".ant-select-dropdown").last.locator(".ant-select-item-option").first. '
+        'All three sub-steps on the SAME filter row; once all three are selected Publish becomes enabled.'
+    ),
 )
 
 VIDEO_CREATE = PageFacts(
@@ -548,6 +569,7 @@ PAGE_FACTS = {
     '/media': MEDIA_LIBRARY,
     '/categories/new': CATEGORY_CREATE,
     '/categories': CATEGORIES_LIST,
+    '/team-members': TEAM_MEMBERS,
     '/posts/entity/geographies/geography/create': GEOGRAPHY_CREATE,
     '/posts/video/create': VIDEO_CREATE,
     '/posts/gallery/create': GALLERY_CREATE,

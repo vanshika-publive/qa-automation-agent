@@ -361,6 +361,31 @@ page.get_by_role('dialog').get_by_role('button', name='Delete').click()
 
 ---
 
+## Bulk-Delete / "Delete All" Flows (Vacuous-Pass Trap)
+
+**Never** write a delete-all loop where the emptiness assertion fires immediately after `page.goto()`. `locator.count()` does NOT auto-wait, so `to_have_count(0)` passes vacuously during the async render gap — the loop never runs and the test still passes while deleting nothing.
+
+**Always** wait for the list to render before any count-based loop or emptiness assertion:
+```python
+rows = page.locator('tr').filter(has_text=title)
+rows.first.wait_for(state='visible', timeout=15000)
+remaining = rows.count()
+```
+
+**Then** loop with a count-drop wait after every delete:
+```python
+while remaining > 0:
+    rows.first.get_by_role('button', name='Delete').click()
+    page.get_by_role('dialog').get_by_role('button', name='Delete').click()
+    remaining -= 1
+    expect(rows).to_have_count(remaining, timeout=15000)
+expect(rows).to_have_count(0, timeout=15000)
+```
+
+**Never** wait for `rows.first` to detach or become visible again between deletes. After a deletion the rows shift up — `rows.first` re-resolves immediately to a different still-attached row, so a detach/visible wait either hangs or races. The count-drop wait is the only shift-safe signal.
+
+---
+
 ## Locator Strategy
 
 **Only** use semantic locators: `get_by_role()`, `get_by_text()`, `get_by_title()`.
@@ -474,3 +499,39 @@ expect(page.get_by_role('button', name='Publish')).to_be_enabled(timeout=5000)
 page.get_by_role('button', name='Publish').click()
 expect(page).to_have_url(re.compile(r'/posts/published/geographies'), timeout=15000)
 ```
+
+---
+
+## Editing a Persisted Setting (Configurations, Singleton Values)
+
+Applies to any test that edits an existing server-persisted value rather than creating a fresh timestamped entity — everything under `/configurations` (Site title, Site description, Timezone, Navigation, Theme, Branding, …) and any other singleton setting.
+
+Three requirements are **mandatory**, in this order:
+
+**1 — Use `safe_sequential_fill`, never `safe_fill`.**  These fields are React-controlled and pre-filled with the current saved value. `safe_fill` uses `.fill()`, which sets the DOM value WITHOUT firing React's `onChange`, so Save persists the OLD value while the box still shows the new text. The test passes while nothing was saved. `safe_sequential_fill` types real keys (select-all + delete + keystrokes) so React tracks the change and Save submits the new value.
+
+**2 — Verify after a page reload.**  After clicking Save, call `page.reload()`, re-locate the field, then `expect(field).to_have_value(new_value, timeout=15000)`. Asserting on the same field without reloading only echoes back what you typed — it passes even when the save silently failed. The reload is what proves the value round-tripped through the server.
+
+**3 — Capture the original value and restore it in a `finally` block.**  These are shared, publisher-wide config values, not throwaway timestamped data. The test must leave them exactly as found.
+
+Canonical shape:
+```python
+field = page.get_by_role('textbox', name='Site description')
+field.wait_for(state='visible')
+original_value = field.input_value()
+try:
+    safe_sequential_fill(page, 'Site description', f'QA Description {ts}')
+    page.get_by_role('button', name='Save').click()
+    page.reload()
+    field = page.get_by_role('textbox', name='Site description')
+    field.wait_for(state='visible')
+    expect(field).to_have_value(f'QA Description {ts}', timeout=15000)
+finally:
+    field = page.get_by_role('textbox', name='Site description')
+    field.wait_for(state='visible')
+    safe_sequential_fill(page, 'Site description', original_value)
+    page.get_by_role('button', name='Save').click()
+    expect(field).to_have_value(original_value, timeout=15000)
+```
+
+This does **not** apply to create flows (article/tag/category/etc.) — those make fresh timestamped entities that need no restore, and their post-create URL-change check already proves the save.
