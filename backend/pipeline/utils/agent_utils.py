@@ -1,8 +1,11 @@
 import json
 import random
 import re
+import threading
 import time
 from functools import wraps
+
+_thread_api_calls = threading.local()
 
 
 class AgentUtils:
@@ -141,10 +144,20 @@ class AgentUtils:
         return header + [m for turn in kept for m in turn]
 
     @staticmethod
+    def reset_call_counter():
+        _thread_api_calls.count = 0
+
+    @staticmethod
+    def get_call_count() -> int:
+        return getattr(_thread_api_calls, 'count', 0)
+
+    @staticmethod
     def call_with_retry(fn, max_retries: int = 3):
         for attempt in range(max_retries + 1):
             try:
-                return fn()
+                result = fn()
+                _thread_api_calls.count = getattr(_thread_api_calls, 'count', 0) + 1
+                return result
             except Exception as err:
                 if AgentUtils._is_retryable(err) and attempt < max_retries:
                     jitter = random.random() * 2000

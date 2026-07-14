@@ -102,6 +102,35 @@ ARTICLE_CREATE = PageFacts(
           'OS file chooser.'),
 )
 
+BLANK_PAGE_CREATE = PageFacts(
+    path='/posts/custom-page/blank-page/create',
+    title='Blank Canvas Create',
+    required_for_draft=[
+        FieldConstraint(field='Title *', react_controlled=True, note='React-controlled — MUST use safe_sequential_fill'),
+        FieldConstraint(field='English Title ( Permalink ) *', max=250, react_controlled=True, note="MUST use safe_sequential_fill — the async permalink-uniqueness check only reacts to real keystroke events. Use a UNIQUE slug every run, e.g. f'qa-blank-canvas-{ts}'."),
+    ],
+    required_for_publish=[],
+    optional_fields=[],
+    comboboxes=[
+        ComboboxFacts(aria_name='Response Type *', required=False, default_option='HTML', note='Defaults to HTML on page load — already selected, no action needed unless a different response type is required. NOT virtualized.'),
+    ],
+    save_button='Publish',
+    after_save_url_pattern='/posts/published',
+    publish_flow=[
+        PublishStep(kind='click_button', button='Publish'),
+        PublishStep(kind='expect_url', pattern='/posts/published'),
+    ],
+    published_list_path='/posts/published?page_type=CustomPage&ptype=CustomPage&create=custom-page',
+    draft_list_path='/posts/draft',
+    note=(
+        'Blank Canvas has NO Primary Category and NO Credits fields — the form only contains Title *, '
+        'English Title (Permalink) *, a Response Type combobox (defaults to HTML, no action needed), '
+        'and a Content code editor (optional). Fill Title + Permalink with safe_sequential_fill, then wait '
+        'for expect(get_by_role("button", name="Publish")).to_be_enabled(timeout=15000) and click Publish. '
+        'Direct-publish flow — no draft step. The published list is filtered by CustomPage type.'
+    ),
+)
+
 CUSTOM_PAGE_CREATE = PageFacts(
     path='/posts/custom-page/create',
     title='Custom Content Template Page',
@@ -503,6 +532,7 @@ MEDIA_LIBRARY = PageFacts(
 
 PAGE_FACTS = {
     '/posts/article/create': ARTICLE_CREATE,
+    '/posts/custom-page/blank-page/create': BLANK_PAGE_CREATE,
     '/posts/custom-page/create': CUSTOM_PAGE_CREATE,
     '/posts/draft': DRAFT_LIST,
     '/posts/published': PUBLISHED_LIST,
@@ -549,7 +579,9 @@ def detect_intent(prompt):
     lower = prompt.lower()
 
     page = None
-    if re.search(r'custom.?(content|page)', lower):
+    if re.search(r'blank.?(canvas|page)', lower):
+        page = BLANK_PAGE_CREATE
+    elif re.search(r'custom.?(content|page)', lower):
         page = CUSTOM_PAGE_CREATE
     elif re.search(r'web\s*stor', lower):
         page = WEB_STORY_CREATE
@@ -691,7 +723,9 @@ def facts_for_all_mentioned_pages(prompt):
 
     is_geography_filter_flow = bool(re.search(r'geograph', lower) and re.search(r'\bfilter\b', lower))
 
-    if re.search(r'custom.?(content|page)', lower):
+    if re.search(r'blank.?(canvas|page)', lower):
+        push(BLANK_PAGE_CREATE)
+    elif re.search(r'custom.?(content|page)', lower):
         push(CUSTOM_PAGE_CREATE)
     if re.search(r'article', lower) and not is_geography_filter_flow:
         push(ARTICLE_CREATE)
@@ -705,6 +739,19 @@ def facts_for_all_mentioned_pages(prompt):
         push(CATEGORY_CREATE)
     if re.search(r'geograph', lower):
         push(GEOGRAPHY_CREATE)
+
+    # URL-path fallback: scan for known page.goto() paths that appear verbatim in the plan/
+    # scenario text. Keyword regexes above catch "article", "video", etc. but miss cases where
+    # the orchestrator uses generic language ("create a new post") or where the hyphenated form
+    # of the URL doesn't match the regex (e.g. "web\s*stor" doesn't match "web-story",
+    # "live\s*blog" doesn't match "live-blog", and GALLERY_CREATE has no keyword regex at all).
+    # Every plan has at least one page.goto() with the actual URL path — detecting by path is
+    # unambiguous. Skip query-string variants (handled by verb logic below) and PUBLISHED_LIST /
+    # DRAFT_LIST (context-sensitive, gated on verb presence to avoid false injections).
+    _url_path_skip = {PUBLISHED_LIST.path, DRAFT_LIST.path}
+    for _path, _page_facts in PAGE_FACTS.items():
+        if '?' not in _path and _path not in _url_path_skip and _path in lower:
+            push(_page_facts)
 
     has_published_target = any(p.published_list_path for p in matched)
     # "save as draft" / "discard" surface the Draft list. Any content type that publishes to a

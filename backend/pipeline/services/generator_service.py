@@ -74,6 +74,7 @@ class GeneratorService:
         # image-less spec and failed on a disabled Publish button). Specs written earlier in this
         # same generator run are newer than the plan, so genuine mid-run resumes still skip.
         plan_mtime = os.path.getmtime(plan_path)
+        AgentUtils.reset_call_counter()
         for scenario in scenarios:
             spec_path = os.path.join(tests_dir, f'test_{scenario.file_name}.py')
             if os.path.exists(spec_path) and os.path.getmtime(spec_path) >= plan_mtime:
@@ -89,6 +90,7 @@ class GeneratorService:
             if file_path:
                 written.append(file_path)
 
+        print(f'[generator] OpenAI API calls: {AgentUtils.get_call_count()}')
         return written
 
     @staticmethod

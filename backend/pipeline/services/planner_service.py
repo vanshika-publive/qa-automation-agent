@@ -107,6 +107,7 @@ class PlannerService:
             # cap — capped below MAX_PLANNER_ITERATIONS so a runaway snapshot loop still gets cut off.
             snapshot_budget = min(12, 4 + 3 * max(1, len(test_plan.flows)))
 
+            AgentUtils.reset_call_counter()
             for iteration in range(MAX_PLANNER_ITERATIONS):
                 response = AgentUtils.call_with_retry(lambda: openai.chat.completions.create(
                     model=model,
@@ -244,6 +245,7 @@ class PlannerService:
                 if plan_saved:
                     break
 
+            print(f'[planner] OpenAI API calls: {AgentUtils.get_call_count()}')
             if not plan_saved:
                 diagnosis = PlannerService._build_failure_diagnosis(
                     iterations=iteration + 1,
