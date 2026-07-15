@@ -76,15 +76,13 @@ def validate_spec_semantics(code: str) -> Optional[str]:
 
     # The Media Library (/media) is a card GRID, not a table -- it has zero <tr> elements. A spec that
     # navigates there and uses page.locator('tr') / get_by_role('row') (copied from the table-based list
-    # pages) matches nothing and times out. This was the confirmed delete-media failure: the generator
-    # applied the generic Ant-table row pattern to a grid page.
+    # pages) matches nothing and times out.
     navigates_media = bool(re.search(r"goto\(['\"]\/media['\"]\)", code))
     uses_table_row_locator = bool(
         re.search(r"page\.locator\(\s*['\"]tr['\"]", code) or
         re.search(r"get_by_role\(\s*['\"]row['\"]", code)
     )
-    # /media's search button is ICON-ONLY with no accessible name, so get_by_role('button', name='Search')
-    # times out (verified live: 0 matches). Click it via CSS '.pl-search-bar button' (or press Enter).
+    # /media's search button is icon-only -- get_by_role('button', name='Search') matches nothing. Use '.pl-search-bar button' or press Enter.
     uses_phantom_search_button = bool(re.search(r"get_by_role\(\s*['\"]button['\"]\s*,\s*name\s*=\s*['\"]Search['\"]", code))
     if navigates_media and (uses_table_row_locator or uses_phantom_search_button):
         issues.append(
@@ -101,12 +99,9 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             "Assert gone against the grid: expect(page.locator('.media-listing-card')).to_have_count(0, timeout=15000)."
         )
 
-    # '.pl-search-bar button' is a sanctioned CSS locator for the /media Media Library ONLY -- that
-    # icon-only search button exists nowhere else. Generators copy the /media search pattern onto the
-    # posts/published list pages, where the element does not exist and the click times out (confirmed
-    # "delete galleries named QA" failure, 2026-07-02). On the published/list pages the search box does
-    # NOT auto-apply on fill either: the search runs only when you press Enter in the box (or click the
-    # page's own search icon). Trigger it with .press('Enter'), never '.pl-search-bar button'.
+    # '.pl-search-bar button' is sanctioned for /media ONLY -- the icon-only search button exists nowhere
+    # else. Generators copy this onto list pages where it times out, AND list pages don't auto-apply
+    # on fill: press Enter in the box or click the page's own search icon, not '.pl-search-bar button'.
     if re.search(r"locator\(\s*['\"][^'\"]*\.pl-search-bar", code) and not navigates_media:
         issues.append(
             "spec uses '.pl-search-bar button' but does not navigate to /media. That selector is a "
@@ -118,13 +113,10 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             "'.pl-search-bar button' click entirely."
         )
 
-    # GENERAL RULE (applies to every page, not per-flow): a search/filter box NEVER auto-applies on fill.
-    # The typed value only takes effect when the search is RUN -- by pressing Enter in the box, or clicking
-    # the page's search button. A spec that fills a search box but never triggers it silently searches
-    # nothing: the list stays unfiltered (or empty) and the downstream row/card locator matches the wrong
-    # item or times out. So: whenever the spec fills a textbox whose label contains "search" or "filter",
-    # it MUST also contain a search trigger somewhere -- a .press('Enter'), a '.pl-search-bar button' click
-    # (/media only), or a click on a button whose name contains "Search".
+    # GENERAL RULE: search/filter boxes never auto-apply on fill -- the typed value only takes effect
+    # when Enter is pressed or the search button is clicked. A spec that fills a search box without
+    # triggering it silently searches nothing: the list stays unfiltered and row/card locators match
+    # the wrong item or time out.
     fills_search_box = bool(
         re.search(r"safe_(?:sequential_)?fill\s*\(\s*page\s*,\s*['\"][^'\"]*(?:[Ss]earch|[Ff]ilter)[^'\"]*['\"]", code) or
         re.search(r"get_by_(?:role\(\s*['\"]textbox['\"]\s*,\s*name\s*=\s*|placeholder\(\s*)['\"][^'\"]*(?:[Ss]earch|[Ff]ilter)[^'\"]*['\"]\s*\)\s*\.fill\(", code)
@@ -156,7 +148,7 @@ def validate_spec_semantics(code: str) -> Optional[str]:
     # page.locator('tr').nth(N) (no .filter in between) indexes raw <tr> elements, but Ant Design
     # renders a hidden aria-hidden="true" "ant-table-measure-row" as the literal first <tr> in <tbody>
     # (plus the header <tr>), so .nth(1) resolves to that invisible measure row and wait_for(visible)
-    # times out (confirmed failure 2026-07-03). Use the accessibility tree, which skips aria-hidden rows.
+    # times out. Use the accessibility tree, which skips aria-hidden rows.
     if re.search(r"\.locator\(\s*['\"]tr['\"]\s*\)\s*\.nth\(", code):
         issues.append(
             "page.locator('tr').nth(N) detected — Ant Design renders a hidden aria-hidden='true' "
@@ -202,13 +194,10 @@ def validate_spec_semantics(code: str) -> Optional[str]:
         m.group(1) for m in re.finditer(r"page\.goto\(['\"]([^'\"]+)['\"]\)", code)
     ) if p.startswith('/')]
     navigated_facts = [PAGE_FACTS[p] for p in navigated_paths if PAGE_FACTS.get(p) is not None]
-    # A page counts as "having field facts" only if it actually declares fields. Some pages exist in
-    # PAGE_FACTS for routing/notes but leave their field lists empty (e.g. /posts/live-blog/create,
-    # whose fields are not yet hand-verified and are resolved via the live-discovery fallback).
-    # Treating an empty-field page as fully specced would make the unknown-fill-labels check below
-    # conclude that NO label is valid and reject every fill — blocking any correct spec for that page.
-    # "Declares fields" is the same predicate the plan_validator live-discovery gate keys on, so both
-    # modules share one canonical helper (_page_facts_declare_fields) rather than each defining its own.
+    # A page counts as "having field facts" only if it declares fields. Stub entries exist in PAGE_FACTS
+    # with empty field lists (e.g. /posts/live-blog/create); treating them as fully specced makes the
+    # unknown-fill-labels check conclude NO label is valid and reject every fill. Shares the same
+    # "declares fields?" predicate with plan_validator via the canonical _page_facts_declare_fields helper.
     all_navigated_have_facts = (
         len(navigated_paths) > 0 and
         all(
@@ -272,15 +261,10 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             )
 
     # Vacuous-emptiness false pass: locator.count() does NOT auto-wait, and to_have_count(0) is
-    # satisfied the instant a locator matches nothing. Every list on this dashboard renders its rows
-    # asynchronously AFTER page.goto() resolves, so a deletion flow that guards its loop with
-    # `while rows.count() > 0` or asserts success with to_have_count(0) — without first proving the
-    # rows actually rendered — passes vacuously: during the initial render gap count() is 0, the loop
-    # body never runs (nothing is deleted), and to_have_count(0) passes on its first poll. This was the
-    # confirmed "delete all QA galleries" false pass (2026-07-02): green test, zero rows deleted.
-    # Require a positive existence wait (rows.first.wait_for(state='visible'), or the endorsed
-    # single-row row.wait_for(state='visible')) BEFORE the count guard / emptiness assertion, so a
-    # final count of 0 means "removed", not "never loaded".
+    # satisfied the instant nothing matches. Dashboard rows render asynchronously after page.goto(),
+    # so a delete loop guarded by `while rows.count() > 0` passes vacuously during the render gap --
+    # the body never runs and the emptiness assertion is trivially true. Require a positive existence
+    # wait before the count guard so count==0 means "removed", not "never loaded".
     uses_count_guard = bool(re.search(r"\b(?:while|if)\b[^\n:]*\.count\(\)", code))
     asserts_empty = bool(re.search(r"\.to_have_count\(\s*0\b", code))
     if uses_count_guard or asserts_empty:
@@ -296,7 +280,7 @@ def validate_spec_semantics(code: str) -> Optional[str]:
                 'auto-wait, and to_have_count(0) is satisfied the instant the locator matches nothing, so during '
                 'the async list-render gap right after page.goto() the count is 0: the delete loop body never runs '
                 '(nothing is deleted) and the emptiness assertion passes vacuously — a green test that deletes '
-                'nothing (confirmed "delete all QA galleries" false pass). Before the loop / assertion, wait for the '
+                'nothing. Before the loop / assertion, wait for the '
                 "list to actually render: rows = page.locator('tr').filter(has_text=title); "
                 "rows.first.wait_for(state='visible', timeout=15000). Then keep the delete loop guarded by "
                 'rows.count() AFTER that wait, and the final expect(rows).to_have_count(0, timeout=15000) is '
@@ -346,12 +330,9 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             "Replace every flagged call with safe_sequential_fill(page, '<field>', value, delay=50)."
         )
 
-    # Defense-in-depth for the Permalink field, which is React-controlled on EVERY create page of
-    # this dashboard: its async uniqueness check only reacts to real keystroke events, so a plain
-    # safe_fill() leaves Publish/Save permanently disabled even with a valid unique value. The
-    # per-page enforcement above only fires when the navigated page has hand-verified field facts in
-    # PAGE_FACTS; pages whose facts are not yet populated (e.g. /posts/live-blog/create) would
-    # otherwise let a safe_fill on Permalink through. Flag it by label regardless of facts coverage.
+    # Permalink is React-controlled on every create page -- safe_fill() leaves Publish permanently
+    # disabled. Per-page enforcement above only fires for pages with hand-verified PAGE_FACTS; this
+    # catches the rest by label regardless of facts coverage.
     permalink_safe_fill = [
         label
         for label in extract_fill_labels(code)

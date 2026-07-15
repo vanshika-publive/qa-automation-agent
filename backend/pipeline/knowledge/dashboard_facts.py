@@ -19,10 +19,9 @@ class ComboboxFacts:
     known_options: list = field(default_factory=list)
     default_option: Optional[str] = None
     note: Optional[str] = None
-    # True for Ant Design Selects backed by a long, per-publisher, time-varying option list
-    # (rc-virtual-list renders only ~9 options at once). A get_by_title() value that was genuinely
-    # visible during planning/generation can still be absent at test-run time, so these fields must
-    # always be selected via the dynamic ".ant-select-item-option" pattern, never a hardcoded title.
+    # Ant Design Select backed by a per-publisher, time-varying list (~9 options visible at once).
+    # A value observed during planning can be absent at test-run time — always pick via
+    # ".ant-select-item-option", never a hardcoded title.
     virtualized: bool = False
 
 
@@ -188,7 +187,7 @@ PUBLISHED_LIST = PageFacts(
     title='Published List',
     save_button='',
     after_save_url_pattern='/posts/published',
-    note=('CRITICAL — CONTENT-TYPE BLEED (confirmed bug, 2026-07-01): the bare /posts/published with NO query '
+    note=('CRITICAL — CONTENT-TYPE BLEED : the bare /posts/published with NO query '
           'params interleaves EVERY content type (Article, Video, Web Story, Photo Gallery, Live Blog, Custom '
           'Content) in one list sorted by recency. "Topmost"/"latest" on that bare URL means topmost-of-ANY-type, '
           'NOT topmost of the type the scenario asked for. A plan for "edit the topmost video" that did '
@@ -392,7 +391,7 @@ VIDEO_CREATE = PageFacts(
         'titled "Embed Media" containing a single required field "Media URL *" (placeholder "Enter video URL") '
         'plus "Cancel"/"Submit" buttons. Fill "Media URL *" with a real embeddable video URL then click "Submit" '
         'to attach it and close the dialog — video is added by URL embed only, there is no desktop-upload path. '
-        '(Verified live 2026-07-01 on OdishaTv - Khabar.) The unrelated "Upload ( 16:9 )" button under '
+        'The unrelated "Upload ( 16:9 )" button under '
         '"Custom Thumbnail" uploads a static image thumbnail, not the video, and is optional.'
     ),
 )
@@ -402,9 +401,6 @@ GALLERY_CREATE = PageFacts(
     title='Photo Gallery Create',
     required_for_draft=[
         FieldConstraint(field='Title *', react_controlled=True, note='React-controlled — MUST use safe_sequential_fill, not safe_fill.'),
-        # EXACT ARIA name confirmed live from snapshot: spaces inside parentheses are REQUIRED.
-        # The generator has been observed to drop these spaces and write "English Title (Permalink) *"
-        # which matches nothing and causes a 15s timeout. Always copy this string verbatim.
         FieldConstraint(field='English Title ( Permalink ) *', react_controlled=True, note="EXACT label — spaces inside parens are mandatory: 'English Title ( Permalink ) *'. MUST use safe_sequential_fill. Use a UNIQUE slug every run, e.g. f'qa-gallery-{ts}'."),
     ],
     required_for_publish=[
@@ -420,7 +416,7 @@ GALLERY_CREATE = PageFacts(
     after_save_url_pattern='/posts/published',
     published_list_path='/posts/published?page_type=Gallery&ptype=Gallery&create=gallery',
     note=(
-        'Confirmed live from snapshot 2026-07-01. The Permalink field ARIA name has spaces inside the parens: '
+        'The Permalink field ARIA name has spaces inside the parens: '
         '"English Title ( Permalink ) *" — not "(Permalink)". The generator has been observed to drop the spaces, '
         'producing a locator that matches nothing and times out. Always use the exact string above. '
         'DEBOUNCE RACE — MANDATORY page.wait_for_timeout(500) BETWEEN Title and Permalink: Title\'s '
@@ -435,7 +431,7 @@ GALLERY_CREATE = PageFacts(
         'they are not required and will leave Publish disabled if the upload flow is incomplete. '
         'EDIT FLOW (editing an already-published gallery): open the gallery from the published-list Edit icon '
         '(navigates to /posts/gallery/<id>), which reuses this create form\'s field labels BUT the save button is '
-        "'Update' — NOT 'Publish' and NOT 'Save Changes'. (Verified live 2026-07-02: the edit form\'s buttons are "
+        "'Update' — NOT 'Publish' and NOT 'Save Changes'. The edit form\'s buttons are "
         "'Preview', 'Update', 'Save as Draft' — there is no 'Publish' on an already-published post.) Clicking "
         "'Update' saves and redirects back to the Gallery published list, so assert the edited row there afterward."
     ),
@@ -454,7 +450,7 @@ WEB_STORY_CREATE = PageFacts(
     ],
     comboboxes=[
         ComboboxFacts(aria_name='Primary Category', required=True, virtualized=True, note='REQUIRED. Virtualized + per-publisher — click and snapshot, pick the first live .ant-select-item-option; never hardcode a name.'),
-        ComboboxFacts(aria_name='Credits', required=True, note="Renders with an asterisk and aria-required=true, BUT auto-fills with the logged-in user and Publish ENABLES WITHOUT touching it (verified live 2026-07-03). It is a COMBOBOX, not a textbox — NEVER safe_fill('Credits *', ...). Take NO action on Credits."),
+        ComboboxFacts(aria_name='Credits', required=True, note="Renders with an asterisk and aria-required=true, BUT auto-fills with the logged-in user and Publish ENABLES WITHOUT touching it. It is a COMBOBOX, not a textbox — NEVER safe_fill('Credits *', ...). Take NO action on Credits."),
         ComboboxFacts(aria_name='Additional Category'),
         ComboboxFacts(aria_name='Tags'),
     ],
@@ -466,7 +462,7 @@ WEB_STORY_CREATE = PageFacts(
     ],
     published_list_path='/posts/published?page_type=Web Story&ptype=Web Story&create=web-story',
     note=(
-        'Web Story PUBLISHES DIRECTLY from this page (verified live 2026-07-03 on OdishaTv - Khabar). '
+        'Web Story PUBLISHES DIRECTLY from this page. '
         'PUBLISH IS ENABLED BY EXACTLY: the Web Story image + Title * + English Title ( Permalink ) * + '
         'Primary Category. Credits is aria-required but auto-fills and is NOT a gate — do not fill it. '
         'ORDERING RULE — attach the image FIRST, before filling Title or Permalink: the image (media-library) '
@@ -762,25 +758,18 @@ def facts_for_all_mentioned_pages(prompt):
     if re.search(r'geograph', lower):
         push(GEOGRAPHY_CREATE)
 
-    # URL-path fallback: scan for known page.goto() paths that appear verbatim in the plan/
-    # scenario text. Keyword regexes above catch "article", "video", etc. but miss cases where
-    # the orchestrator uses generic language ("create a new post") or where the hyphenated form
-    # of the URL doesn't match the regex (e.g. "web\s*stor" doesn't match "web-story",
-    # "live\s*blog" doesn't match "live-blog", and GALLERY_CREATE has no keyword regex at all).
-    # Every plan has at least one page.goto() with the actual URL path — detecting by path is
-    # unambiguous. Skip query-string variants (handled by verb logic below) and PUBLISHED_LIST /
-    # DRAFT_LIST (context-sensitive, gated on verb presence to avoid false injections).
+    # URL-path fallback: keyword regexes above miss hyphenated forms ("web-story", "live-blog")
+    # and Gallery (no keyword regex). Every plan with page.goto() has the real path — detection
+    # by path is unambiguous. Skip query-string variants and PUBLISHED_LIST / DRAFT_LIST
+    # (context-sensitive, gated on verb presence below to avoid false injections).
     _url_path_skip = {PUBLISHED_LIST.path, DRAFT_LIST.path}
     for _path, _page_facts in PAGE_FACTS.items():
         if '?' not in _path and _path not in _url_path_skip and _path in lower:
             push(_page_facts)
 
     has_published_target = any(p.published_list_path for p in matched)
-    # "save as draft" / "discard" surface the Draft list. Any content type that publishes to a
-    # Published list also needs those facts for "publish", "delete", AND "edit an existing item"
-    # scenarios ("edit the topmost X", "rename the latest Y") — editing an already-published item
-    # means finding its row in the Published list first, so the row-finding gotchas (header <tr>,
-    # hidden measure row, Update-vs-Publish button) apply just as much as to publish/delete.
+    # "draft"/"discard" inject Draft list facts; "publish"/"delete"/"edit" inject Published list
+    # facts — editing a published item requires finding it by row there first.
     if not is_geography_filter_flow and re.search(r'\bdraft\b|save.*as.*draft|discard', lower):
         push(DRAFT_LIST)
     if has_published_target and re.search(r'publish|delet|\bedit\b|topmost|latest|rename|update', lower):

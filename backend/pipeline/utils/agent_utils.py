@@ -11,20 +11,14 @@ _thread_api_calls = threading.local()
 class AgentUtils:
 
     MAX_TOOL_RESULT_CHARS = 8000
-    # browser_snapshot on Ant Design pages routinely exceeds 8000 chars just from wrapper divs
-    # before reaching later form sections (e.g. Web Story's required image upload lives past
-    # char 9700 in a 16000+ char snapshot) — truncating it at the default silently hides those
-    # fields from the model, not just from the printed log. Give snapshots a much larger budget.
+    # Ant Design snapshots routinely exceed 8000 chars before reaching later form sections;
+    # truncating at the default silently hides fields from the model. Give snapshots a larger budget.
     MAX_SNAPSHOT_RESULT_CHARS = 24000
     DEFAULT_KEEP_TURNS = 4
 
-    # Roles that denote a transient overlay layered over the page: modals, popovers, dropdown
-    # option lists, context/create menus, tooltips-as-menus. React (Ant Design) portals these to
-    # the END of the DOM, so on a content-heavy page (large table/list) they serialize hundreds
-    # of lines down — past every truncation budget — and become invisible to the model even
-    # though the overlay is the exact thing a preceding click just opened and must act on.
-    # Confirmed 2026-07-08: the Custom Content "Blank Canvas" create option sits at char ~40,289
-    # of a 41,208-char snapshot, cut by both the 8000 (click) and 24000 (snapshot) limits.
+    # Ant Design portals overlays (modals, popovers, dropdowns, menus) to the END of the DOM,
+    # so on a content-heavy page they serialize past every truncation budget and become invisible
+    # to the model even though the overlay is exactly what the preceding click just opened.
     OVERLAY_ROLES = ('dialog', 'alertdialog', 'menu', 'menubar', 'listbox', 'tooltip')
     _OVERLAY_HEADER = re.compile(
         r'^(\s*)-\s+(' + '|'.join(OVERLAY_ROLES) + r')\b'
@@ -32,17 +26,10 @@ class AgentUtils:
 
     @classmethod
     def retry(cls, max_retries: int = 3):
-        """
-        Decorator form of call_with_retry.
+        """Decorator form of call_with_retry. Use for wrapping named functions.
 
-        Use for wrapping named functions:
-            @AgentUtils.retry(max_retries=3)
-            def _call_openai():
-                return client.chat.completions.create(...)
-
-        For inline lambda calls inside loops (where arguments change per iteration),
-        use call_with_retry(lambda: ...) directly — the decorator form requires a
-        pre-defined function and cannot capture loop variables as cleanly.
+        For inline lambdas in loops, use call_with_retry(lambda: ...) directly --
+        the decorator can't capture loop variables as cleanly.
         """
         def decorator(fn):
             @wraps(fn)
@@ -70,15 +57,10 @@ class AgentUtils:
         """Lift any overlay subtree (modal / popover / dropdown / menu) to the front of an aria
         snapshot so fixed-size truncation cannot hide it.
 
-        Portaled overlays render last in the DOM and therefore last in the snapshot; on a big
-        page they fall past the truncation cliff and the model never sees the option it just
-        opened (e.g. clicking Custom Content's "Create" opens a popover whose "Blank Canvas"
-        entry is ~32k chars past the 8000-char click-result limit — so the planner looped and
-        fell back to a hallucinated plan). This copies each overlay block above the full tree,
-        under a banner, so it survives truncation and the model acts on it.
-
-        No-op (returns the input unchanged) when the text contains no overlay role — the common
-        case — so normal snapshots and non-snapshot tool results are byte-identical.
+        Portaled overlays render last in the DOM; on a content-heavy page they fall past every
+        truncation budget and the model never sees the option it just opened. Copies each overlay
+        block above the full tree under a banner so it survives truncation. No-op when no overlay
+        role is present, so normal snapshots are byte-identical.
         """
         if not result or '- ' not in result:
             return result

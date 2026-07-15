@@ -22,10 +22,8 @@ PROJECT_ROOT = settings.PLAYWRIGHT_PROJECT_ROOT
 
 
 class PipelineCancelled(RuntimeError):
-    """Raised when a run is stopped by the user mid-flight.
-
-    Carries a `diagnosis` dict so the per-stage failure handler persists it to
-    step-failure.json, letting the "Failure reason" panel show why the run ended.
+    """Raised when a run is stopped by the user mid-flight. Carries a diagnosis dict so
+    the per-stage failure handler can persist it to step-failure.json.
     """
     def __init__(self, message: str = 'Stopped by user.'):
         super().__init__(message)
@@ -57,9 +55,8 @@ class PipelineRunner:
 
         Execution.all_objects.filter(id=execution_id).update(report_dir=report_dir)
 
-        # Pre-create all 4 steps as 'pending' so the SSE stream can report them
-        # immediately — before _prepare_environment even starts.  The loop below
-        # flips each one to 'running' when it actually begins.
+        # Pre-create all 4 steps as 'pending' so the SSE stream reports them immediately.
+        # The loop below flips each to 'running' when it actually begins.
         pre_step_ids: dict = {}
         for sn in ['orchestrator', 'planner', 'generator', 'runner']:
             sid = str(uuid.uuid4())
@@ -99,7 +96,6 @@ class PipelineRunner:
                     snapshot_path = test_plan_path.replace('plan.md', 'plan-snapshots.json')
                     Path(snapshot_path).unlink(missing_ok=True)
                     plan_already_exists = False
-                    # The saved good plan was for the old prompt — it's now stale.
                     Test.all_objects.filter(id=test_id).update(latest_good_plan='', failed_at_step=None)
 
             # Replay-first: no reusable plan on disk but we have a last-passing plan saved for
@@ -137,8 +133,7 @@ class PipelineRunner:
 
                     if step_name == 'orchestrator':
                         if plan_already_exists:
-                            # Replaying a saved plan — the orchestrator's TestPlan feeds only the
-                            # planner, which is skipped below, so there is nothing to derive here.
+                            # TestPlan feeds only the planner, which is also skipped during replay.
                             print('Skipping orchestrator — replaying saved plan.')
                         else:
                             from pipeline.services.orchestrator_service import OrchestratorService
@@ -198,9 +193,8 @@ class PipelineRunner:
                             'dashboard_password': env_row['login_password'],
                             'dashboard_publisher': env_row.get('publisher', ''),
                         }, execution_id=execution_id)
-                        # A stop kills pytest, which makes run() return normally with
-                        # whatever partial results exist — force a failure so a stopped run
-                        # never reports as passed.
+                        # A stop kills pytest and run() returns normally with partial results --
+                        # force failure so a stopped run never reports as passed.
                         PipelineRunner._raise_if_cancelled(execution_id)
                         if (summary or {}).get('failed', 0) > 0:
                             overall_status = 'failed'
@@ -219,9 +213,8 @@ class PipelineRunner:
                     capture.stop()
                     err_msg = f'{err}\n{traceback.format_exc()}'
                     log = '\n\n'.join(filter(None, [captured_log, err_msg]))
-                    # A stage may attach a structured diagnosis (e.g. the planner's blocked-flow
-                    # report). Persist it beside results.json so failure_summary can surface it in
-                    # the "Failure reason" panel — otherwise a pre-runner failure has no reason.
+                    # Persist any structured diagnosis attached by the stage (e.g. planner's
+                    # blocked-flow report) so the "Failure reason" panel has context pre-runner.
                     PipelineRunner._write_step_failure(reports_dir, getattr(err, 'diagnosis', None))
                     StepManager.update(step_id, 'failed', log, DateTimeUtils.now_iso())
                     on_step({'step_name': step_name, 'status': 'failed', 'log': log})
@@ -244,7 +237,6 @@ class PipelineRunner:
             err_msg = f'{outer_err}\n{traceback.format_exc()}'
             print(f'[pipeline pre-step error] {err_msg}', file=sys.stderr)
             try:
-                # The orchestrator step was pre-created as 'pending'; mark it failed.
                 now = DateTimeUtils.now_iso()
                 orch_id = pre_step_ids.get('orchestrator')
                 if orch_id:
@@ -368,12 +360,10 @@ class PipelineRunner:
                        failed_at_step: int, correction: str, on_step=None) -> None:
         """Human-initiated corrective replan.
 
-        Keeps the working prefix (steps 1..failed_at_step-1) of the test's plan verbatim and
-        re-plans the tail using the human's correction, then generator -> runner. On a clean
-        pass it saves the corrected plan as the new last-known-good AND records the correction
-        as a Planning Memory entry — this is the HUMAN correction path (triggered by
-        POST /tests/<id>/corrections), which is exactly where memory is allowed to be written;
-        the automated run()/run_spec() paths never touch Planning Memory.
+        Keeps the working prefix (steps 1..failed_at_step-1) verbatim and re-plans the tail
+        using the human's correction, then runs generator -> runner. On a clean pass, promotes
+        the corrected plan to last-known-good and records the correction as Planning Memory.
+        Only this path writes Planning Memory — automated run()/run_spec() never do.
         """
         if on_step is None:
             on_step = lambda step: None
@@ -391,8 +381,6 @@ class PipelineRunner:
 
         Execution.all_objects.filter(id=execution_id).update(report_dir=report_dir)
 
-        # The plan whose prefix we preserve: the last-known-good plan if we have one, else the
-        # current plan.md on disk.
         source_md = ctx.get('latest_good_plan') or ''
         if not source_md and os.path.isfile(test_plan_path):
             source_md = Path(test_plan_path).read_text(encoding='utf-8')
@@ -552,8 +540,7 @@ class PipelineRunner:
 
         finally:
             if passed_ok:
-                # The correction worked: promote the corrected plan to last-known-good and
-                # persist the human's correction as Planning Memory (see method docstring).
+                # Correction passed: promote plan to last-known-good and record as Planning Memory.
                 try:
                     good_plan = Path(test_plan_path).read_text(encoding='utf-8')
                     Test.all_objects.filter(id=test_id).update(
@@ -582,9 +569,7 @@ class PipelineRunner:
     @staticmethod
     def _write_step_failure(reports_dir: str, diagnosis) -> None:
         """Persist a stage's structured failure diagnosis to reports_dir/step-failure.json.
-
-        No-op unless the stage attached a dict diagnosis. Best-effort: a write failure here
-        must never mask the original stage error.
+        No-op unless diagnosis is a dict. Best-effort — write failure must never mask the stage error.
         """
         if not isinstance(diagnosis, dict):
             return

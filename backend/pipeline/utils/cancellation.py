@@ -1,15 +1,12 @@
 """Cooperative cancellation for in-flight pipeline runs.
 
-The pipeline runs in an untracked daemon thread (see `ExecutionService.launch_pipeline`),
-so a web request cannot reach into it directly. This module is the bridge: the stop
-endpoint records an execution id here, and the pipeline thread checks it at each stage
-boundary and aborts. When a stage owns a killable child process (the runner's pytest
-subprocess), it registers that process so a stop request can SIGKILL it immediately
-instead of waiting for the next boundary.
+The stop endpoint flags an execution id here; the pipeline thread checks it at each
+stage boundary and aborts. Stages with a killable subprocess (the runner's pytest)
+register it so a stop request can SIGKILL immediately rather than waiting for the
+next boundary check.
 
-In-memory only — a single Django process holds all pipeline threads. A server restart
-loses the registry, but `CoreConfig.ready()` already marks orphaned `running` executions
-as `failed` on startup, so that gap is covered.
+In-memory only — server restart loses the registry, but CoreConfig.ready() marks
+orphaned running executions as failed on startup so that gap is covered.
 """
 
 import threading

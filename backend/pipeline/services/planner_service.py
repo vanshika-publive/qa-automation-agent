@@ -46,8 +46,8 @@ class PlannerService:
     def run(test_plan, plan_path: str, planning_memory=(), correction=None) -> None:
         """Drive a live browser to discover the UI and write plan.md.
 
-        planning_memory: up-to-4 human navigation corrections for this test, injected into
-            the system prompt. Empty -> prompt is byte-identical to the pre-feature baseline.
+        planning_memory: up-to-4 human navigation corrections injected into the system prompt.
+            Empty -> no corrections injected.
         correction: optional dict {prefix_steps, failed_at_step, text} for a human-initiated
             corrective replan. When set, the planner is told to keep the prefix and re-plan
             the tail from the correction; the caller enforces prefix preservation afterward.
@@ -156,10 +156,8 @@ class PlannerService:
                     name = call.function.name
                     args = AgentUtils.parse_tool_args(call.function.arguments)
                     last_action = f'{name}({json.dumps(args)[:120]})'
-                    # planner_save_plan is logged in full (not the 120-char summary other tool calls
-                    # get) — truncating it hid the actual plan text on repeated-rejection loops, making
-                    # it impossible to tell whether the model resubmitted the same broken URL or made a
-                    # different mistake each time (confirmed blind spot, 2026-07-02).
+                    # planner_save_plan logged in full — truncation hid plan text on rejection loops,
+                    # making it impossible to tell if the model resubmitted the same broken URL.
                     if name == 'planner_save_plan':
                         print(f'Planner calling: {name}({json.dumps(args)})')
                     else:
@@ -193,8 +191,6 @@ class PlannerService:
 
                 messages.extend(tool_results)
 
-                # Hard stop against snapshot loops: repeatedly calling browser_snapshot wastes API
-                # iterations and never advances the plan. After the per-flow budget, force the write.
                 if not plan_saved and snapshot_call_count >= snapshot_budget:
                     messages.append({
                         'role': 'user',
@@ -256,19 +252,14 @@ class PlannerService:
                     snapshot_cache=snapshot_cache,
                 )
                 err = RuntimeError(diagnosis['message'])
-                # Carried through the pipeline's generic except handler, which persists it to
-                # reports/<report_dir>/step-failure.json so the "Failure reason" panel can show
-                # WHY the planner stalled instead of a bare traceback.
+                # Persisted to step-failure.json by the pipeline's except handler — drives the "Failure reason" panel.
                 err.diagnosis = diagnosis['report']
                 raise err
             print(f'Planner complete — plan saved to {plan_path}')
 
         except Exception as err:
-            # Any exit without a saved plan must carry a diagnosis. The clean iteration-limit
-            # case above already attached one; this catches the other paths — a crash during
-            # setup or mid-loop (MCP / OpenAI / auth errors) — so the Failure reason panel still
-            # explains the stall instead of showing only a traceback. The original error message
-            # and traceback are preserved; we only annotate, then re-raise.
+            # Attach a diagnosis to crash paths not covered above (setup / mid-loop errors)
+            # so the "Failure reason" panel shows cause rather than a bare traceback.
             if not plan_saved and getattr(err, 'diagnosis', None) is None:
                 diagnosis = PlannerService._build_failure_diagnosis(
                     iterations=iteration + 1,
@@ -289,13 +280,9 @@ class PlannerService:
                                  last_action, last_rejection, snapshot_cache, error=None):
         """Turn the planner's end-state into a structured, human-readable failure report.
 
-        Returns {'message': <multi-line text for the step log>, 'report': <dict>}. The report
-        dict is persisted as step-failure.json and its {category, summary, locator} keys drive
-        the existing "Failure reason" panel, so a stalled planner reads like a real diagnosis
-        instead of "stuck in a loop, try again".
-
-        `error` is set when the planner exited on an exception (setup/mid-loop crash) rather than
-        by exhausting its iteration budget; the summary then leads with that error.
+        Returns {'message': str, 'report': dict}. `report` is persisted as step-failure.json
+        and drives the "Failure reason" panel. `error` is set for mid-run crashes; omit for
+        the iteration-budget-exhausted case.
         """
         last_page = None
         last_snapshot_excerpt = None
@@ -450,11 +437,8 @@ class PlannerService:
                             )
                         else:
                             result = f'Navigated to {target_url}. Page snapshot:\n{AgentUtils.truncate_result(snapshot, 3000)}'
-                            # On the FIRST landing of a content-creation flow, hand the planner the
-                            # real create routes read live from the "Content Type" sidebar (including
-                            # popover sub-types like Blank Canvas). This grounds it in actual URLs so
-                            # it never has to guess a create path — nothing is hardcoded, the routes
-                            # come straight from the live DOM.
+                            # On first landing of a creation flow, inject live create routes from
+                            # the "Content Type" sidebar so the planner never guesses a create URL.
                             print(f'[planner:setup] count={setup_page_count} '
                                   f'creation_flow={PlannerService._is_creation_flow(test_plan)} '
                                   f'title={getattr(test_plan, "title", None)!r}')
@@ -498,17 +482,9 @@ class PlannerService:
                 result = bridge.call_tool(name, args)
             except Exception as err:
                 result = f'ERROR calling {name}: {err}'
-            # A normal click reports success as a snapshot of the resulting page. If instead the
-            # result carries a Playwright actionability failure, the click NEVER LANDED. On this
-            # dashboard that is routine, not exceptional: the "Content Type" sub-sidebar (the
-            # per-type rows plus their "+" Create buttons) and the create-type popover cards are
-            # emitted into the accessibility snapshot even while their panel is opacity:0 (e.g. on
-            # Home) or painted behind the main content, so pointer events fall through and the click
-            # times out ("intercepts pointer events"). Recover with a NATIVE DOM click on the same
-            # target — el.click() fires the element's own handler (and, for an <a href>, navigates)
-            # regardless of opacity or pointer interception. Confirmed live 2026-07-08 that this is
-            # what lets exploration reach /posts/custom-page/blank-page/create via the Custom
-            # Content "+" -> "Blank Canvas" popover instead of stalling and hallucinating a plan.
+            # Sidebar elements (opacity:0 panels, popover cards) appear in the accessibility
+            # snapshot but fail pointer events — the click times out without landing. Recover
+            # with a native el.click() which fires the handler regardless of opacity/interception.
             target = args.get('target') or args.get('ref') or args.get('selector')
             if target and any(m in result for m in PlannerService._CLICK_FAILED_MARKERS):
                 element_desc = args.get('element') or 'the element'
@@ -537,12 +513,8 @@ class PlannerService:
                         f'is a link or a create option, read its target URL from the snapshot and '
                         f'reach the page with planner_setup_page instead of clicking.'
                     )
-            # @playwright/mcp returns the resulting page's snapshot as the click result. Cache it so
-            # a page reached by CLICKING (e.g. the Blank Canvas create page opened via the Custom
-            # Content "+" popover) counts as "visited" for the plan validator AND feeds its live
-            # required-field discovery — otherwise the validator can't see the page the planner
-            # navigated to by clicking and rejects the (correct) page.goto() as unverified, and can't
-            # enforce the page's real required fields.
+            # Click result IS the resulting page snapshot — cache it so click-navigated pages
+            # count as visited for the plan validator's URL and required-field checks.
             click_url = re.search(r'^- Page URL:\s*(\S+)', result, flags=re.MULTILINE)
             if click_url:
                 snapshot_cache[click_url.group(1)] = result
@@ -551,12 +523,9 @@ class PlannerService:
             try:
                 result = bridge.call_tool(name, args)
                 if name == 'browser_snapshot':
-                    # The snapshot result itself always carries "- Page URL: <url>" as its first
-                    # line (confirmed across every non-error snapshot on record) — reading it
-                    # directly is both simpler and more reliable than a separate browser_evaluate
-                    # round-trip, whose failure used to fall back to a meaningless id()-based key
-                    # that the plan validator's URL-based snapshot lookup could never match,
-                    # silently letting it validate against the wrong (often stale/empty) snapshot.
+                    # Parse URL from snapshot text ("- Page URL: <url>" on line 1) rather than
+                    # a browser_evaluate round-trip — avoids a stale id()-based fallback key
+                    # that the plan validator's URL lookup could never match.
                     url_match = re.search(r'^- Page URL:\s*(\S+)', result, flags=re.MULTILINE)
                     cache_key = url_match.group(1) if url_match else f'snapshot-{id(result)}'
                     snapshot_cache[cache_key] = result
@@ -708,8 +677,7 @@ class PlannerService:
         """Deterministically fix issues the LLM reliably fails to self-correct.
 
         Content-type URL bleed: the LLM is told verbatim "Replace X with Y" and still
-        re-submits the same wrong URL up to 3 times (confirmed 2026-07-01). The fix is a
-        one-string substitution — do it in code, not prompts.
+        re-submits the same wrong URL. Fix in code, not prompts.
         """
         lower = content.lower()
         matches = [

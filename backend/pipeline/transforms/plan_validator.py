@@ -19,7 +19,7 @@ def _extract_goto_paths(content: str) -> List[str]:
         # Capture the query string too (?page_type=...&create=...) — the prompt teaches the prose
         # form "Navigate to <PATH> via page.goto()", so the content-type filter lives OUTSIDE the
         # parens. Truncating at '?' turned a correct filtered URL into the bare /posts/published and
-        # made the content-type-bleed check reject a valid plan forever (confirmed loop, 2026-07-01).
+        # made the content-type-bleed check reject a valid plan forever.
         for m in re.finditer(r"(?<![:\w])(\/[a-zA-Z][\w\-/]*(?:\?[^\s'\"`)]*)?)", line):
             paths.append(m.group(1))
     return list(dict.fromkeys(paths))  # unique, preserving order
@@ -158,9 +158,8 @@ def find_hardcoded_virtualized_titles(content: str) -> List[tuple]:
 
 
 # Maps a content-type keyword to the EXACT filtered published-list URL its single-item flow must use.
-# Confirmed bug (2026-07-01): a plan for "edit the topmost video" visited the bare /posts/published
-# (which interleaves every content type sorted by recency) and picked row.nth(1), which matched the
-# topmost LIVE BLOG instead of a video. Enforced here in addition to the prompt guidance, since the
+# A plan for "edit the topmost video" visited the bare /posts/published and picked row.nth(1),
+# which matched the topmost LIVE BLOG instead of a video. Enforced here in addition to prompts, since the
 # planner has been observed to see the filtered sidebar links live and still write the bare URL.
 # The value is a ready-to-paste page.goto() path — the rejection message hands it to the model verbatim
 # so correcting the plan is a one-line text edit, not a re-exploration of the sidebar.
@@ -195,16 +194,12 @@ def validate_plan_content(
     has_permalink = bool(re.search(r'Permalink', content))
     missing_permalink = has_article_create and not has_permalink
 
-    # Catches "planner collapsed multiple required fields into one fill"
     visited_paths_in_plan = _extract_goto_paths(content)
     plan_clicks_publish = bool(re.search(r"""name\s*=\s*['\"]Publish['\"]""", content))
 
-    # Required-field enforcement only makes sense for flows that actually SUBMIT a form -- the whole
-    # point is "don't leave a required field unfilled or the Save/Publish button stays disabled." A
-    # delete or read-only/verify journey fills nothing and never submits, so a required field seen on
-    # a visited page (e.g. the "File name *" input in the media edit panel a delete flow merely opens)
-    # must NOT be demanded. Without this gate such flows hit an unwinnable rejection loop: the planner
-    # correctly refuses to add a fill step that would break the delete, and burns every iteration.
+    # Required-field enforcement only applies to flows that submit a form. Delete/read-only journeys
+    # must not be forced to fill required fields they merely visit -- without this gate, a delete flow
+    # that opens a media panel hits an unwinnable rejection loop and burns every planner iteration.
     plan_submits_form = bool(re.search(
         r"""[Cc]lick[^\n]*name\s*=\s*['\"](?:Publish|Save Changes|Save as Draft|Save Category|Save|Update|Create|Submit)['\"]""",
         content,
@@ -225,16 +220,11 @@ def validate_plan_content(
             if not _is_field_referenced(required.field, content):
                 missing_required_fields.append(f'{visited} -> "{required.field}"')
 
-    # Live-discovered required fields: for any visited page whose PAGE_FACTS entry does NOT
-    # declare fields, read the asterisk-marked required fields straight from the snapshot
-    # captured for that page and require each to be filled. Extends the required-fields
-    # guarantee to EVERY flow, not just the hand-maintained known pages.
-    #
-    # The gate is "does this entry actually declare fields?" -- NOT "is there an entry at all?".
-    # Some pages exist in PAGE_FACTS purely for routing/notes with empty field lists (e.g.
-    # /posts/live-blog/create, not yet hand-verified). Keying on entry-presence alone let those
-    # stub pages skip BOTH the facts branch (no fields to check) AND this live branch, so a
-    # required field like the Permalink went unenforced and left Publish permanently disabled.
+    # For visited pages with no field declarations in PAGE_FACTS, read asterisk-marked required fields
+    # straight from the snapshot. Gate is "declares fields?" not "has entry?" -- stub entries exist
+    # in PAGE_FACTS with empty field lists (e.g. /posts/live-blog/create); keying on entry-presence
+    # alone caused those pages to skip both branches, letting a required Permalink field go unenforced
+    # and leaving Publish permanently disabled.
     for visited in visited_paths_in_plan:
         facts = PAGE_FACTS.get(visited)
         if not plan_submits_form:
@@ -257,12 +247,9 @@ def validate_plan_content(
         # accessible name is asterisk-marked in the live snapshot counts as required.
         live_required = re.findall(r'\b\w+\s+"([^"]*\*[^"]*)"', snap)
 
-        # Some required markers aren't embedded in any control's accessible name at all -- the
-        # dashboard sometimes renders the label and the "*" as separate sibling nodes with the
-        # actual interactive control carrying no accessible name whatsoever (e.g. Web Story's
-        # image upload: a `text: Web Story` node next to a standalone `generic ...: "*"` node,
-        # both siblings of an unlabelled clickable drop-zone). Reconstruct these by pairing a
-        # standalone asterisk-only node with the nearest preceding label text.
+        # Some required markers are standalone "*" nodes adjacent to an unlabelled control
+        # (e.g. Web Story's image upload). Reconstruct by pairing a standalone asterisk node
+        # with the nearest preceding label text.
         snap_lines = snap.split('\n')
         for i, line in enumerate(snap_lines):
             if not re.search(r':\s*"\*"\s*$', line):
@@ -287,15 +274,10 @@ def validate_plan_content(
             # mentions -- require the plan to reference the drop-zone's OWN prompt text.
             context_window = '\n'.join(snap_lines[max(0, i - 8):i + 8])
             if re.search(r'upload|drop.?zone|drag.?(?:and|&).?drop', context_window, flags=re.IGNORECASE):
-                # The drop-zone renders a distinctive prompt like "Upload your Web Story image".
-                # Requiring THAT exact phrase (not just any "upload" keyword) is what separates a
-                # correct plan from one that wrongly targets a similarly-named but OPTIONAL upload
-                # button elsewhere on the page (e.g. "Upload ( Portrait )" custom thumbnails) --
-                # which was the actual Web Story failure: an "upload" keyword was present, but it
-                # pointed at the wrong widget so the required image was never attached.
-                # Pick the MOST distinctive "Upload ..." prompt in the window (most word tokens):
-                # bare "Upload" labels on the optional thumbnails must not shadow the real,
-                # multi-word drop-zone prompt.
+                # Require the drop-zone's OWN distinctive prompt (e.g. "Upload your Web Story image"),
+                # not a bare keyword -- bare "upload" also appears on optional thumbnail buttons.
+                # Pick the longest multi-word "Upload ..." prompt in the context window: optional
+                # thumbnails have shorter labels and must not shadow the required drop-zone.
                 upload_prompts = re.findall(
                     r'(?:text|paragraph)[^:]*:\s*(Upload[^\n]*)',
                     context_window, flags=re.IGNORECASE,
@@ -364,8 +346,8 @@ def validate_plan_content(
     # `visited_paths_in_plan` strips query strings (the extracted path doubles as a PAGE_FACTS
     # dict key), so it CANNOT tell a bare /posts/published from a filtered one — both collapse to
     # '/posts/published'. Detecting "bare" from that list therefore false-positives on a correctly
-    # filtered URL (…/posts/published?page_type=Article…) and rejects a valid plan forever (confirmed
-    # 12-iteration loop, 2026-07-03). Inspect the raw plan text instead: a /posts/published navigation
+    # filtered URL (…/posts/published?page_type=Article…) and rejects a valid plan forever.
+    # Inspect the raw plan text instead: a /posts/published navigation
     # is only "bare" when it lacks the page_type= content-type filter.
     _published_refs = re.findall(r"/posts/published(?!/geographies)(?:\?[^\s'\"`)]*)?", content)
     visits_bare_published_list = any('page_type=' not in ref for ref in _published_refs)
@@ -385,11 +367,9 @@ def validate_plan_content(
         return len(snapshot_cache) > 0 and any(v_path.find(path) != -1 for v_path in visited_url_paths)
 
     # A create/edit destination (…/create, …/new, …/edit/<id>) must be REACHED AND CONFIRMED live,
-    # never accepted just because it matches a known prefix. Confirmed 2026-07-08: the planner wrote
-    # page.goto('/posts/blank-canvas/create') — a plausible-looking but non-existent URL it never
-    # visited — and it slipped through purely on the '/posts/' prefix, producing a plan that 404s at
-    # runtime. Grounding create/edit URLs in an actual visit forces the planner to discover the real
-    # page (the error-page rescue hands it the live create routes) instead of inventing one.
+    # never accepted just because it matches a known prefix — a guessed URL slips through on prefix
+    # alone and 404s at runtime. Grounding create/edit URLs in an actual visit forces the planner
+    # to discover the real page via the error-page rescue instead of inventing one.
     def _is_create_like(path: str) -> bool:
         return bool(re.search(r'/(?:create|new)(?:\?|$)|/edit/', path))
 
@@ -404,10 +384,8 @@ def validate_plan_content(
     # Error-page goto guard (general, no hardcoding): a plan whose page.goto() lands on the
     # dashboard's crash screen ("Oops, something went wrong") is worthless — yet such a URL slips
     # past the unvalidated-paths check above, because the planner DID navigate there so the URL is
-    # "visited". Confirmed 2026-07-08: the planner guessed /canvas/create for a "blank canvas" flow,
-    # got the error page, and wrote a plan on top of it anyway. Reject any goto whose captured
-    # snapshot is an error page, which forces the planner to discover the REAL create page by
-    # clicking through the UI instead of inventing a URL.
+    # "visited". Reject any goto whose captured snapshot is an error page — this forces the
+    # planner to discover the real create page by clicking through the UI instead of inventing a URL.
     error_page_goto_paths: List[str] = []
     for visited in visited_paths_in_plan:
         for url, snapshot in snapshot_cache.items():
@@ -447,11 +425,9 @@ def validate_plan_content(
         for f in [*facts.required_for_draft, *facts.required_for_publish, *facts.optional_fields]:
             known_fields_across_pages.add(normalize_field_name(f.field))
 
-    # Edit journeys reach a form by CLICKING a row's Edit control, not by a goto URL — that form
-    # (/<resource>/edit/<id>) is never in visited_paths_in_plan and never in PAGE_FACTS, so its fields
-    # MUST NOT be validated against the list page's (empty) facts. If the plan clicks an Edit control,
-    # the fills target a page the validator cannot see; only reject a fill label if it is BOTH absent
-    # from facts AND absent from every live snapshot the planner captured.
+    # Edit journeys reach a form by clicking a row's Edit control -- that form URL is never in
+    # visited_paths_in_plan or PAGE_FACTS. Only reject a fill label if it is absent from both
+    # known facts AND every live snapshot the planner captured.
     reaches_clicked_edit_form = bool(re.search(
         r"(?:get_by_role|getByRole)\(\s*['\"](?:button|link)['\"]\s*,\s*(?:name\s*=\s*|\{\s*name:\s*)['\"]Edit\b",
         content, flags=re.IGNORECASE
@@ -506,8 +482,7 @@ def validate_plan_content(
         # ("expect(get_by_role('button', name='Publish')).to_be_enabled(...)") or as prose
         # ("Expect get_by_role('button', name='Publish') to be enabled with timeout=15000").
         # Accept BOTH the underscore code form and the spaced prose form on the button's line —
-        # requiring only the underscore literal rejected valid prose plans forever (12-iter loop,
-        # confirmed on web-story create 2026-07-03).
+        # requiring only the underscore literal rejected valid prose plans forever.
         has_enabled_wait = bool(re.search(
             rf"name\s*=\s*['\"]{re.escape(btn)}['\"][^\n]*(?:to_be_enabled|to\s+be\s+enabled|be\s+enabled)",
             content, flags=re.IGNORECASE
@@ -547,8 +522,8 @@ def validate_plan_content(
     # Vacuous-emptiness false pass (see spec_validator.py for the full mechanism): locator.count()
     # does NOT auto-wait and to_have_count(0) is satisfied the instant a locator matches nothing, so a
     # deletion plan that guards its loop with .count() or asserts success with to_have_count(0) —
-    # without first proving the rows rendered — becomes a green test that deletes nothing. Confirmed
-    # "delete all QA galleries" false pass (2026-07-02). The endorsed delete pattern already waits for
+    # without first proving the rows rendered — becomes a green test that deletes nothing.
+    # The endorsed delete pattern already waits for
     # the row (dashboard_facts: row.wait_for(state='visible')), so correct plans are not flagged.
     plan_asserts_empty = (
         bool(re.search(r"\.to_have_count\(\s*0\b", content)) or
@@ -593,10 +568,8 @@ def validate_plan_content(
                 "Add a step: \"Use safe_sequential_fill(page, 'English Title ( Permalink ) *', f'qa-{ts}', delay=50) to fill the permalink field\""
             )
         if len(unvalidated_paths) > 0:
-            # If the session already visited real create/edit pages, hand their exact URLs back so
-            # the model can paste the correct one instead of re-guessing. This is what actually
-            # unblocks the loop: the create page reached via the sidebar/popover (or the auto-guide)
-            # is already in snapshot_cache; surface it verbatim.
+            # Surface exact create/edit URLs already in snapshot_cache so the model can paste the
+            # correct one instead of re-guessing, which is what actually unblocks the loop.
             visited_create_urls = [
                 u for u in snapshot_cache.keys()
                 if re.search(r'/(?:create|new)(?:\?|$)|/edit/', urlparse(u).path if '://' in u else u)

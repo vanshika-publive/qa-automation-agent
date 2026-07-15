@@ -15,13 +15,10 @@ def sanitize_spec(code: str, scenario_name: str) -> str:
         out,
     )
 
-    # A to_have_url() path pattern must NOT end in a literal trailing slash. Dashboard list URLs append
-    # a query string directly after the path segment ('/posts/published?page_type=...'), so a pattern
-    # like re.compile(r'/posts/published/') can NEVER match — re.search wants a '/' exactly where the URL
-    # has '?'. This is a recurring planner slip: dashboard_facts writes URL patterns in JS-regex-delimiter
-    # style ('URL matches /\/posts\/published/') and the closing '/' delimiter gets copied as a literal
-    # path slash. Strip a single trailing '/' (or '\/') from every to_have_url regex so it matches the
-    # path as a query-/trailing-slash-tolerant substring, exactly like the passing specs.
+    # Dashboard list URLs append a query string after the path ('/posts/published?page_type=...'), so
+    # a trailing slash in re.compile(r'/posts/published/') never matches. Planner slip: dashboard_facts
+    # uses JS-regex delimiters and the closing '/' gets copied as a path slash. Strip a trailing '/'
+    # (or '\/') from every to_have_url regex to match as a query-tolerant substring.
     def _strip_trailing_slash(m: re.Match) -> str:
         return m.group(1) + re.sub(r'\\?/\Z', '', m.group(2)) + m.group(3)
 
@@ -69,11 +66,9 @@ def sanitize_spec(code: str, scenario_name: str) -> str:
         out,
     )
 
-    # Row action-kebab (.published-action-dropdown) -> append .first to avoid strict-mode.
-    # On lists whose actions column is fixed/sticky (e.g. the LiveBlog published list), Ant Design
-    # renders the row's action cell twice -- once in the main table and once in the fixed-column
-    # overlay -- so row.locator('.published-action-dropdown') resolves to TWO buttons and .click()
-    # fails strict mode. Narrow to .first. Skipped when already qualified with .first/.last/.nth.
+    # Fixed/sticky-column lists (e.g. LiveBlog) render each action cell twice, so
+    # .locator('.published-action-dropdown') resolves to two buttons and fails strict mode.
+    # Append .first. Skipped when already qualified with .first/.last/.nth.
     out = re.sub(
         r"(\.locator\(\s*(['\"])\.published-action-dropdown\2\s*\))(?!\s*\.(?:first|last|nth))(\s*\.click\(\))",
         r"\1.first\3",
@@ -172,18 +167,11 @@ def sanitize_spec(code: str, scenario_name: str) -> str:
             out,
         )
 
-    # Fixed/sticky-column lists (e.g. the LiveBlog published list) render each logical <tr> TWICE
-    # (main table + fixed-column overlay, same data-row-key), so page.locator('tr').filter(has_text=X)
-    # matches 2 elements and any single-element op on it (.wait_for/.get_by_*/.click, or an
-    # expect(...).to_be_visible) throws strict mode. Narrow single-row uses to .first -- but NEVER the
-    # multiplicity idioms (.count()/.nth()/.all()/to_have_count) that delete/bulk flows rely on.
+    # Fixed/sticky-column lists render each <tr> twice; narrow single-row tr-filter uses to .first.
     out = _narrow_single_row_tr_filters(out)
 
-    # Whenever a Title fill is immediately followed by a Permalink fill, the Title field's debounced
-    # auto-slug generation can fire mid-keystroke on Permalink and corrupt the value, leaving Publish/Save
-    # permanently disabled with no visible error. This is a property of the Title->Permalink pair, NOT of any
-    # one page (gallery, live-blog, video, web-story all share it), so key the rule on the fields, not the URL:
-    # if both fills exist in order with no wait between them, insert the debounce settle wait.
+    # Title->Permalink: debounced auto-slug can corrupt Permalink mid-keystroke, leaving Publish permanently
+    # disabled. Shared across all content types -- insert the settle wait whenever both fills appear in order.
     out = _insert_permalink_debounce_wait(out)
 
     return out
@@ -272,13 +260,10 @@ def _narrow_single_row_tr_filters(out: str) -> str:
 
 
 def _insert_permalink_debounce_wait(out: str) -> str:
-    # The Title fill may be written two ways: the plain string form
-    # safe_sequential_fill(page, 'Title *', ...) OR — on Web Story, where an inserted-image slide adds a
-    # second 'Title *' textbox — the disambiguated Locator form
-    # safe_sequential_fill(page, page.get_by_role('textbox', name='Title *').first, ...). Both contain the
-    # literal "Title *", so match on that substring anywhere in the call's arguments. The Permalink label
-    # ('English Title ( Permalink ) *') never contains the literal "Title *" (it reads "Title ( Permalink )"),
-    # so this cannot collide with the Permalink fill; that one is matched by its 'Permalink' token.
+    # Match Title fill by the substring "Title *" anywhere in the call's arguments -- covers both the
+    # plain-string form and the disambiguated Locator form (Web Story inserts a second 'Title *' textbox).
+    # 'English Title ( Permalink ) *' never contains the literal "Title *", so it can't collide;
+    # the Permalink fill is matched by its 'Permalink' token instead.
     title_m = re.search(r"safe_sequential_fill\(\s*page\s*,[^\n]*Title \*[^\n]*\n", out)
     permalink_m = re.search(
         r"safe_sequential_fill\(\s*page\s*,\s*['\"][^'\"]*Permalink[^'\"]*['\"]", out

@@ -1,10 +1,8 @@
 import re
 
 # Deterministic (no-LLM) classification of a pytest/Playwright failure message into a
-# human-readable category, summary, and the offending locator when one can be recovered.
-# Input is the per-test `error` text produced by ExecutionService (prefers crash.message,
-# e.g. "TimeoutError: Locator.click: Timeout 15000ms exceeded.\nCall log:\n  - waiting for
-# locator(\"tr\").first.get_by_role(\"button\", name=\"Edit\", exact=True)").
+# human-readable category, summary, and the offending locator when one can be extracted.
+# Input is the per-test error text produced by ExecutionService (prefers crash.message).
 
 UNKNOWN = {'category': 'Test error', 'summary': 'Unknown error', 'locator': None}
 
@@ -17,7 +15,6 @@ def classify_failure(error_text: str) -> dict:
     low = text.lower()
     locator = _extract_locator(text)
 
-    # A Playwright action timed out waiting for a locator that never appeared.
     if 'timeout' in low and ('waiting for locator' in low or 'waiting for get_by' in low):
         return {
             'category': 'Element not found',
@@ -28,7 +25,6 @@ def classify_failure(error_text: str) -> dict:
             'locator': locator,
         }
 
-    # Locator matched more than one element under Playwright strict mode.
     if 'strict mode violation' in low or 'resolved to' in low:
         return {
             'category': 'Multiple elements matched',
@@ -39,7 +35,6 @@ def classify_failure(error_text: str) -> dict:
             'locator': locator,
         }
 
-    # Navigation or URL-wait timed out (page never loaded / never reached expected URL).
     if 'timeout' in low and ('goto' in low or 'wait_for_url' in low or 'navigation' in low):
         return {
             'category': 'Navigation timeout',
@@ -50,7 +45,6 @@ def classify_failure(error_text: str) -> dict:
             'locator': locator,
         }
 
-    # Landed on the login / MFA page — the stored session was invalid or expired.
     if '/mfa' in low or 'capture_session' in low or re.search(r'\b(log ?in|sign ?in)\b', low):
         return {
             'category': 'Session / login',
@@ -61,7 +55,6 @@ def classify_failure(error_text: str) -> dict:
             'locator': locator,
         }
 
-    # An explicit assertion / expectation failed.
     if 'assertionerror' in low or 'expect(' in low or re.search(r'(^|\n)\s*assert\b', text):
         return {
             'category': 'Assertion failed',
@@ -69,7 +62,6 @@ def classify_failure(error_text: str) -> dict:
             'locator': locator,
         }
 
-    # Any other timeout we didn't specifically categorise above.
     if 'timeout' in low:
         return {
             'category': 'Timeout',
