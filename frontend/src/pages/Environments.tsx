@@ -11,16 +11,12 @@ import {
   Network, Plus, PlusCircle, Copy,
 } from 'lucide-react';
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
 function envDotColor(name: string): string {
   const n = name.toLowerCase();
   if (n.includes('prod')) return 'bg-success';
   if (n.includes('beta') || n.includes('staging') || n.includes('stage') || n.includes('dev')) return 'bg-warning';
   return 'bg-primary';
 }
-
-// ── Inline page-local components ─────────────────────────────────────────────
 
 interface ModalProps {
   initial?: Environment;
@@ -428,8 +424,6 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────────
-
 export default function Environments() {
   const {
     environments, isLoading,
@@ -441,7 +435,6 @@ export default function Environments() {
   return (
     <div className="p-8 max-w-7xl">
 
-      {/* Page header */}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-xl font-semibold text-text-primary">Environments</h1>
@@ -455,7 +448,6 @@ export default function Environments() {
         </Button>
       </div>
 
-      {/* Content */}
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -475,7 +467,6 @@ export default function Environments() {
             />
           ))}
 
-          {/* Ghost add card */}
           <button
             onClick={openCreate}
             className="rounded-xl border-2 border-dashed border-border-subtle p-5 flex flex-col items-center justify-center gap-2 min-h-[180px] hover:border-primary/40 hover:bg-primary/5 transition-all group"
@@ -490,7 +481,6 @@ export default function Environments() {
         </div>
       )}
 
-      {/* Modals */}
       {modal?.type === 'create' && (
         <EnvironmentModal
           onClose={closeModal}

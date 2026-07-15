@@ -8,7 +8,6 @@ const VARIANTS: Record<Variant, string> = {
   danger: 'bg-error text-white font-semibold hover:bg-error/90',
 };
 
-/** Standard pill action button. Native button props (onClick, disabled, title, type) pass through. */
 export function Button({
   variant = 'primary',
   className = '',
@@ -35,11 +34,6 @@ const TONES: Record<Tone, string> = {
   warning: 'text-warning hover:bg-warning/10',
 };
 
-/**
- * Square icon-only button (rounded-lg). `tone` sets the hover color, `size` the box
- * in px (28 = table actions, 32 = modal close). Extra modifiers (borders, opacity)
- * go through `className`.
- */
 export function IconButton({
   tone = 'neutral',
   size = 28,

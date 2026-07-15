@@ -2,10 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { planningMemoryService, CorrectionPayload } from '../services/planningMemory';
 
-/**
- * Per-test Planning Memory (navigation guidance) + the corrective-replan trigger.
- * All React Query wiring lives here; pages/components stay thin.
- */
 export function usePlanningMemory(testId: string | null) {
   const qc = useQueryClient();
   const navigate = useNavigate();

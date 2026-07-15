@@ -20,8 +20,6 @@ import {
   BarChart3, Square, Terminal, ArrowLeftRight, ArrowLeft, Search,
 } from 'lucide-react';
 
-// ── Page-local components ────────────────────────────────────────────────────
-
 function FilterBar({
   applied,
   activeCount,
@@ -105,8 +103,6 @@ function FolderCardSkeleton() {
   );
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────────
-
 export default function Executions() {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -138,7 +134,6 @@ export default function Executions() {
     }
   }
 
-  // ── Header ────────────────────────────────────────────────────────────────
 
   function renderHeader() {
     const backBtn = (
@@ -216,7 +211,6 @@ export default function Executions() {
     );
   }
 
-  // ── Level 3: run list ────────────────────────────────────────────────────
 
   function renderRunList() {
     if (exec.isLoadingTestExecs) {
@@ -346,7 +340,6 @@ export default function Executions() {
     );
   }
 
-  // ── Level 2: test folder cards ─────────────────────────────────────────────
 
   function renderTestFolders() {
     if (exec.isLoadingTests) {
@@ -412,7 +405,6 @@ export default function Executions() {
     );
   }
 
-  // ── Level 1: main executions table ────────────────────────────────────────
 
   function renderCollectionFolders() {
     const liveRows    = exec.tableExecs.filter((e) => e.status === 'running' || e.status === 'queued');
@@ -657,7 +649,6 @@ export default function Executions() {
     );
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="p-8 max-w-7xl">

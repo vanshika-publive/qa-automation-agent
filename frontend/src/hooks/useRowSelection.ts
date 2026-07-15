@@ -1,9 +1,5 @@
 import { useState, useCallback } from 'react';
 
-/**
- * Generic multi-row selection over a Set of string ids.
- * Drop-in for any table/list page that needs checkbox selection + select-all.
- */
 export function useRowSelection() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 

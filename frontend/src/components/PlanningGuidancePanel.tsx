@@ -3,11 +3,6 @@ import { Compass, Pencil, Trash2, Check, X, Plus, Info } from 'lucide-react';
 import { PLANNING_MEMORY_MAX } from '../types';
 import { usePlanningMemory } from '../hooks/usePlanningMemory';
 
-/**
- * Navigation-guidance editor for a test: lists up to 4 human corrections, inline
- * editable/deletable. Labeled as navigation guidance (not test scope); a non-blocking
- * advisory appears when a newly-added entry looks like a scope change.
- */
 export default function PlanningGuidancePanel({ testId }: { testId: string }) {
   const { entries, createMutation, updateMutation, deleteMutation } = usePlanningMemory(testId);
   const [draft, setDraft] = useState('');

@@ -1,5 +1,3 @@
-/** Shared types used across pages and components. */
-
 export interface ApiResponse<T> { data: T; error: string | null }
 
 export interface Collection {
@@ -102,7 +100,7 @@ export interface PlanningMemoryEntry {
   updatedAt: string;
 }
 
-/** Advisory intent-vs-navigation classification (non-blocking hint). */
+/** Non-blocking hint — does not block or reject the action. */
 export interface CorrectionAdvisory {
   kind: 'navigation' | 'scope';
 }

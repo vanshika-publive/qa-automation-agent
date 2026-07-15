@@ -6,13 +6,6 @@ const SIZES = {
   lg: 'max-w-3xl',
 } as const;
 
-/**
- * Centered modal shell: backdrop, click-outside / Escape to close, and a rounded
- * card that stops propagation. Callers supply their own header/body as children.
- *
- * `backdropClassName` and `cardClassName` let each call site keep its own overlay
- * tint and card modifiers (max-height, flex column) while sharing the structure.
- */
 export function Modal({
   onClose,
   children,

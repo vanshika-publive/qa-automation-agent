@@ -16,8 +16,6 @@ import {
   Pencil, ListFilter, PlayCircle,
 } from 'lucide-react';
 
-// ── Empty state ───────────────────────────────────────────────────────────────
-
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div
@@ -115,8 +113,6 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-// ── Modals ────────────────────────────────────────────────────────────────────
-
 function CollectionNameModal({
   title, submitLabel, submittingLabel, initialName = '', placeholder,
   loading, error, onClose, onSubmit,
@@ -162,8 +158,6 @@ function CollectionNameModal({
     </Modal>
   );
 }
-
-// ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Collections() {
   const navigate = useNavigate();
@@ -255,7 +249,6 @@ export default function Collections() {
   return (
     <div className="p-8 max-w-7xl">
 
-      {/* Page header */}
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-text-primary">Collections</h1>
@@ -281,7 +274,6 @@ export default function Collections() {
         </div>
       </div>
 
-      {/* Filter bar */}
       <div className="flex items-center gap-2 flex-wrap mb-5">
         <div className="relative">
           <Search size={18} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-secondary pointer-events-none" />
@@ -343,7 +335,6 @@ export default function Collections() {
         </div>
       </div>
 
-      {/* Collections table */}
       <div className="bg-surface-main rounded-2xl border border-border-subtle overflow-hidden">
         <table className="w-full">
           <thead>
@@ -437,7 +428,6 @@ export default function Collections() {
         />
       </div>
 
-      {/* Modals */}
 
       {createOpen && (
         <CollectionNameModal

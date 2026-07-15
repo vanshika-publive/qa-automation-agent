@@ -1,5 +1,4 @@
-// Shared React Query `refetchInterval` helpers for execution polling.
-// Single source of truth for which statuses are considered "in flight".
+// Single source of truth for "in-flight" execution statuses, shared by all refetchInterval hooks.
 
 type QueryState<T> = { state: { data?: T } };
 

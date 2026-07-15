@@ -1,16 +1,10 @@
 import { ListFilter, X } from 'lucide-react';
 
-/** Shared input/label styling for fields rendered inside a filter drawer. */
 export const FILTER_INPUT_CLS =
   'w-full border border-border-subtle rounded-xl px-3 py-2.5 text-sm text-text-primary bg-surface-main focus:outline-none focus:ring-2 focus:ring-primary/20';
 export const FILTER_LABEL_CLS =
   'block text-xs font-semibold text-text-secondary uppercase tracking-wider mb-1.5';
 
-/**
- * Right-hand slide-in filter drawer chrome: backdrop, panel, titled header, and a
- * Clear/Apply footer. Callers supply the field controls as children and own the
- * draft state behind `onClear` / `onApply`.
- */
 export default function FilterDrawerShell({
   open,
   onClose,
