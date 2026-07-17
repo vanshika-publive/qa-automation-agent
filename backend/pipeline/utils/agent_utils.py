@@ -128,10 +128,34 @@ class AgentUtils:
     @staticmethod
     def reset_call_counter():
         _thread_api_calls.count = 0
+        _thread_api_calls.prompt_tokens = 0
+        _thread_api_calls.completion_tokens = 0
+        _thread_api_calls.cached_tokens = 0
 
     @staticmethod
     def get_call_count() -> int:
         return getattr(_thread_api_calls, 'count', 0)
+
+    @staticmethod
+    def _accumulate_tokens(usage) -> None:
+        if usage is None:
+            return
+        _thread_api_calls.prompt_tokens = getattr(_thread_api_calls, 'prompt_tokens', 0) + (usage.prompt_tokens or 0)
+        _thread_api_calls.completion_tokens = getattr(_thread_api_calls, 'completion_tokens', 0) + (usage.completion_tokens or 0)
+        details = getattr(usage, 'prompt_tokens_details', None)
+        _thread_api_calls.cached_tokens = getattr(_thread_api_calls, 'cached_tokens', 0) + (getattr(details, 'cached_tokens', 0) or 0)
+
+    @staticmethod
+    def get_token_summary() -> str:
+        calls = getattr(_thread_api_calls, 'count', 0)
+        prompt = getattr(_thread_api_calls, 'prompt_tokens', 0)
+        completion = getattr(_thread_api_calls, 'completion_tokens', 0)
+        cached = getattr(_thread_api_calls, 'cached_tokens', 0)
+        cache_pct = f' ({cached * 100 // prompt}% hit)' if prompt > 0 and cached > 0 else ''
+        return (
+            f'calls={calls}  prompt={prompt:,}{cache_pct}  cached={cached:,}  '
+            f'completion={completion:,}  total={prompt + completion:,}'
+        )
 
     @staticmethod
     def call_with_retry(fn, max_retries: int = 3):
@@ -139,6 +163,7 @@ class AgentUtils:
             try:
                 result = fn()
                 _thread_api_calls.count = getattr(_thread_api_calls, 'count', 0) + 1
+                AgentUtils._accumulate_tokens(getattr(result, 'usage', None))
                 return result
             except Exception as err:
                 if AgentUtils._is_retryable(err) and attempt < max_retries:

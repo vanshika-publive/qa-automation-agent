@@ -66,6 +66,13 @@ class OrchestratorService:
 
         plan = OrchestratorService._validate_schema(parsed)
         expanded = OrchestratorService._expand_with_preconditions(plan, user_prompt)
+        usage = response.usage
+        details = getattr(usage, 'prompt_tokens_details', None)
+        cached = getattr(details, 'cached_tokens', 0) or 0
+        print(
+            f'[orchestrator] calls=1  prompt={usage.prompt_tokens:,}  cached={cached:,}  '
+            f'completion={usage.completion_tokens:,}  total={usage.total_tokens:,}'
+        )
         print(f'Orchestrator: Parsed {len(expanded.flows)} flows from prompt')
         return expanded
 

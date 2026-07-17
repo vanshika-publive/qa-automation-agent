@@ -90,7 +90,7 @@ class GeneratorService:
             if file_path:
                 written.append(file_path)
 
-        print(f'[generator] OpenAI API calls: {AgentUtils.get_call_count()}')
+        print(f'[generator] {AgentUtils.get_token_summary()}')
         return written
 
     @staticmethod
