@@ -2,6 +2,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+from pipeline.knowledge.content_type_builder_facts import CTB_KNOWN_PATH_PREFIXES
+
 
 @dataclass
 class FieldConstraint:
@@ -575,6 +577,34 @@ PAGE_FACTS = {
     '/posts/live-blog/create': LIVE_BLOG_CREATE,
 }
 
+CUSTOM_COMPONENT_LIST = PageFacts(
+    path='/configurations/content-type-builder/custom-component',
+    title='Custom Components',
+    save_button='Save',
+    note=(
+        'URL confirmed live 2026-07-16. Navigate directly — do NOT guess from /configurations.\n'
+        'CREATE FLOW — 2 steps:\n'
+        'STEP 1: Click button "Create New Component" → dialog opens.\n'
+        '  Required: get_by_role("textbox", name="Display Name *") — React-controlled, safe_sequential_fill.\n'
+        '  Optional: get_by_role("textbox", name="Description").\n'
+        '  Click button "Continue" → URL becomes /configurations/content-type-builder/custom-component/<id>?flow=1.\n'
+        'STEP 2 — field builder (URL contains ?flow=1):\n'
+        '  Dialog "Add a field in your Content Type" auto-opens with field type tile buttons.\n'
+        '  Types: Text, Media, Email, Rich Text, Date And Time, Numbers, List, Boolean, JSON,\n'
+        '    Relation, Dynamic List, Links, Embed, Component.\n'
+        '  Per field: (a) click type tile, (b) safe_sequential_fill Display Name * for field name,\n'
+        '  (c) click "Add Another Field" if more fields remain, or "Save" (in dialog) on the last.\n'
+        '  After all fields: click button "Save" on the main page header.\n'
+        'LIST columns: Name, Fields, Updated By, Created At, Updated At, Actions.\n'
+        'Row actions: DIRECT buttons (no kebab) — edit pencil, "Duplicate", "Delete".\n'
+        'Row locator: page.locator("tr").filter(has_text=component_name).first\n'
+        'NOTE: "Display Name *" appears in two separate contexts:\n'
+        '  Step 1 dialog → component name. Step 2 field config dialog → field name.\n'
+        'These are different inputs in different dialogs.'
+    ),
+)
+PAGE_FACTS['/configurations/content-type-builder/custom-component'] = CUSTOM_COMPONENT_LIST
+
 # Aria names of comboboxes marked virtualized=True anywhere in PAGE_FACTS. A get_by_title() value
 # for one of these is unsafe even when it was genuinely observed live -- the option must instead be
 # picked via the dynamic '.ant-select-item-option' pattern. Used by plan_validator/spec_validator to
@@ -588,9 +618,9 @@ VIRTUALIZED_COMBOBOX_NAMES = sorted({
 
 KNOWN_PATH_PREFIXES = [
     '/posts/', '/categories', '/tags', '/media', '/team',
-    '/settings', '/configurations', '/home', '/login',
+    '/settings', '/home', '/login',
     '/content-distribution', '/analytics', '/v2/',
-]
+] + CTB_KNOWN_PATH_PREFIXES
 
 
 def detect_intent(prompt):
@@ -741,6 +771,8 @@ def facts_for_all_mentioned_pages(prompt):
 
     is_geography_filter_flow = bool(re.search(r'geograph', lower) and re.search(r'\bfilter\b', lower))
 
+    if re.search(r'custom.?component|content.?type.?builder', lower):
+        push(CUSTOM_COMPONENT_LIST)
     if re.search(r'blank.?(canvas|page)', lower):
         push(BLANK_PAGE_CREATE)
     elif re.search(r'custom.?(content|page)', lower):

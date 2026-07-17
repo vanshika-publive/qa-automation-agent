@@ -369,6 +369,87 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             "cb.fill('<name>') to filter first, then click the first .ant-select-item-option match."
         )
 
+    # CTB (Content Type Builder) button-name sanity checks.
+    is_ctb_flow = bool(re.search(r"goto\(['\"][^'\"]*configurations/content-type-builder", code))
+    if is_ctb_flow:
+        m_wrong_create = re.search(
+            r"get_by_role\('button',\s*name=['\"](?:Add Custom Component|Add New Component|New Component|Add Component)['\"]",
+            code,
+        )
+        if m_wrong_create:
+            issues.append(
+                "CTB: wrong create-button name — the button is EXACTLY 'Create New Component'. "
+                "Replace: page.get_by_role('button', name='Create New Component').click()"
+            )
+        if re.search(r"get_by_role\('button',\s*name=['\"]Number['\"]", code):
+            issues.append(
+                "CTB: number field type button is 'Numbers' (plural), not 'Number'. "
+                "Replace with: page.get_by_role('button', name='Numbers').click()"
+            )
+        if re.search(
+            r"get_by_role\('button',\s*name=['\"](?:Date(?! And Time)|DateTime|Date/Time)['\"]", code
+        ):
+            issues.append(
+                "CTB: date field type button is 'Date And Time' (not 'Date', not 'DateTime'). "
+                "Replace with: page.get_by_role('button', name='Date And Time').click()"
+            )
+        # CTB: wrong field type tile click — button name matches 'Text' AND 'Rich Text' (strict mode)
+        if re.search(r"get_by_role\('button',\s*name=['\"]Text['\"]\)\.click\(\)", code):
+            issues.append(
+                "CTB: get_by_role('button', name='Text').click() is ambiguous — it matches both the "
+                "'Text' and 'Rich Text' tiles (2 elements → strict mode violation). "
+                "Replace with: page.get_by_role('dialog').get_by_role('heading', name='Text', exact=True).click()"
+            )
+        # CTB: wrong Display Name label in field forms — asterisk not part of accessible name
+        display_name_star_count = len(re.findall(
+            r"safe_sequential_fill\s*\([^,]+,\s*['\"]Display Name \*['\"]",
+            code
+        ))
+        if display_name_star_count > 1:
+            issues.append(
+                "CTB: 'Display Name *' (with asterisk) is the label in the Step 1 'Create New Component' "
+                "dialog ONLY. The field form (Step 2) textbox accessible name is 'Display Name' without "
+                "asterisk — safe_sequential_fill(page, 'Display Name *', ...) finds 0 matches there. "
+                "Replace every field-form fill with: safe_sequential_fill(page, 'Display Name', field_name, delay=50)"
+            )
+        save_clicks = len(re.findall(r"get_by_role\('button',\s*name=['\"]Save['\"]\)", code))
+        if bool(re.search(r"Add Another Field", code)) and save_clicks < 2:
+            issues.append(
+                "CTB: missing main-page Save after field builder. Found only "
+                f"{save_clicks} Save click(s) but need at least 2: one scoped to the dialog (closes the "
+                "last field), and one scoped to the page header to persist the component. "
+                "Last field: page.get_by_role('dialog').get_by_role('button', name='Save').click() "
+                "Main page: page.locator('#page-header').get_by_role('button', name='Save').click() "
+                "(Scoping to #page-header is REQUIRED — an unscoped page.get_by_role('button', name='Save') "
+                "fails in strict mode when a Date And Time field leaves its date-picker popup open with its own Save button.)"
+            )
+        # CTB: unscoped main-page Save is ambiguous when a date picker popup is open
+        if re.search(r"\bpage\.get_by_role\(\s*'button'\s*,\s*name=['\"]Save['\"]\)", code):
+            issues.append(
+                "CTB: page.get_by_role('button', name='Save').click() is unscoped — strict mode violation "
+                "when a Date And Time field is used (the date-picker popup keeps its own 'Save' button in the DOM). "
+                "Scope the final main-page Save to the page header: "
+                "page.locator('#page-header').get_by_role('button', name='Save').click()"
+            )
+        # CTB list: no 'Created By' filter textbox exists — only 'Search' (name filter)
+        if re.search(r"get_by_role\(\s*['\"]textbox['\"]\s*,\s*name\s*=\s*['\"]Created By['\"]", code):
+            issues.append(
+                "CTB: get_by_role('textbox', name='Created By') — no 'Created By' filter exists on the "
+                "custom-component list page. The ONLY filter input is textbox 'Search' (filters by component name). "
+                "The 'Updated By' column header has no corresponding filter textbox. "
+                "Remove the 'Created By' filter step entirely."
+            )
+        # CTB list: no options/kebab menu — Delete is a direct row button
+        if re.search(
+            r"(?:options.menu|kebab|\.\.\.|\bmore.options\b|get_by_role\(['\"]button['\"],\s*name=['\"](?:\.\.\.|More|Options)['\"])",
+            code, re.IGNORECASE
+        ):
+            issues.append(
+                "CTB: no options/kebab menu exists on the custom-component list. "
+                "Delete is a DIRECT button on each row: row.get_by_role('button', name='Delete').click(). "
+                "Remove any step that opens an options/kebab menu."
+            )
+
     if len(issues) == 0:
         return None
 

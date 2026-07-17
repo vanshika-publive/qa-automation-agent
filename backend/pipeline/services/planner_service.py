@@ -105,7 +105,7 @@ class PlannerService:
             # Each flow needs a genuine navigate+snapshot pass on its target page (plus a few
             # combobox snapshots), so scale the snapshot budget with flow count instead of a flat
             # cap — capped below MAX_PLANNER_ITERATIONS so a runaway snapshot loop still gets cut off.
-            snapshot_budget = min(12, 4 + 3 * max(1, len(test_plan.flows)))
+            snapshot_budget = min(16, 4 + 3 * max(1, len(test_plan.flows)))
 
             AgentUtils.reset_call_counter()
             for iteration in range(MAX_PLANNER_ITERATIONS):
@@ -198,24 +198,33 @@ class PlannerService:
                             'STOP calling browser_snapshot — you have snapshotted enough and are wasting '
                             'iterations. Call planner_save_plan NOW with the complete markdown plan, using the '
                             'Verified Page Facts for field labels (for an edit flow: the create-page fields plus '
-                            'the "Save Changes" button). Do not call any tool other than planner_save_plan.'
+                            'the "Save Changes" button). Do not call any tool other than planner_save_plan.\n'
+                            'EXCEPTION: if you have NOT yet visited the target feature page (e.g. the create '
+                            'page for the flow under test), navigate there NOW with browser_click on the '
+                            'sidebar link — one click + one snapshot — then call planner_save_plan immediately.'
                         ),
                     })
 
                 if plan_just_rejected:
+                    _remaining = MAX_PLANNER_ITERATIONS - 1 - iteration
+                    _urgency = (
+                        f' — YOU HAVE {_remaining} ITERATION(S) LEFT. Navigate NOW: '
+                        f'browser_snapshot → browser_click the feature link → browser_snapshot → planner_save_plan. '
+                        f'No time for anything else.'
+                    ) if _remaining <= 3 else ''
                     messages.append({
                         'role': 'user',
                         'content': (
-                            'Your plan was rejected — see the reason above. First check whether the fix is '
-                            'already available to you: a URL you already visited earlier in this conversation '
-                            '(check your own prior planner_setup_page / browser_click calls and their results), '
-                            'or a fact already stated in your system prompt (KNOWN FACTS / Verified Page Facts). '
-                            'If so, just correct the plan text to match it and call planner_save_plan again — '
-                            'do NOT re-navigate or re-explore for information you already have.\n'
-                            'Only click through the UI from scratch if the fix genuinely requires something you '
-                            'have not yet observed (a real URL, field label, or option text):\n'
+                            f'Your plan was rejected — see the reason above{_urgency}\n'
+                            'First check whether the fix is already available to you: a URL you already '
+                            'visited earlier in this conversation (check your own prior planner_setup_page / '
+                            'browser_click calls and their results), or a fact already stated in your system '
+                            'prompt (KNOWN FACTS / Verified Page Facts). If so, just correct the plan text '
+                            'to match it and call planner_save_plan again — do NOT re-navigate.\n'
+                            'Only click through the UI if the fix genuinely requires something you have not '
+                            'yet observed (a real URL, field label, or option text):\n'
                             '1. Call browser_snapshot (no args) to see the sidebar\n'
-                            '2. Find the target feature — look for its sidebar link or "Create" button\n'
+                            '2. Find the target feature — its sidebar link or "Create" button\n'
                             '3. Call browser_click on that element\n'
                             '4. Call browser_snapshot immediately after\n'
                             '5. Write the plan using the confirmed URL/field from this page'
@@ -232,8 +241,10 @@ class PlannerService:
                         'if the rejection explicitly says a URL or field is still unverified.'
                     ) if plan_rejection_count > 0 else (
                         'You have explored enough pages. Call planner_save_plan NOW with the complete '
-                        'markdown plan. Use KNOWN FACTS from your system prompt for any details you did '
-                        'not directly observe.'
+                        'markdown plan. Do NOT write page.goto() for any URL you have not personally '
+                        'snapshotted in this session — those will be rejected. If you have not yet '
+                        'visited the target create/list page, use browser_click on its sidebar link '
+                        'NOW, browser_snapshot to confirm the URL, then call planner_save_plan.'
                     )
                     messages.append({'role': 'user', 'content': nudge_msg})
 
@@ -241,7 +252,7 @@ class PlannerService:
                 if plan_saved:
                     break
 
-            print(f'[planner] OpenAI API calls: {AgentUtils.get_call_count()}')
+            print(f'[planner] {AgentUtils.get_token_summary()}')
             if not plan_saved:
                 diagnosis = PlannerService._build_failure_diagnosis(
                     iterations=iteration + 1,
@@ -413,6 +424,14 @@ class PlannerService:
                     bridge.call_tool('browser_navigate', {'url': target_url})
                     try:
                         snapshot = bridge.call_tool('browser_snapshot', {})
+                        # Some pages (e.g. Configuration sub-pages) load inside an iframe and produce
+                        # a nearly-empty first snapshot. Retry once to give the iframe time to render.
+                        if len(snapshot) < 400:
+                            import time as _time_module
+                            _time_module.sleep(1.5)
+                            snapshot2 = bridge.call_tool('browser_snapshot', {})
+                            if len(snapshot2) > len(snapshot):
+                                snapshot = snapshot2
                         cache_key = target_url
                         try:
                             url_result = bridge.call_tool('browser_evaluate', {'expression': 'window.location.href'})
@@ -631,7 +650,8 @@ class PlannerService:
         """
         prefix = (
             f'"{attempted_url}" is NOT a real page — it rendered the "Something went wrong" error '
-            f'screen. Do NOT write a plan on top of it and do NOT guess another URL.\n\n'
+            f'screen. Do NOT write a plan on top of it and do NOT guess another URL.\n'
+            f'DO NOT call planner_setup_page with another guessed URL — use browser_click only.\n\n'
             if attempted_url else ''
         )
         routes = PlannerService._discover_create_routes(bridge, base_url)
@@ -666,10 +686,35 @@ class PlannerService:
                     )
             except Exception:
                 pass
+
+        # No matching content-creation route — the feature is likely under a different section
+        # of the dashboard (Configuration, Settings, Analytics, etc.).
+        # Navigate to a known page that reliably renders the full sidebar so the planner can
+        # click through to the correct section. The base URL (/v2) loads inside an iframe and
+        # produces a nearly empty snapshot — use the posts list page instead, which always shows
+        # the full sidebar including Configuration, Settings, Analytics, etc.
+        sidebar_url = f"{base_url.rstrip('/')}/posts/published?content=true"
+        try:
+            bridge.call_tool('browser_navigate', {'url': sidebar_url})
+            sidebar_snap = bridge.call_tool('browser_snapshot', {})
+            um = re.search(r'^- Page URL:\s*(\S+)', sidebar_snap, flags=re.MULTILINE)
+            cache_key = um.group(1) if um else sidebar_url
+            snapshot_cache[cache_key] = sidebar_snap
+            return (
+                f'{prefix}None of the Content Type sidebar routes match this test — the feature is '
+                f'likely under a different section (e.g. Configuration, Settings, Analytics). '
+                f'The full dashboard sidebar is shown below. Find the correct section and call '
+                f'browser_click on the relevant link ref, then browser_snapshot to confirm the URL.\n'
+                f'DO NOT call planner_setup_page with another guessed URL — navigate by clicking only.\n'
+                f'NEVER guess a URL — only write page.goto() with a URL you confirmed by clicking:\n\n'
+                f'{AgentUtils.truncate_result(sidebar_snap, 3000)}'
+            )
+        except Exception:
+            pass
         return (
-            f'{prefix}REAL create routes discovered live from the "Content Type" sidebar '
-            f'(label => URL) — navigate to the matching one with planner_setup_page (so its fields '
-            f'are confirmed) and then use that exact URL in page.goto():\n{routes_list}'
+            f'{prefix}Could not load a sidebar. Navigate to {sidebar_url} using planner_setup_page, '
+            f'call browser_snapshot to see the sidebar, find the relevant section, and click through '
+            f'to the target page. NEVER guess a sub-URL.'
         )
 
     @staticmethod

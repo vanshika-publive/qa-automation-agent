@@ -146,11 +146,11 @@ pipeline/
 | Stage | File | What it does |
 |---|---|---|
 | **Orchestrator** | `pipeline/services/orchestrator_service.py` | Pure LLM (`gpt-4o`). Turns user's prompt → structured `TestPlan` JSON. Injects `dashboard_facts.py` knowledge. Then deterministically expands missing precondition steps (no LLM). |
-| **Planner** | `pipeline/services/planner_service.py` | Agentic loop (max **12** iters). Drives a **real headless browser** via `MCPBridge` to discover the actual UI. Read-only Playwright MCP tools (navigate/snapshot/click/hover). Writes `plan.md` + `plan-snapshots.json`. Plans are validated by `transforms/plan_validator.py` before acceptance; rejections feed back as retries. |
-| **Generator** | `pipeline/services/generator_service.py` | Agentic loop per scenario (max 20 iters). Writes Python pytest-playwright code. Gated by `transforms/spec_validator.py` before write, then deterministically cleaned up by `transforms/spec_sanitizer.py`. Skips if spec already on disk (idempotent). |
+| **Planner** | `pipeline/services/planner_service.py` | Agentic loop (max **8** iters). Drives a **real headless browser** via `MCPBridge` to discover the actual UI. Read-only Playwright MCP tools (navigate/snapshot/click/hover). Writes `plan.md` + `plan-snapshots.json`. Plans are validated by `transforms/plan_validator.py` before acceptance; rejections feed back as retries. |
+| **Generator** | `pipeline/services/generator_service.py` | Agentic loop per scenario (max 10 iters). Writes Python pytest-playwright code. Gated by `transforms/spec_validator.py` before write, then deterministically cleaned up by `transforms/spec_sanitizer.py`. Skips if spec already on disk (idempotent). |
 | **Runner** | `pipeline/services/runner_service.py` | No LLM. Shells out to `pytest` with `--json-report --html --timeout=30`. 4-minute hard kill with `SIGKILL` on the process group. |
 
-The pipeline is **OpenAI-powered** (`gpt-4o`), not Claude. `pipeline/infrastructure/ai_client.py` holds the single `AI_MODEL = 'gpt-4o'` constant. Key tuning thresholds live in `pipeline/constants.py`: `MAX_PLANNER_ITERATIONS=12`, `MAX_GENERATOR_ITERATIONS=20`, `MCP_TIMEOUT_MS=30_000`, `PIPELINE_KILL_TIMEOUT_MS=240_000`.
+The pipeline is **OpenAI-powered** (`gpt-4o`), not Claude. `pipeline/infrastructure/ai_client.py` holds the single `AI_MODEL = 'gpt-4o'` constant. Key tuning thresholds live in `pipeline/constants.py`: `MAX_PLANNER_ITERATIONS=8`, `MAX_GENERATOR_ITERATIONS=10`, `MCP_TIMEOUT_MS=30_000`, `PIPELINE_KILL_TIMEOUT_MS=240_000`, `MCP_PROTOCOL_VERSION='2024-11-05'`. Nudge thresholds gate mid-loop intervention messages: `PLANNER_NUDGE_THRESHOLD=0.75`, `GENERATOR_NUDGE_THRESHOLD=0.7`, `GENERATOR_FINAL_WARNING_THRESHOLD=0.87` (fraction of max iterations at which the agent is warned it's running low).
 
 `pipeline/infrastructure/mcp_bridge.py` spawns `backend/node_modules/@playwright/mcp`'s CLI as a child process and speaks raw JSON-RPC 2.0 over stdin/stdout. A fresh `MCPBridge` (= a fresh real browser) is spawned per planner run and per generator scenario.
 
@@ -252,12 +252,6 @@ These rules are enforced by the validators and sanitizer — violating them caus
 ## Observability
 
 New Relic APM is wired in via `backend/newrelic.ini` (Python agent). The license key is currently committed in plaintext in that file — rotate it and move it to an env var before making this repo public.
-
----
-
-## Known type mismatch
-
-`frontend/src/types.ts`'s `Environment` interface declares a `publisherId: string` field that `core/views/environments.py` never serializes (it only returns `publisher`, the name string). Nothing currently reads `publisherId` so it's harmless, but don't write code that depends on it.
 
 ---
 

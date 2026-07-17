@@ -9,6 +9,11 @@ methods, .first/.last as properties (no parentheses), re.compile(r'...') for reg
 and f-strings (f'qa-{ts}') for test data — NEVER TypeScript syntax ({ name: ... }, .last(),
 getByRole, /regex/, `template ${ts}`).
 
+RULE #1 — NEVER WRITE A page.goto() FOR A URL YOU DID NOT PERSONALLY VISIT THIS SESSION.
+For pages in KNOWN FACTS below: navigate with planner_setup_page and snapshot to confirm.
+For all other pages: use browser_click on a sidebar link, then browser_snapshot to read the URL.
+A guessed URL returns an error page with no fields — it wastes iterations and is always wrong.
+
 KNOWN FACTS ABOUT THIS DASHBOARD (verified against live ARIA — use them directly and write the plan promptly;
 only if a live snapshot CLEARLY contradicts a fact should you trust the snapshot instead):
 
@@ -240,6 +245,68 @@ ENTITY PAGES — geography, food, horoscope, breaking news, etc.:
     4. get_by_role('combobox').last.click()  <- Value combobox has no ARIA name
        then get_by_title('<option>', exact=True).last.click()  <- use value observed in live snapshot
 
+CUSTOM COMPONENTS (/configurations/content-type-builder/custom-component — verified live 2026-07-16):
+- Navigate directly: page.goto('<full-base-url>/configurations/content-type-builder/custom-component')
+  This URL is confirmed — do NOT browse from /configurations or call planner_setup_page with a guessed URL.
+- The CTB page content loads in the main DOM (NOT inside an iframe). The only iframe is a chat widget.
+- CREATE FLOW — 2 steps:
+  STEP 1: Click EXACTLY button "Create New Component" (not "Add Custom Component", not "Add New Component",
+    not "New Component" — the EXACT button name is "Create New Component").
+    → dialog "Create New Component" opens.
+    Fill: get_by_role('textbox', name='Display Name *') — REQUIRED, React-controlled → safe_sequential_fill
+    Optional: get_by_role('textbox', name='Description') — max 100 chars
+    Click: EXACTLY button "Continue" → URL changes to /configurations/content-type-builder/custom-component/<id>?flow=1
+  STEP 2 — field builder page (URL contains ?flow=1 with component ID):
+    Dialog "Add a field in your Content Type" auto-opens immediately. Wait for it first:
+      page.get_by_role('dialog', name='Add a field in your Content Type').wait_for()
+    FIELD TYPE TILES — CRITICAL LOCATOR RULE (verified live 2026-07-16):
+      Tile buttons have compound accessible names (e.g. "text Text Titles, names, paragraph list of names").
+      NEVER use get_by_role('button', name='Text') — it matches BOTH "Text" AND "Rich Text" (strict mode violation).
+      Instead click the HEADING inside the tile, scoped to the dialog:
+        page.get_by_role('dialog').get_by_role('heading', name='Text', exact=True).click()       ← text
+        page.get_by_role('dialog').get_by_role('heading', name='Numbers', exact=True).click()    ← numeric (NOT 'Number')
+        page.get_by_role('dialog').get_by_role('heading', name='Date And Time', exact=True).click() ← date/time
+        page.get_by_role('dialog').get_by_role('heading', name='Media', exact=True).click()
+        page.get_by_role('dialog').get_by_role('heading', name='Email', exact=True).click()
+        page.get_by_role('dialog').get_by_role('heading', name='Rich Text', exact=True).click()
+        page.get_by_role('dialog').get_by_role('heading', name='Boolean', exact=True).click()
+        page.get_by_role('dialog').get_by_role('heading', name='JSON', exact=True).click()
+        page.get_by_role('dialog').get_by_role('heading', name='Relation', exact=True).click()
+        page.get_by_role('dialog').get_by_role('heading', name='List', exact=True).click()
+        page.get_by_role('dialog').get_by_role('heading', name='Dynamic List', exact=True).click()
+        page.get_by_role('dialog').get_by_role('heading', name='Links', exact=True).click()
+        page.get_by_role('dialog').get_by_role('heading', name='Embed', exact=True).click()
+        page.get_by_role('dialog').get_by_role('heading', name='Component', exact=True).click()
+    DISPLAY NAME LABEL — CRITICAL (verified live 2026-07-16):
+      In the field form, the textbox accessible name is 'Display Name' WITHOUT asterisk.
+      safe_sequential_fill(page, 'Display Name *', ...) → 0 matches here → test hangs.
+      Always use: safe_sequential_fill(page, 'Display Name', field_name, delay=50)
+      ('Name (Slug)' auto-fills from Display Name — no action needed.)
+    Per field:
+      a) Wait for tile dialog: page.get_by_role('dialog', name='Add a field in your Content Type').wait_for()
+      b) Click tile heading: page.get_by_role('dialog').get_by_role('heading', name='Text', exact=True).click()
+      c) Fill name: safe_sequential_fill(page, 'Display Name', field_name, delay=50) — NO asterisk!
+      d) If more fields remain: click EXACTLY button "Add Another Field"
+         On the LAST field: click dialog-scoped Save (2 Save buttons exist when dialog is open):
+           page.get_by_role('dialog').get_by_role('button', name='Save').click()
+    After dialog closes (1 header Save + possible date-picker Save remain):
+      ALWAYS scope to #page-header: page.locator('#page-header').get_by_role('button', name='Save').click()
+      (An unscoped page.get_by_role('button', name='Save') fails in strict mode when a Date And Time field
+       leaves its date-picker popup in the DOM — that popup has its own 'Save' button.)
+- LIST page (verified live 2026-07-17):
+  Table columns: Name, Fields, Updated By, Created At, Updated At, Actions.
+  FILTERS — there is ONE filter input: textbox "Search" (filters by component name only).
+    There is NO "Created By" filter, NO "Updated By" filter, NO date filter. Do not invent them.
+    The "Updated By" column header has NO corresponding filter input.
+    Search flow: page.get_by_role('textbox', name='Search').fill(term) then .press('Enter').
+  Row actions are DIRECT buttons — NO kebab, NO options menu:
+    unnamed edit-pencil button, "Duplicate", "Delete" — all directly on the row.
+  Delete flow: row.get_by_role('button', name='Delete').click() → confirm in dialog.
+  Row locator: page.locator('tr').filter(has_text=component_name).first
+- CRITICAL — "Display Name" appears in TWO contexts with DIFFERENT accessible names:
+    Step 1 ('Create New Component' dialog): accessible name IS 'Display Name *' (with asterisk) — use safe_sequential_fill(page, 'Display Name *', component_name, ...)
+    Step 2 (field config dialog): accessible name is 'Display Name' (NO asterisk) — use safe_sequential_fill(page, 'Display Name', field_name, ...)
+
 EDIT & DELETE JOURNEYS — an edit routes to a sub-page like /<resource>/edit/<id>, reached by clicking a row's Edit control (you do NOT goto it). The edit form REUSES the create form's field labels, so write edit steps using the create-page field labels. BUT THE SAVE BUTTON IS DIFFERENT ON AN EDIT FORM — it is NOT the create page's button and it is NOT 'Save Changes' for posts. Pick it by resource type:
   - CONTENT POSTS (article, video, photo gallery, web story, custom content) that are ALREADY PUBLISHED: the edit form's save button is 'Update' (get_by_role('button', name='Update')) — NOT 'Publish' and NOT 'Save Changes'. The create page's 'Publish' button is REPLACED by 'Update' on the edit form because the post is already live. ('Save as Draft' also exists on the edit form for reverting to draft.) Clicking 'Update' saves and REDIRECTS to that type's published list (e.g. /posts/published?page_type=Gallery&ptype=Gallery&create=gallery), so assert the edited row on the published list AFTER the click. (Verified live on the Photo Gallery edit form 2026-07-02: buttons are 'Preview', 'Update', 'Save as Draft' — there is NO 'Publish' and NO 'Save Changes'. Writing 'Publish' or 'Save Changes' targets a button that does not exist, so expect(...).to_be_enabled() waits the full timeout and the run is killed.)
   - CATEGORY edit form ONLY: saves with get_by_role('button', name='Save Changes'), NOT 'Save Category'. This 'Save Changes' rule is CATEGORY-SPECIFIC — never carry it over to a post/gallery/video/article/web-story edit.
@@ -259,6 +326,18 @@ Then the plan you write for that flow MUST:
     expect(get_by_role('button', name='<exact name>')).to_be_enabled(timeout=15000)
     The button is briefly disabled right after the fields are filled (async validation), so clicking without this wait is flaky. This applies to EVERY submit button (Publish, Save Changes, Save as Draft, Save Category, ...), not just Publish.
 This protocol applies to KNOWN pages (those with Verified Page Facts) exactly as much as to pages you discover live — always verify the required fields and the submit button against the live snapshot.
+
+CONFIGURATION SECTION — for Configuration features NOT covered in KNOWN FACTS above:
+- CUSTOM COMPONENTS is in KNOWN FACTS above with a confirmed direct URL — navigate there directly.
+  Do NOT browse from /configurations to reach Custom Components.
+- "Content Creation" in the sidebar is the ARTICLE/VIDEO/GALLERY authoring section — completely
+  separate from Configuration/Custom Components. NEVER click "Content Creation" for a config test.
+- For OTHER Configuration features (team settings, SEO config, etc.) not in KNOWN FACTS:
+  1. Call planner_setup_page with the /configurations hub URL
+  2. Call browser_snapshot to see the hub layout
+  3. Use browser_click on the relevant card or link — do NOT guess a sub-URL
+  4. Call browser_snapshot to confirm the URL of the page you landed on
+  5. Write page.goto() only with that confirmed URL
 
 CRITICAL URL RULE — READ THIS BEFORE WRITING ANY PLAN STEP:
 NEVER write a page.goto() step with a URL you have not personally confirmed during this session.

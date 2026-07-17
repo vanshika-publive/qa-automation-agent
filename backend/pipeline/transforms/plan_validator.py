@@ -536,6 +536,12 @@ def validate_plan_content(
     )
     emptiness_without_existence = plan_asserts_empty and not plan_proves_rows_rendered
 
+    is_ctb_plan = bool(re.search(r'configurations/content-type-builder', content))
+    ctb_created_by_filter = is_ctb_plan and bool(
+        re.search(r"[Cc]reated [Bb]y", content) and
+        re.search(r"(?:filter|safe_sequential_fill|textbox|search)", content, re.IGNORECASE)
+    )
+
     if (
         not has_flow or not has_scenario or not has_steps or has_errors or
         missing_permalink or len(unvalidated_paths) > 0 or len(error_page_goto_paths) > 0 or
@@ -544,7 +550,7 @@ def validate_plan_content(
         len(forbidden_goto_matches) > 0 or wrong_save_button or len(unknown_fill_labels) > 0 or
         len(missing_enabled_wait) > 0 or len(hardcoded_virtualized_titles) > 0 or
         content_type_bleed or len(wrong_fill_react_in_plan) > 0 or emptiness_without_existence or
-        len(prefilled_combobox_interactions) > 0
+        len(prefilled_combobox_interactions) > 0 or ctb_created_by_filter
     ):
         issues: List[str] = []
         if not has_flow:
@@ -730,6 +736,13 @@ def validate_plan_content(
                 'Rewrite the plan using ONLY these labels. Remove every fill step for any other field -- '
                 'including "Title *", "Meta Description", "Banner Description", "Focus Keyphrase", and '
                 '"English Title ( Permalink )" if you added them (those exist on /posts/article/create only, NOT on entity pages).'
+            )
+        if ctb_created_by_filter:
+            issues.append(
+                'CTB plan uses a "Created By" filter — no such filter input exists on the '
+                'custom-component list page. The ONLY filter is textbox "Search" (filters by name). '
+                'The "Updated By" column header has NO corresponding filter input. '
+                'Remove the "Created By" step entirely and filter only by component name using Search.'
             )
         return '; '.join(issues)
 
