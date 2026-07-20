@@ -10,9 +10,12 @@ WORKDIR /app/backend
 
 # Node is required for pipeline/mcp_bridge.py, which spawns this project's own
 # node_modules/@playwright/mcp as a child process.
+# xvfb provides a virtual X display so the runner can launch HEADED Chromium
+# (HEADED=true) on a screenless container — see docker-entrypoint.sh.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         gnupg \
+        xvfb \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
