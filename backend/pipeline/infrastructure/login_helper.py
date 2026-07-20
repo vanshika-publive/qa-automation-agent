@@ -26,7 +26,8 @@ class SessionManager:
             return
 
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
+            # --no-sandbox: container runs as root; Chromium won't launch as root with the sandbox on.
+            browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
             context = browser.new_context()
             page = context.new_page()
 

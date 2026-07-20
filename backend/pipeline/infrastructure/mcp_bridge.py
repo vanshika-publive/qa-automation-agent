@@ -32,7 +32,15 @@ class MCPBridge:
         # /login. Pass both together so the captured MFA-cleared session actually authenticates.
         session_args = ['--isolated', '--storage-state', session_path] if os.path.isfile(session_path) else []
 
-        args = ['--browser', PLAYWRIGHT_BROWSER] + session_args
+        # Run headless by default so the planner/generator browser needs no X display — this is
+        # what lets it work on a screenless container (Railway/Docker) instead of dying with
+        # "Missing X server or $DISPLAY". Set HEADED=true locally to watch the browser instead.
+        # --no-sandbox is required because the container runs as root and Chromium refuses to
+        # launch as root with the sandbox enabled ("Running as root without --no-sandbox").
+        headed = os.environ.get('HEADED', '').strip().lower() == 'true'
+        launch_args = ['--no-sandbox'] + ([] if headed else ['--headless'])
+
+        args = ['--browser', PLAYWRIGHT_BROWSER] + launch_args + session_args
 
         self.proc = subprocess.Popen(
             ['node', cli_path] + args,
