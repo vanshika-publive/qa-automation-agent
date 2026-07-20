@@ -174,6 +174,29 @@ def sanitize_spec(code: str, scenario_name: str) -> str:
     # disabled. Shared across all content types -- insert the settle wait whenever both fills appear in order.
     out = _insert_permalink_debounce_wait(out)
 
+    # CTB (Content Type Builder) Save scoping. The create flow always ends with two Saves in order:
+    # (1) a DIALOG-scoped Save that closes the last field's "Add a field" modal, then (2) a page-HEADER
+    # Save that persists the component. gpt-4o reliably writes BOTH unscoped as
+    # page.get_by_role('button', name='Save') and cannot self-correct, so an unscoped header Save clicked
+    # while the field modal is still open is intercepted by the modal and times out. Fix deterministically:
+    # scope the LAST unscoped Save to the page header and every earlier unscoped Save to the dialog.
+    # (An already dialog-scoped Save — page.get_by_role('dialog').get_by_role('button', ...) — does not
+    # match this pattern and is left untouched.)
+    if re.search(r'content-type-builder', out):
+        _save_pat = re.compile(
+            r"page\.get_by_role\(\s*['\"]button['\"]\s*,\s*name\s*=\s*['\"]Save['\"]\s*\)"
+        )
+        _hits = list(_save_pat.finditer(out))
+        if _hits:
+            _last_start = _hits[-1].start()
+
+            def _scope_save(m: re.Match) -> str:
+                if m.start() == _last_start:
+                    return "page.locator('#page-header').get_by_role('button', name='Save')"
+                return "page.get_by_role('dialog').get_by_role('button', name='Save')"
+
+            out = _save_pat.sub(_scope_save, out)
+
     return out
 
 

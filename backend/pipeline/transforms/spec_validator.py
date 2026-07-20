@@ -158,7 +158,15 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             "data row), or page.locator('tr').filter(has_text=title).first to target a row by content."
         )
 
-    if re.search(r"get_by_role\(['\"]dialog['\"][^)]*\bname\s*=", code):
+    # Ban get_by_role('dialog', name=...) because POST content-type dialog titles vary by type.
+    # EXCEPTION: a few dialog names are verified-live-stable across every context and are the
+    # documented way to wait for that dialog — e.g. the Content-Type-Builder field-add dialog,
+    # whose name is identical for all field types. Allowlist those so specs can follow the facts.
+    _STABLE_DIALOG_NAMES = {'add a field in your content type'}
+    _dialog_names = re.findall(
+        r"get_by_role\(['\"]dialog['\"][^)]*\bname\s*=\s*['\"]([^'\"]+)['\"]", code
+    )
+    if any(n.strip().lower() not in _STABLE_DIALOG_NAMES for n in _dialog_names):
         issues.append(
             "get_by_role('dialog', name=...) detected — dialog titles vary by content type and are unreliable. "
             "This locator will fail on any content type other than the one it was written for. "
@@ -423,14 +431,10 @@ def validate_spec_semantics(code: str) -> Optional[str]:
                 "(Scoping to #page-header is REQUIRED — an unscoped page.get_by_role('button', name='Save') "
                 "fails in strict mode when a Date And Time field leaves its date-picker popup open with its own Save button.)"
             )
-        # CTB: unscoped main-page Save is ambiguous when a date picker popup is open
-        if re.search(r"\bpage\.get_by_role\(\s*'button'\s*,\s*name=['\"]Save['\"]\)", code):
-            issues.append(
-                "CTB: page.get_by_role('button', name='Save').click() is unscoped — strict mode violation "
-                "when a Date And Time field is used (the date-picker popup keeps its own 'Save' button in the DOM). "
-                "Scope the final main-page Save to the page header: "
-                "page.locator('#page-header').get_by_role('button', name='Save').click()"
-            )
+        # NOTE: the unscoped main-page Save (page.get_by_role('button', name='Save')) is NOT gated here.
+        # gpt-4o reliably writes it unscoped and cannot self-correct from a rejection message, so it is
+        # fixed deterministically in spec_sanitizer (scoped to #page-header) instead of blocking the
+        # generator loop. Gating it here caused an unrecoverable reject-loop on every CTB create spec.
         # CTB list: no 'Created By' filter textbox exists — only 'Search' (name filter)
         if re.search(r"get_by_role\(\s*['\"]textbox['\"]\s*,\s*name\s*=\s*['\"]Created By['\"]", code):
             issues.append(

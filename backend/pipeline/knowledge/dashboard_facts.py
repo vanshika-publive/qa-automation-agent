@@ -759,7 +759,10 @@ def facts_for_prompt(prompt):
     return '\n\n'.join(format_page_facts(p) for p in pages)
 
 
-def facts_for_all_mentioned_pages(prompt):
+def matched_pages_for_prompt(prompt):
+    """Return the list of PageFacts objects a prompt references (same detection as
+    facts_for_all_mentioned_pages, but returns the objects rather than formatted text so
+    callers can read .path/.title). Order = detection order."""
     lower = prompt.lower()
     matched = []
     seen = set()
@@ -807,6 +810,11 @@ def facts_for_all_mentioned_pages(prompt):
     if has_published_target and re.search(r'publish|delet|\bedit\b|topmost|latest|rename|update', lower):
         push(PUBLISHED_LIST)
 
+    return matched
+
+
+def facts_for_all_mentioned_pages(prompt):
+    matched = matched_pages_for_prompt(prompt)
     if not matched:
         return ''
     return '\n\n'.join(format_page_facts(p) for p in matched)

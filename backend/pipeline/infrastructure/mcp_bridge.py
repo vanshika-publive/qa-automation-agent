@@ -21,7 +21,7 @@ class _PendingRequest:
 
 class MCPBridge:
 
-    def __init__(self, project_root: Optional[str] = None):
+    def __init__(self, project_root: Optional[str] = None, read_only: bool = False):
         self._project_root = project_root or settings.PLAYWRIGHT_PROJECT_ROOT
         cli_path = MCPBridge._find_cli()
 
@@ -32,7 +32,17 @@ class MCPBridge:
         # /login. Pass both together so the captured MFA-cleared session actually authenticates.
         session_args = ['--isolated', '--storage-state', session_path] if os.path.isfile(session_path) else []
 
-        args = ['--browser', PLAYWRIGHT_BROWSER] + session_args
+        # Read-only mode (planner + generator): inject readonly_guard.js into every page so a stray
+        # confirm-click during UI exploration cannot mutate the live dashboard. The guard neutralizes
+        # POST/PUT/PATCH/DELETE in-browser; reads (GET/HEAD) are untouched. The runner does NOT use
+        # MCPBridge (it runs pytest directly), so real test mutations are unaffected.
+        readonly_args = []
+        if read_only:
+            guard_path = os.path.join(os.path.dirname(__file__), 'readonly_guard.js')
+            readonly_args = ['--init-script', guard_path]
+            print('[MCPBridge] read-only mode ON — mutating HTTP (POST/PUT/PATCH/DELETE) blocked in-browser')
+
+        args = ['--browser', PLAYWRIGHT_BROWSER] + session_args + readonly_args
 
         self.proc = subprocess.Popen(
             ['node', cli_path] + args,

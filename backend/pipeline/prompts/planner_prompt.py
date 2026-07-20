@@ -14,6 +14,14 @@ For pages in KNOWN FACTS below: navigate with planner_setup_page and snapshot to
 For all other pages: use browser_click on a sidebar link, then browser_snapshot to read the URL.
 A guessed URL returns an error page with no fields — it wastes iterations and is always wrong.
 
+RULE #2 — YOUR BROWSER IS A READ-ONLY SANDBOX. Do NOT execute destructive/state-changing actions
+while exploring. To PLAN a delete/publish/unpublish/update/save step you only need to CONFIRM the
+relevant button EXISTS in a snapshot (open the kebab, see the "Delete" menuitem, note the confirm
+dialog's button name) — you do NOT need to actually click the final confirm. State-changing requests
+(POST/PUT/PATCH/DELETE) are blocked in-browser, so a confirm-click will appear to "fail" or show an
+error toast: that is EXPECTED, not a bug. Never loop retrying a blocked action — just write the step
+into the plan from what the snapshot already shows and move on.
+
 KNOWN FACTS ABOUT THIS DASHBOARD (verified against live ARIA — use them directly and write the plan promptly;
 only if a live snapshot CLEARLY contradicts a fact should you trust the snapshot instead):
 
@@ -301,8 +309,20 @@ CUSTOM COMPONENTS (/configurations/content-type-builder/custom-component — ver
     Search flow: page.get_by_role('textbox', name='Search').fill(term) then .press('Enter').
   Row actions are DIRECT buttons — NO kebab, NO options menu:
     unnamed edit-pencil button, "Duplicate", "Delete" — all directly on the row.
-  Delete flow: row.get_by_role('button', name='Delete').click() → confirm in dialog.
-  Row locator: page.locator('tr').filter(has_text=component_name).first
+  Row locator: rows = page.locator('tr').filter(has_text=component_name)
+  DELETE FLOW — write these steps IN THIS ORDER (the vacuous-emptiness validator rejects any plan
+  that asserts to_have_count(0) or loops on .count() WITHOUT first proving the rows rendered):
+    1. (optional) Filter by name: page.get_by_role('textbox', name='Search').fill('<name>') then .press('Enter').
+    2. PROVE THE ROWS RENDERED FIRST — this step is MANDATORY before any count/emptiness step:
+       rows = page.locator('tr').filter(has_text='<name>'); rows.first.wait_for(state='visible', timeout=15000)
+    3. Delete each matching row. Delete removes one row at a time, so loop while rows remain:
+       while rows.count() > 0: rows.first.get_by_role('button', name='Delete').click(); then confirm in the
+       dialog with page.get_by_role('dialog').get_by_role('button', name='Delete').click(); then
+       expect(rows).to_have_count(rows.count() - 1) style wait for the row to disappear before the next iteration.
+    4. Assert success: expect(rows).to_have_count(0, timeout=15000). This is meaningful ONLY because step 2
+       already proved the rows existed — 0 now means "removed", not "never loaded".
+  For a SINGLE named component: still do step 2 (rows.first.wait_for(state='visible')) before delete + assertion.
+  NOTE: there is NO "Created By"/creator filter — filter by NAME via Search only; never add a "Created By" step.
 - CRITICAL — "Display Name" appears in TWO contexts with DIFFERENT accessible names:
     Step 1 ('Create New Component' dialog): accessible name IS 'Display Name *' (with asterisk) — use safe_sequential_fill(page, 'Display Name *', component_name, ...)
     Step 2 (field config dialog): accessible name is 'Display Name' (NO asterisk) — use safe_sequential_fill(page, 'Display Name', field_name, ...)
@@ -434,6 +454,15 @@ Rules:
   "Use safe_fill(page, 'Focus Keyphrase', f'kw-{ts}') — field has maxLength=60 per DOM"
   This allows the generator to choose values that satisfy both min and max constraints.
 - If a flow needs a different page, call planner_setup_page with the new URL before snapshotting
+
+SINGLE-SCENARIO RULE (critical for create-then-delete / create-then-edit tests):
+Each "### Scenario" becomes a SEPARATE, ISOLATED pytest test — its own fresh ts, its own browser
+session, no shared state. So when later steps depend on runtime data produced by earlier steps in
+the SAME journey (e.g. create a component with a timestamped name, THEN delete/edit THAT SAME
+component), you MUST write it as ONE single "### Scenario" whose Steps do the create first and then
+the delete/edit in sequence. NEVER split it into a "Create ..." scenario and a separate "Delete ..."
+scenario — a separate delete scenario computes a DIFFERENT ts and looks for an item that was never
+created, so it always fails. Only use separate scenarios for genuinely independent journeys.
 
 Plan format:
 # Test Plan: [title from TestPlan]

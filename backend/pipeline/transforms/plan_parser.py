@@ -30,14 +30,24 @@ def parse_plan_md(content: str) -> List[Scenario]:
         if len(scenario_blocks) == 0:
             scenario_blocks = re.split(r'^### ', flow_block, flags=re.MULTILINE)[1:]
 
+        # A flow is ONE self-contained journey, so it maps to ONE test. When the planner splits a
+        # single flow into multiple "### Scenario" blocks (e.g. a "Create ..." scenario and a
+        # separate "Delete ..." scenario for the SAME item), they would otherwise become independent
+        # pytest tests that cannot share runtime state — the delete test would compute its own fresh
+        # ts and look for an item that was never created. Merge all scenarios of a flow, in order,
+        # into a single scenario so create-then-delete/edit runs as one test. A flow with a single
+        # scenario is unaffected (the common case).
+        merged_steps: List[str] = []
+        merged_expected: List[str] = []
+        scenario_names: List[str] = []
+
         for scenario_block in scenario_blocks:
             name_match = re.match(r'^([^\n]+)', scenario_block)
             scenario_name = name_match.group(1).strip() if name_match else 'Unknown Scenario'
 
             steps_match = re.search(r'\*\*Steps:?\*\*\s*\n([\s\S]*?)(?=\*\*Expected|$)', scenario_block)
             if steps_match:
-                step_lines = re.findall(r'^\d+\.\s+(.+)$', steps_match.group(1), flags=re.MULTILINE)
-                steps = step_lines
+                steps = re.findall(r'^\d+\.\s+(.+)$', steps_match.group(1), flags=re.MULTILINE)
             else:
                 steps = []
 
@@ -45,21 +55,30 @@ def parse_plan_md(content: str) -> List[Scenario]:
                 r'\*\*Expected:?\*\*\s*\n([\s\S]*?)(?=^##|^###|$)', scenario_block, flags=re.MULTILINE
             )
             if expected_match:
-                expected_lines = re.findall(r'^[-*]\s+(.+)$', expected_match.group(1), flags=re.MULTILINE)
-                expected = expected_lines
+                expected = re.findall(r'^[-*]\s+(.+)$', expected_match.group(1), flags=re.MULTILINE)
             else:
                 expected = []
 
             if len(steps) == 0:
                 continue
 
-            scenarios.append(Scenario(
-                flow_name=flow_name,
-                scenario_name=scenario_name,
-                steps=steps,
-                expected=expected,
-                file_name=f"{to_collection_slug(flow_name)}-{to_collection_slug(scenario_name)}",
-            ))
+            merged_steps.extend(steps)
+            merged_expected.extend(expected)
+            scenario_names.append(scenario_name)
+
+        if not merged_steps:
+            continue
+
+        # Keep the single scenario's name when the flow wasn't split (preserves existing file names);
+        # use the flow name when several scenarios were merged into one journey.
+        merged_name = scenario_names[0] if len(scenario_names) == 1 else flow_name
+        scenarios.append(Scenario(
+            flow_name=flow_name,
+            scenario_name=merged_name,
+            steps=merged_steps,
+            expected=merged_expected,
+            file_name=f"{to_collection_slug(flow_name)}-{to_collection_slug(merged_name)}",
+        ))
 
     return scenarios
 

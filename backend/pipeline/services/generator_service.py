@@ -98,7 +98,10 @@ class GeneratorService:
         if plan_snapshots is None:
             plan_snapshots = {}
 
-        bridge = MCPBridge()
+        # read_only: the generator observes the UI to write pytest code — it must never mutate the
+        # live dashboard while exploring. See MCPBridge/readonly_guard.js. The runner (which runs the
+        # generated spec for real) uses pytest directly, not MCPBridge, so it is unaffected.
+        bridge = MCPBridge(read_only=True)
         action_log = []
         written_file = None
         no_tool_nudges = 0
@@ -111,6 +114,9 @@ class GeneratorService:
                 or validate_spec_matches_plan(raw_content, scenario.steps)
             )
             if rejection_message:
+                print('  [rejected] ' + ' | '.join(
+                    ln.strip() for ln in rejection_message.splitlines() if ln.strip()
+                )[:600])
                 return rejection_message
             file_name = re.sub(r'[^a-zA-Z0-9._-]', '', os.path.basename(str(file_name_hint or '')))
             if not file_name.endswith('.py'):

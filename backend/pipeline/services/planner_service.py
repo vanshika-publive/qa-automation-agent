@@ -10,7 +10,9 @@ from pipeline.infrastructure.login_helper import SessionManager
 from pipeline.utils.credential_manager import CredentialManager
 from pipeline.utils.agent_utils import AgentUtils
 from pipeline.knowledge.heuristics_loader import get_heuristics
-from pipeline.knowledge.dashboard_facts import facts_for_all_mentioned_pages, PAGE_FACTS
+from pipeline.knowledge.dashboard_facts import (
+    facts_for_all_mentioned_pages, matched_pages_for_prompt, PAGE_FACTS,
+)
 from pipeline.constants import MAX_PLANNER_ITERATIONS, PLANNER_NUDGE_THRESHOLD
 from pipeline.prompts.planner_prompt import build_planner_system_prompt
 from pipeline.tools.planner_tools import PLANNER_CUSTOM_TOOLS
@@ -55,7 +57,10 @@ class PlannerService:
         ai = AiClientFactory.create()
         openai = ai['client']
         model = ai['model']
-        bridge = MCPBridge()
+        # read_only: the planner only observes the UI to write plan.md — it must never mutate the
+        # live dashboard. A confirm-Delete/Publish click while exploring (e.g. verifying a delete
+        # flow) would otherwise hit the real API; the guard blocks the request in-browser.
+        bridge = MCPBridge(read_only=True)
         snapshot_cache = {}
         # Diagnosis state — initialized before the try so a crash during setup (before the
         # agentic loop starts) can still produce a structured failure report, not a bare
@@ -88,11 +93,21 @@ class PlannerService:
                 heuristics, facts, CredentialManager.get_publisher(), planning_memory
             )
 
+            # When the flow targets exactly one known page (e.g. the Content-Type-Builder
+            # custom-component list), start the planner there directly. The orchestrator only
+            # knows the environment base URL, so without this the planner improvises navigation
+            # and can land on a same-named-but-wrong page (e.g. Custom *Page* content vs Custom
+            # *Component* config). A single unambiguous match has a confirmed path — go straight to it.
+            start_url = test_plan.url
+            _matched = matched_pages_for_prompt(plan_text)
+            if len(_matched) == 1 and _matched[0].path.startswith('/'):
+                start_url = f"{test_plan.url.rstrip('/')}{_matched[0].path}"
+
             user_content = (
                 f'Here is the TestPlan to implement:\n\n'
                 f'{json.dumps(PlannerService._to_dict(test_plan), indent=2)}\n\n'
                 f'{PlannerService._correction_directive(correction)}'
-                f'Start immediately by calling planner_setup_page with url: {test_plan.url}'
+                f'Start immediately by calling planner_setup_page with url: {start_url}'
             )
             messages = [
                 {'role': 'system', 'content': planner_system_prompt},
@@ -458,10 +473,17 @@ class PlannerService:
                             result = f'Navigated to {target_url}. Page snapshot:\n{AgentUtils.truncate_result(snapshot, 3000)}'
                             # On first landing of a creation flow, inject live create routes from
                             # the "Content Type" sidebar so the planner never guesses a create URL.
+                            landed_is_known = any(p in landed_path for p in PAGE_FACTS.keys())
                             print(f'[planner:setup] count={setup_page_count} '
                                   f'creation_flow={PlannerService._is_creation_flow(test_plan)} '
+                                  f'known_target={landed_is_known} '
                                   f'title={getattr(test_plan, "title", None)!r}')
-                            if setup_page_count == 1 and PlannerService._is_creation_flow(test_plan):
+                            # Only hand over the live create-route map when the planner landed on a page
+                            # we DON'T already have facts for. If the page is a known target (in PAGE_FACTS),
+                            # the planner already has the confirmed URL + field facts — proactively guiding
+                            # it elsewhere would drag it off the correct page and burn iterations.
+                            if (setup_page_count == 1 and not landed_is_known
+                                    and PlannerService._is_creation_flow(test_plan)):
                                 guide = PlannerService._guide_to_create_page(
                                     bridge, test_plan.url, test_plan, snapshot_cache
                                 )
@@ -687,8 +709,14 @@ class PlannerService:
             except Exception:
                 pass
 
-        # No matching content-creation route — the feature is likely under a different section
-        # of the dashboard (Configuration, Settings, Analytics, etc.).
+        # No matching content-creation route. Only take over the browser when this is an ERROR-page
+        # rescue (attempted_url set) — the planner is stranded on a broken page and needs to be moved.
+        # On a PROACTIVE call (attempted_url is None) the planner is already on a page that loaded fine;
+        # navigating it away to /posts/published would hijack a working flow, so stay silent and let it
+        # keep planning from where it is.
+        if not attempted_url:
+            return ''
+
         # Navigate to a known page that reliably renders the full sidebar so the planner can
         # click through to the correct section. The base URL (/v2) loads inside an iframe and
         # produces a nearly empty snapshot — use the posts list page instead, which always shows
@@ -735,6 +763,36 @@ class PlannerService:
             # Replace bare /posts/published (no query string) with the filtered URL.
             # Negative lookahead skips already-correct filtered URLs and sub-paths like /published/geographies.
             content = re.sub(r'/posts/published(?![?/\w])', filter_url, content)
+
+        # Vacuous-emptiness auto-fix: the LLM reliably asserts deletion with to_have_count(0)
+        # (or loops on .count()) WITHOUT first proving the target rows rendered — the exact case
+        # plan_validator.emptiness_without_existence rejects. It is told verbatim to add the
+        # wait-for-visible proof and still omits it, so inject it deterministically (mirrors the
+        # validator's own regexes) rather than burning retry iterations on a fix the LLM won't make.
+        asserts_empty = bool(re.search(r"\.to_have_count\(\s*0\b", content)) or bool(
+            re.search(r"\b(?:while|for each|for every)\b[^\n]*\.count\(\)", content, flags=re.IGNORECASE)
+        )
+        proves_rendered = bool(
+            re.search(r"\.wait_for\(\s*state\s*=\s*['\"](?:visible|attached)['\"]", content) or
+            re.search(r"\.to_have_count\(\s*[1-9][0-9]*\b", content) or
+            re.search(r"\.to_be_visible\(", content)
+        )
+        if asserts_empty and not proves_rendered:
+            row_loc_match = re.search(r"page\.locator\(\s*['\"]tr['\"]\s*\)\.filter\([^\n]*?\)", content)
+            row_loc = row_loc_match.group(0) if row_loc_match else "page.locator('tr')"
+            proof = (
+                f'Before asserting deletion, prove the target row(s) rendered: '
+                f'rows = {row_loc}; rows.first.wait_for(state=\'visible\', timeout=15000).'
+            )
+            lines = content.splitlines()
+            for i, ln in enumerate(lines):
+                if re.search(r"\.to_have_count\(\s*0\b", ln):
+                    indent = re.match(r'\s*', ln).group(0)
+                    lines.insert(i, f'{indent}{proof}')
+                    break
+            else:
+                lines.append(proof)
+            content = '\n'.join(lines)
         return content
 
     @staticmethod
