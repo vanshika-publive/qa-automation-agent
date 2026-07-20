@@ -42,7 +42,14 @@ class MCPBridge:
             readonly_args = ['--init-script', guard_path]
             print('[MCPBridge] read-only mode ON — mutating HTTP (POST/PUT/PATCH/DELETE) blocked in-browser')
 
-        args = ['--browser', PLAYWRIGHT_BROWSER] + session_args + readonly_args
+        # Headless unless HEADED=true so the planner/generator browser needs no X display on a
+        # screenless container; with HEADED=true it renders to the Xvfb display (:99) and can be
+        # watched live via noVNC. --no-sandbox is required because the container runs as root and
+        # Chromium refuses to launch as root with the sandbox enabled.
+        headed = os.environ.get('HEADED', '').strip().lower() == 'true'
+        launch_args = ['--no-sandbox'] + ([] if headed else ['--headless'])
+
+        args = ['--browser', PLAYWRIGHT_BROWSER] + launch_args + session_args + readonly_args
 
         self.proc = subprocess.Popen(
             ['node', cli_path] + args,

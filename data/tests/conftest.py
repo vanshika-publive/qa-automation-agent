@@ -47,7 +47,9 @@ def _session_is_valid():
 @pytest.fixture(scope='session')
 def browser_type_launch_args():
     headed = os.environ.get('HEADED', '').lower() in ('true', '1', 'yes')
-    return {'headless': not headed}
+    # --no-sandbox: the container runs as root, and Chromium refuses to launch as root with the
+    # sandbox enabled ("Running as root without --no-sandbox is not supported"). Harmless locally.
+    return {'headless': not headed, 'args': ['--no-sandbox']}
 
 
 @pytest.fixture(scope='session', autouse=True)
