@@ -711,6 +711,20 @@ def validate_plan_content(
                 'not pick an option). If you want to note them, add a plain note like "Response Type '
                 'is pre-set to its default — no action needed" instead of an interaction step.'
             )
+        if re.search(
+            r"(?:safe_(?:sequential_)?fill\s*\([^)]*?"
+            r"|get_by_role\(\s*['\"]textbox['\"]\s*,\s*name\s*=\s*)['\"]Featured Video \*['\"]",
+            content,
+        ):
+            issues.append(
+                'plan fills/locates "Featured Video *" directly, but that is a LABEL, not a textbox -- '
+                'the video is attached through a dialog, not by filling this field, so this step matches '
+                'nothing and times out at runtime. Rewrite the step as: '
+                "(1) click get_by_role('button', name='Add Featured Video') to open the Embed Media dialog, "
+                "(2) safe_fill(page, 'Media URL *', '<real embeddable video URL>'), "
+                "(3) click get_by_role('button', name='Submit'). Do this BEFORE filling Title/Permalink. "
+                'Remove the direct "Featured Video *" fill step entirely.'
+            )
         if len(wrong_fill_react_in_plan) > 0:
             quoted = ', '.join(f'"{l}"' for l in wrong_fill_react_in_plan)
             issues.append(
