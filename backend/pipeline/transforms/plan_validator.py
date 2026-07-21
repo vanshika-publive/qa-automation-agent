@@ -444,6 +444,17 @@ def validate_plan_content(
         r"(?:get_by_role|getByRole)\(\s*['\"](?:button|link)['\"]\s*,\s*(?:name\s*=\s*|\{\s*name:\s*)['\"]Edit\b",
         content, flags=re.IGNORECASE
     ))
+    # Dialog-launched flows (launch_button set) fill fields that live INSIDE a dialog/wizard, not on
+    # the landing page. The read-only planner cannot reliably snapshot those fields (opening the
+    # dialog is flaky under the MCP browser), so they appear neither in PageFacts' flat field lists
+    # nor in any captured snapshot -- and unknown_fill_labels would reject every real dialog field
+    # ("Display Name *") forever. The fields are documented in the page's note and the runner (real
+    # pytest, not read-only) exercises them for real, so exempt these flows from the fill-label
+    # existence check rather than deadlocking the planner on an unverifiable requirement.
+    visits_dialog_launcher = any(
+        PAGE_FACTS.get(p) is not None and getattr(PAGE_FACTS[p], 'launch_button', None)
+        for p in visited_paths_in_plan
+    )
     snapshots_text = '\n'.join(snapshot_cache.values())
     plan_fill_labels = extract_fill_labels(content)
     # A search/filter textbox (e.g. "Search by name, path, or alt text" on /media) is NOT a form field --
@@ -455,7 +466,8 @@ def validate_plan_content(
             and not _is_field_referenced(l, snapshots_text)
             and not re.search(r'\b(search|filter)\b', l, flags=re.IGNORECASE)
         ]
-        if (all_visited_have_facts and not reaches_clicked_edit_form) else []
+        if (all_visited_have_facts and not reaches_clicked_edit_form
+            and not visits_dialog_launcher) else []
     )
 
     # A get_by_title() value counts as verified if it appears in a live snapshot, in the system
