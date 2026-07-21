@@ -6,7 +6,7 @@ set -e
 # child it spawns (the pytest runner AND the @playwright/mcp planner/generator
 # browsers) — inherits this DISPLAY, so all browsers render into Xvfb on :99 instead
 # of dying with "Missing X server or $DISPLAY".
-Xvfb :99 -screen 0 1920x1080x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
+Xvfb :99 -screen 0 1280x800x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
 export DISPLAY=:99
 
 # Live view (opt-in): export the :99 display over HTTP via VNC so the whole pipeline's
