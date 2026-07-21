@@ -415,8 +415,8 @@ class PlannerService:
                     # Dialog-launched page. If we already opened the dialog on the first landing,
                     # its snapshot is cached — do NOT re-navigate or re-open; the model has looped
                     # here before, so hard-stop it toward writing the plan. Otherwise open it now.
-                    cached = snapshot_cache.get(target_url, '')
-                    if cached and re.search(r'(?im)^\s*[-*]?\s*dialog\b', cached):
+                    cached = snapshot_cache.get(target_url + '#create-dialog', '')
+                    if cached and re.search(r'(?im)^\s*[-*]?\s*(?:dialog|alertdialog)\b', cached):
                         result = (
                             f'You are already on {target_url} and the "{landed_facts.launch_button}" '
                             f'dialog was already opened for you earlier — its snapshot is in this '
@@ -720,29 +720,43 @@ class PlannerService:
         form. On a launcher page the required fields live behind facts.launch_button, not on the
         landing page — so the runtime clicks the launcher itself (read-only-safe: opening a dialog
         is a GET, and the readonly guard blocks any mutation regardless) and snapshots the opened
-        dialog. The dialog snapshot is cached under the page URL so the plan validator enforces the
-        dialog's live "*" fields, and is handed to the planner inline. Returns a guidance string, or
-        '' if the dialog could not be confirmed open (caller falls back to generic guidance)."""
+        dialog. The dialog snapshot is cached under a DISTINCT "#create-dialog" key (never the bare
+        page URL) so a later list-page snapshot the model may take cannot overwrite it — the plan
+        validator unions all cached snapshots, so the dialog's "*" fields stay visible to it. The
+        snapshot is also handed to the planner inline. Returns a guidance string, or '' if the
+        dialog could not be confirmed open (caller falls back to generic guidance)."""
         launch = facts.launch_button
         # Try the accessible-name role selector first (matches exactly what the generator's
         # get_by_role('button', name=...) will use), then a has-text fallback for buttons whose
-        # label is nested. Re-snapshot after each and stop as soon as a dialog surfaces — a role=dialog
-        # node (Ant modals render as one) is the proof the click actually landed and opened the form.
-        dialog_re = r'(?im)^\s*[-*]?\s*dialog\b'
+        # label is nested. A role=dialog node (Ant modals render as one) is the proof the click
+        # landed and opened the form. CRITICAL: the dialog animates in, so a snapshot taken
+        # immediately after the click routinely misses it -- poll a few times with a short delay
+        # before giving up, otherwise we fall back, never cache the dialog, and the validator then
+        # rejects the dialog's real "*" fields as "nonexistent on any visited page".
+        import time as _time_module
+        dialog_re = r'(?im)^\s*[-*]?\s*(?:dialog|alertdialog)\b'
         snapshot = ''
         for selector in (f'role=button[name="{launch}"]', f'button:has-text("{launch}")'):
             try:
                 bridge.call_tool('browser_click', {'target': selector, 'element': f'"{launch}" button'})
-                snapshot = bridge.call_tool('browser_snapshot', {})
             except Exception as err:
                 print(f'[planner:dialog] click via {selector!r} failed: {err}')
                 continue
-            if re.search(dialog_re, snapshot):
+            for _attempt in range(4):
+                try:
+                    snapshot = bridge.call_tool('browser_snapshot', {})
+                except Exception:
+                    snapshot = ''
+                if re.search(dialog_re, snapshot):
+                    break
+                _time_module.sleep(0.7)
+            if re.search(dialog_re, snapshot or ''):
                 break
         if not re.search(dialog_re, snapshot or ''):
             print(f'[planner:dialog] "{launch}" click did not surface a dialog — falling back')
             return ''
-        snapshot_cache[page_url] = snapshot
+        # Distinct key so a later list-page snapshot under the bare page_url can't clobber it.
+        snapshot_cache[page_url + '#create-dialog'] = snapshot
         print(f'[planner:dialog] opened "{launch}" dialog on {page_url} and cached its snapshot')
         return (
             f'This is a DIALOG-LAUNCHED create flow — the form is NOT on the list page itself. '
