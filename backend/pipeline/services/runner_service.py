@@ -29,7 +29,6 @@ class RunnerService:
             f'--json-report-file={results_file}',
             f'--html={html_report}',
             '--self-contained-html',
-            '--timeout=30',
             '-v',
         ]
 
@@ -56,6 +55,19 @@ class RunnerService:
             env['DASHBOARD_EMAIL'] = credentials.get('dashboard_email', '')
             env['DASHBOARD_PASSWORD'] = credentials.get('dashboard_password', '')
             env['DASHBOARD_PUBLISHER'] = credentials.get('dashboard_publisher', '') or ''
+
+        # slow_mo: pytest-playwright's --slowmo pauses before each Playwright action so a HEADED
+        # run is watchable live over noVNC. Only when headed (someone's watching) — headless CI
+        # stays full-speed. Tunable via the SLOW_MO_MS env/Railway var without touching code.
+        # This lives here (backend/, shipped in the image) rather than in data/tests/conftest.py,
+        # which sits on a Railway volume that git deploys don't update.
+        # slow_mo adds up across actions, so give slowed runs a longer per-test timeout than the
+        # normal 30s, otherwise pytest-timeout kills the test mid-action.
+        headed = env.get('HEADED', '').strip().lower() in ('true', '1', 'yes')
+        slow_mo = int(env.get('SLOW_MO_MS', '400')) if headed else 0
+        args.append(f'--timeout={120 if slow_mo > 0 else 30}')
+        if slow_mo > 0:
+            args.append(f'--slowmo={slow_mo}')
 
         proc = subprocess.Popen(
             args,
