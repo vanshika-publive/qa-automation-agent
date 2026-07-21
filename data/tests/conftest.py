@@ -47,9 +47,10 @@ def _session_is_valid():
 @pytest.fixture(scope='session')
 def browser_type_launch_args():
     headed = os.environ.get('HEADED', '').lower() in ('true', '1', 'yes')
-    # --no-sandbox: the container runs as root, and Chromium refuses to launch as root with the
-    # sandbox enabled ("Running as root without --no-sandbox is not supported"). Harmless locally.
-    return {'headless': not headed, 'args': ['--no-sandbox']}
+    # playwright-core already adds --no-sandbox (its default when chromiumSandbox isn't forced on)
+    # and --disable-dev-shm-usage to its default chromium switches, so the runner launches cleanly
+    # as root on Railway with no extra args — which is why it already works here.
+    return {'headless': not headed}
 
 
 @pytest.fixture(scope='session', autouse=True)
