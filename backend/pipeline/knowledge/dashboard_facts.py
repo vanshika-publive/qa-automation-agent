@@ -52,6 +52,11 @@ class PageFacts:
     published_list_path: Optional[str] = None
     draft_list_path: Optional[str] = None
     note: Optional[str] = None
+    # Dialog-launched create flows: the create form is NOT on this landing page — it lives inside
+    # a dialog opened by clicking this button (e.g. "Create New Component"). When set, this page is
+    # a launcher, not a form: the planner must open the dialog to observe the real required fields.
+    # The exact button name (accessible name) that opens the first dialog.
+    launch_button: Optional[str] = None
 
 
 ARTICLE_CREATE = PageFacts(
@@ -582,6 +587,7 @@ CUSTOM_COMPONENT_LIST = PageFacts(
     path='/configurations/content-type-builder/custom-component',
     title='Custom Components',
     save_button='Save',
+    launch_button='Create New Component',
     note=(
         'URL confirmed live 2026-07-16. Navigate directly — do NOT guess from /configurations.\n'
         'CREATE FLOW — 2 steps:\n'

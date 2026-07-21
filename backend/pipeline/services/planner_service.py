@@ -409,7 +409,32 @@ class PlannerService:
                 except Exception:
                     landed_path = target_url
                 is_known_target = any(p in landed_path for p in PAGE_FACTS.keys())
-                if is_known_target:
+                landed_facts = PlannerService._facts_for_path(landed_path)
+                if (landed_facts is not None and landed_facts.launch_button
+                        and PlannerService._is_creation_flow(test_plan)):
+                    # Dialog-launched page. If we already opened the dialog on the first landing,
+                    # its snapshot is cached — do NOT re-navigate or re-open; the model has looped
+                    # here before, so hard-stop it toward writing the plan. Otherwise open it now.
+                    cached = snapshot_cache.get(target_url, '')
+                    if cached and re.search(r'(?im)^\s*[-*]?\s*dialog\b', cached):
+                        result = (
+                            f'You are already on {target_url} and the "{landed_facts.launch_button}" '
+                            f'dialog was already opened for you earlier — its snapshot is in this '
+                            f'conversation. STOP navigating. Call planner_save_plan NOW with the full '
+                            f'flow (goto → click "{landed_facts.launch_button}" → fill every dialog "*" '
+                            f'field → advance button → any later field-builder steps from the Verified '
+                            f'Page Facts). Do not call planner_setup_page or browser_click again.'
+                        )
+                    else:
+                        dialog_result = PlannerService._drive_dialog_flow(
+                            bridge, target_url, landed_facts, snapshot_cache
+                        )
+                        result = dialog_result or (
+                            f'Already on {target_url} — a dialog-launched create page. Click button '
+                            f'"{landed_facts.launch_button}" to open the create dialog, then '
+                            f'browser_snapshot to read its required "*" fields, then planner_save_plan.'
+                        )
+                elif is_known_target:
                     result = (
                         f'Already on {target_url} — this IS a known target page. '
                         f'Do NOT call planner_setup_page again. Using the snapshot below, VERIFY the live '
@@ -474,6 +499,20 @@ class PlannerService:
                             # On first landing of a creation flow, inject live create routes from
                             # the "Content Type" sidebar so the planner never guesses a create URL.
                             landed_is_known = any(p in landed_path for p in PAGE_FACTS.keys())
+                            # Dialog-launched create flow: the form is behind a dialog, not on this
+                            # page. Open it deterministically NOW (before the model can loop trying to
+                            # verify fields that aren't here) and hand over the real dialog snapshot.
+                            landed_facts = PlannerService._facts_for_path(landed_path)
+                            if (landed_facts is not None and landed_facts.launch_button
+                                    and PlannerService._is_creation_flow(test_plan)):
+                                # Cache under target_url (the key the "already on" re-visit branch
+                                # looks up) so a later same-URL setup_page is recognized as already
+                                # driven and hard-stopped instead of re-opening the dialog.
+                                dialog_result = PlannerService._drive_dialog_flow(
+                                    bridge, target_url, landed_facts, snapshot_cache
+                                )
+                                if dialog_result:
+                                    result = dialog_result
                             print(f'[planner:setup] count={setup_page_count} '
                                   f'creation_flow={PlannerService._is_creation_flow(test_plan)} '
                                   f'known_target={landed_is_known} '
@@ -662,6 +701,65 @@ class PlannerService:
             if score > best_score:
                 best, best_score = (label, href), score
         return best if best_score > 0 else None
+
+    @staticmethod
+    def _facts_for_path(path: str):
+        """Return the PageFacts whose key is a substring of `path` (same match rule the landing
+        branches use for is_known_target), or None. Longest key wins so a more specific page
+        (e.g. .../custom-component/<id>) is preferred over a prefix match."""
+        best = None
+        best_len = -1
+        for key, facts in PAGE_FACTS.items():
+            if key and key in (path or '') and len(key) > best_len:
+                best, best_len = facts, len(key)
+        return best
+
+    @staticmethod
+    def _drive_dialog_flow(bridge, page_url: str, facts, snapshot_cache: dict) -> str:
+        """Deterministically open a dialog-launched create flow so the planner observes the REAL
+        form. On a launcher page the required fields live behind facts.launch_button, not on the
+        landing page — so the runtime clicks the launcher itself (read-only-safe: opening a dialog
+        is a GET, and the readonly guard blocks any mutation regardless) and snapshots the opened
+        dialog. The dialog snapshot is cached under the page URL so the plan validator enforces the
+        dialog's live "*" fields, and is handed to the planner inline. Returns a guidance string, or
+        '' if the dialog could not be confirmed open (caller falls back to generic guidance)."""
+        launch = facts.launch_button
+        # Try the accessible-name role selector first (matches exactly what the generator's
+        # get_by_role('button', name=...) will use), then a has-text fallback for buttons whose
+        # label is nested. Re-snapshot after each and stop as soon as a dialog surfaces — a role=dialog
+        # node (Ant modals render as one) is the proof the click actually landed and opened the form.
+        dialog_re = r'(?im)^\s*[-*]?\s*dialog\b'
+        snapshot = ''
+        for selector in (f'role=button[name="{launch}"]', f'button:has-text("{launch}")'):
+            try:
+                bridge.call_tool('browser_click', {'target': selector, 'element': f'"{launch}" button'})
+                snapshot = bridge.call_tool('browser_snapshot', {})
+            except Exception as err:
+                print(f'[planner:dialog] click via {selector!r} failed: {err}')
+                continue
+            if re.search(dialog_re, snapshot):
+                break
+        if not re.search(dialog_re, snapshot or ''):
+            print(f'[planner:dialog] "{launch}" click did not surface a dialog — falling back')
+            return ''
+        snapshot_cache[page_url] = snapshot
+        print(f'[planner:dialog] opened "{launch}" dialog on {page_url} and cached its snapshot')
+        return (
+            f'This is a DIALOG-LAUNCHED create flow — the form is NOT on the list page itself. '
+            f'The "{launch}" dialog has been opened for you; its live snapshot is below. Write the '
+            f'plan for the FULL flow:\n'
+            f"  1. page.goto('{page_url}')  (this exact URL — it is verified)\n"
+            f'  2. click button "{launch}" to open the dialog\n'
+            f'  3. a fill/select step for EVERY control in the dialog whose accessible name ends in '
+            f'"*" (required) — use ONLY the labels shown in THIS dialog snapshot, never copy fields '
+            f'from other content types\n'
+            f'  4. click the dialog\'s advance button (e.g. "Continue"/"Save"), waiting '
+            f'expect(...).to_be_enabled(timeout=15000) before the click\n'
+            f'  5. continue through any subsequent steps described in the Verified Page Facts for this '
+            f'page (later dialogs/field-builder steps).\n'
+            f'Do NOT call planner_setup_page again for this page — you have everything you need here.\n\n'
+            f'Dialog snapshot:\n{AgentUtils.truncate_result(snapshot, 3000)}'
+        )
 
     @staticmethod
     def _guide_to_create_page(bridge, base_url: str, test_plan, snapshot_cache: dict, attempted_url=None) -> str:

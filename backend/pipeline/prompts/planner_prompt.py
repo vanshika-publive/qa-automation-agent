@@ -22,6 +22,14 @@ dialog's button name) — you do NOT need to actually click the final confirm. S
 error toast: that is EXPECTED, not a bug. Never loop retrying a blocked action — just write the step
 into the plan from what the snapshot already shows and move on.
 
+RULE #3 — DIALOG-LAUNCHED CREATE FLOWS. Some create pages (e.g. Custom Component) are LAUNCHERS, not
+forms: their required fields live inside a dialog opened by a button like "Create New Component", not
+on the landing page. When you land on one, the system OPENS THE DIALOG FOR YOU and hands you its live
+snapshot inline — do NOT call planner_setup_page again looking for a form on the list page (there is
+none). Read the dialog snapshot you were given, then write the full plan: goto → click the launcher
+button → fill every dialog "*" field → click the advance button (Continue/Save) → any later
+field-builder steps from the Verified Page Facts.
+
 KNOWN FACTS ABOUT THIS DASHBOARD (verified against live ARIA — use them directly and write the plan promptly;
 only if a live snapshot CLEARLY contradicts a fact should you trust the snapshot instead):
 
