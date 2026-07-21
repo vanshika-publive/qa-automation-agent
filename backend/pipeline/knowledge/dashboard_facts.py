@@ -366,6 +366,7 @@ VIDEO_CREATE = PageFacts(
         FieldConstraint(field='Summary'),
         FieldConstraint(field='Meta Description'),
         FieldConstraint(field='Focus Keyphrase'),
+        FieldConstraint(field='Media URL *', note='NOT a field on the page itself — it lives inside the "Embed Media" dialog opened by clicking "Add Featured Video" (see NOTE). Declared here only so plan validation recognizes it as a legitimate fill label; the actual requirement is covered by "Featured Video *".'),
     ],
     comboboxes=[
         ComboboxFacts(aria_name='Primary Category', required=True, virtualized=True, note='REQUIRED. Virtualized + per-publisher — click and snapshot, pick the first live .ant-select-item-option; never hardcode a name.'),

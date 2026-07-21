@@ -59,6 +59,27 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             'Change all to_have_url(...) -> to_have_url(..., timeout=15000)'
         )
 
+    # "Featured Video *" is a LABEL, not an interactable control. The featured video is attached by
+    # clicking the "Add Featured Video" button, which opens the "Embed Media" dialog containing the
+    # real "Media URL *" field. A spec that fills or locates "Featured Video *" directly (e.g. as a
+    # textbox) matches nothing and times out -- prompt prose did not reliably prevent this.
+    targets_featured_video_label = bool(re.search(
+        r"(?:safe_(?:sequential_)?fill\s*\(\s*page\s*,\s*"
+        r"|get_by_role\(\s*['\"]textbox['\"]\s*,\s*name\s*=\s*"
+        r"|get_by_text\(\s*)['\"]Featured Video \*['\"]",
+        code,
+    ))
+    if targets_featured_video_label:
+        issues.append(
+            'spec fills/locates "Featured Video *" directly, but that is a LABEL, not a textbox -- the '
+            'locator matches no elements and times out. The featured video is attached through a dialog. '
+            'Replace it with, BEFORE filling Title/Permalink: '
+            "page.get_by_role('button', name='Add Featured Video').click()  # opens the Embed Media dialog; "
+            "safe_fill(page, 'Media URL *', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'); "
+            "page.get_by_role('button', name='Submit').click(). "
+            'Remove every direct reference to "Featured Video *".'
+        )
+
     if re.search(r"page\.locator\(\s*['\"]text=", code):
         issues.append(
             'page.locator("text=...") is forbidden -- text= substring-matches and hits strict-mode violations. '
