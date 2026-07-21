@@ -42,14 +42,24 @@ class MCPBridge:
             readonly_args = ['--init-script', guard_path]
             print('[MCPBridge] read-only mode ON — mutating HTTP (POST/PUT/PATCH/DELETE) blocked in-browser')
 
-        # Headless unless HEADED=true so the planner/generator browser needs no X display on a
-        # screenless container; with HEADED=true it renders to the Xvfb display (:99) and can be
-        # watched live via noVNC. --no-sandbox is required because the container runs as root and
-        # Chromium refuses to launch as root with the sandbox enabled.
-        headed = os.environ.get('HEADED', '').strip().lower() == 'true'
-        launch_args = ['--no-sandbox'] + ([] if headed else ['--headless'])
+        # HEADED=true → pass --headed EXPLICITLY (don't rely on @playwright/mcp's auto-default
+        # `headless = linux && !DISPLAY`, which silently falls back to headless if DISPLAY isn't
+        # effective for this child) so the planner/generator browser is actually visible on the
+        # Xvfb display (:99) and watchable over noVNC. Otherwise --headless so it needs no display
+        # on a screenless container. --no-sandbox: the container runs as root and Chromium refuses
+        # to launch as root with the sandbox enabled.
+        headed = os.environ.get('HEADED', '').strip().lower() in ('true', '1', 'yes')
+        launch_args = ['--no-sandbox'] + (['--headed'] if headed else ['--headless'])
 
         args = ['--browser', PLAYWRIGHT_BROWSER] + launch_args + session_args + readonly_args
+
+        # A headed browser needs DISPLAY. The child inherits our env, but guarantee it points at
+        # the Xvfb display so --headed can't crash with "Missing X server" if DISPLAY got dropped.
+        child_env = dict(os.environ)
+        if headed and not child_env.get('DISPLAY'):
+            child_env['DISPLAY'] = ':99'
+        print(f'[MCPBridge] launching MCP browser: headed={headed} '
+              f'DISPLAY={child_env.get("DISPLAY")!r} launch_args={launch_args}')
 
         self.proc = subprocess.Popen(
             ['node', cli_path] + args,
@@ -59,6 +69,7 @@ class MCPBridge:
             text=True,
             bufsize=1,
             cwd=self._project_root,
+            env=child_env,
         )
 
         self._next_id = 1
