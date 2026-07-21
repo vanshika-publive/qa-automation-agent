@@ -422,12 +422,20 @@ def validate_spec_semantics(code: str) -> Optional[str]:
                 "CTB: date field type button is 'Date And Time' (not 'Date', not 'DateTime'). "
                 "Replace with: page.get_by_role('button', name='Date And Time').click()"
             )
-        # CTB: wrong field type tile click — button name matches 'Text' AND 'Rich Text' (strict mode)
-        if re.search(r"get_by_role\('button',\s*name=['\"]Text['\"]\)\.click\(\)", code):
+        # CTB: field-type tile click missing exact=True. Several tile names are substrings of others
+        # — "Text" ⊂ "Rich Text", "List" ⊂ "Dynamic List" — so get_by_role(name='Text') WITHOUT
+        # exact=True matches 2 headings/buttons and hits a strict-mode violation at runtime. Covers
+        # both the 'heading' (correct) and 'button' roles, either quote style; a call with exact=True
+        # has ", exact=True" before the ")" and is correctly NOT flagged.
+        if re.search(
+            r"get_by_role\(\s*['\"](?:heading|button)['\"]\s*,\s*name\s*=\s*['\"](?:Text|List)['\"]\s*\)",
+            code,
+        ):
             issues.append(
-                "CTB: get_by_role('button', name='Text').click() is ambiguous — it matches both the "
-                "'Text' and 'Rich Text' tiles (2 elements → strict mode violation). "
-                "Replace with: page.get_by_role('dialog').get_by_role('heading', name='Text', exact=True).click()"
+                "CTB: a field-type tile click (name='Text' or name='List') is missing exact=True — "
+                "'Text' also matches 'Rich Text' and 'List' also matches 'Dynamic List', so the "
+                "locator resolves to 2 elements and hits a strict-mode violation. Add exact=True: "
+                "page.get_by_role('dialog').get_by_role('heading', name='Text', exact=True).click()"
             )
         # CTB: wrong Display Name label in field forms — asterisk not part of accessible name
         display_name_star_count = len(re.findall(
