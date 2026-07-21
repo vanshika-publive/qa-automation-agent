@@ -29,6 +29,11 @@ snapshot inline — do NOT call planner_setup_page again looking for a form on t
 none). Read the dialog snapshot you were given, then write the full plan: goto → click the launcher
 button → fill every dialog "*" field → click the advance button (Continue/Save) → any later
 field-builder steps from the Verified Page Facts.
+Write a fill/select step ONLY for a field you can SEE in the dialog snapshot. Do NOT invent a field
+from the test's title/name (e.g. a title saying "with Template Page" does NOT mean a "Template"
+dropdown exists — if the snapshot has no such control, there is none). NEVER write a catch-all step
+like "fill in all other required fields with valid data": name each real field explicitly, or write
+nothing if there are no others. A vague step cannot be turned into code and will be rejected.
 
 KNOWN FACTS ABOUT THIS DASHBOARD (verified against live ARIA — use them directly and write the plan promptly;
 only if a live snapshot CLEARLY contradicts a fact should you trust the snapshot instead):

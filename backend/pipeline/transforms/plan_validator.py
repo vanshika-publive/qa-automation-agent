@@ -317,6 +317,18 @@ def validate_plan_content(
         content, flags=re.IGNORECASE
     ))
 
+    # Vague catch-all field step (e.g. "Fill in all other required fields with valid data"). It names
+    # no concrete field, so the generator can only emit a placeholder comment for it -- which the
+    # spec_validator's placeholder guard then rejects on every iteration, deadlocking generation until
+    # the iteration cap. A real fill step must name a specific field ("Display Name *"), so reject the
+    # catch-all at the plan source. Matches an action verb + a quantifier (all/any/other/remaining) +
+    # "field(s)" on one line; a step naming a specific field has no such quantifier and is unaffected.
+    vague_field_step = re.search(
+        r'(?im)\b(?:fill|complete|enter|provide|populate|input)\b[^\n]{0,60}'
+        r'\b(?:all|any|other|remaining|rest of)\b[^\n]{0,25}\bfields?\b',
+        content,
+    )
+
     # Geography + filter flows stay on the geography entity page and configure the
     # Articles content filter there.
     is_geography_filter_flow = (
@@ -545,7 +557,7 @@ def validate_plan_content(
     if (
         not has_flow or not has_scenario or not has_steps or has_errors or
         missing_permalink or len(unvalidated_paths) > 0 or len(error_page_goto_paths) > 0 or
-        has_placeholder or
+        has_placeholder or vague_field_step or
         len(unverified_titles) > 0 or len(missing_required_fields) > 0 or
         len(forbidden_goto_matches) > 0 or wrong_save_button or len(unknown_fill_labels) > 0 or
         len(missing_enabled_wait) > 0 or len(hardcoded_virtualized_titles) > 0 or
@@ -566,6 +578,15 @@ def validate_plan_content(
                 'plan contains unresolved placeholder text (e.g. "exact-option", "[PLAN VALUE]", "[ACTUAL TEXT]") -- '
                 'you MUST click the combobox with browser_click, then call browser_snapshot to see the real option text, '
                 'and use that exact text in the plan step. Never copy placeholder text from KNOWN FACTS.'
+            )
+        if vague_field_step:
+            issues.append(
+                f'plan contains a vague catch-all field step ("{vague_field_step.group(0).strip()}") that '
+                'names no specific field. The generator cannot turn "all/other/remaining required fields" into '
+                'real code -- it emits a placeholder comment, which is rejected every iteration until generation '
+                'deadlocks. Either name each field explicitly as its own step (e.g. safe_sequential_fill(page, '
+                '"Display Name *", ...)), or DELETE the step if there are no other required fields. Use ONLY the '
+                'fields you observed in the live snapshot -- do not invent fields from the test title.'
             )
         if missing_permalink:
             issues.append(
