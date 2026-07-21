@@ -42,19 +42,19 @@ class MCPBridge:
             readonly_args = ['--init-script', guard_path]
             print('[MCPBridge] read-only mode ON — mutating HTTP (POST/PUT/PATCH/DELETE) blocked in-browser')
 
-        # HEADED=true → pass --headed EXPLICITLY (don't rely on @playwright/mcp's auto-default
-        # `headless = linux && !DISPLAY`, which silently falls back to headless if DISPLAY isn't
-        # effective for this child) so the planner/generator browser is actually visible on the
-        # Xvfb display (:99) and watchable over noVNC. Otherwise --headless so it needs no display
-        # on a screenless container. --no-sandbox: the container runs as root and Chromium refuses
-        # to launch as root with the sandbox enabled.
+        # @playwright/mcp is HEADED BY DEFAULT and exposes ONLY a --headless flag — there is no
+        # --headed option (`error: unknown option '--headed'`). So HEADED=true must OMIT --headless
+        # (the default is already headed); it renders to the Xvfb display (:99, guaranteed below)
+        # and is watchable over noVNC. Otherwise pass --headless so it needs no display on a
+        # screenless container. --no-sandbox: the container runs as root and Chromium refuses to
+        # launch as root with the sandbox enabled.
         headed = os.environ.get('HEADED', '').strip().lower() in ('true', '1', 'yes')
-        launch_args = ['--no-sandbox'] + (['--headed'] if headed else ['--headless'])
+        launch_args = ['--no-sandbox'] + ([] if headed else ['--headless'])
 
         args = ['--browser', PLAYWRIGHT_BROWSER] + launch_args + session_args + readonly_args
 
         # A headed browser needs DISPLAY. The child inherits our env, but guarantee it points at
-        # the Xvfb display so --headed can't crash with "Missing X server" if DISPLAY got dropped.
+        # the Xvfb display so the headed browser can't crash with "Missing X server" if DISPLAY got dropped.
         child_env = dict(os.environ)
         if headed and not child_env.get('DISPLAY'):
             child_env['DISPLAY'] = ':99'
