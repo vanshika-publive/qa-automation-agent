@@ -64,7 +64,7 @@ class RunnerService:
         # slow_mo adds up across actions, so give slowed runs a longer per-test timeout than the
         # normal 30s, otherwise pytest-timeout kills the test mid-action.
         headed = env.get('HEADED', '').strip().lower() in ('true', '1', 'yes')
-        slow_mo = int(env.get('SLOW_MO_MS', '400')) if headed else 0
+        slow_mo = int(env.get('SLOW_MO_MS', '1000')) if headed else 0
         args.append(f'--timeout={120 if slow_mo > 0 else 30}')
         if slow_mo > 0:
             args.append(f'--slowmo={slow_mo}')
