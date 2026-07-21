@@ -90,13 +90,22 @@ class PipelineRunner:
                     stored_prompt = Path(plan_prompt_path).read_text(encoding='utf-8').strip()
                 except FileNotFoundError:
                     stored_prompt = None
-                if stored_prompt != test_prompt.strip():
-                    print('Test prompt has changed since the last plan was generated — invalidating plan and specs.')
+                prompt_changed = stored_prompt != test_prompt.strip()
+                # An on-disk plan.md is only safe to REPLAY (skip orchestrator+planner) if it
+                # actually PASSED before — i.e. this test has a latest_good_plan for the current
+                # prompt. A run that fails at the generator/runner still leaves its plan.md behind;
+                # without this guard that FAILED plan is replayed on every subsequent run, so the
+                # test can never recover and any planner/validator fix never re-executes. Discard a
+                # plan whose prompt changed OR that never produced a passing run, and re-plan.
+                if prompt_changed or not ctx.get('latest_good_plan'):
+                    reason = 'test prompt has changed' if prompt_changed else 'previous plan never passed'
+                    print(f'Invalidating on-disk plan ({reason}) — will re-plan from scratch.')
                     Path(test_plan_path).unlink(missing_ok=True)
                     snapshot_path = test_plan_path.replace('plan.md', 'plan-snapshots.json')
                     Path(snapshot_path).unlink(missing_ok=True)
                     plan_already_exists = False
-                    Test.all_objects.filter(id=test_id).update(latest_good_plan='', failed_at_step=None)
+                    if prompt_changed:
+                        Test.all_objects.filter(id=test_id).update(latest_good_plan='', failed_at_step=None)
 
             # Replay-first: no reusable plan on disk but we have a last-passing plan saved for
             # this (unchanged) prompt — restore it and replay, skipping orchestrator + planner.
