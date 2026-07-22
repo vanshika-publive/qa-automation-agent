@@ -314,6 +314,23 @@ CUSTOM COMPONENTS (/configurations/content-type-builder/custom-component — ver
       ALWAYS scope to #page-header: page.locator('#page-header').get_by_role('button', name='Save').click()
       (An unscoped page.get_by_role('button', name='Save') fails in strict mode when a Date And Time field
        leaves its date-picker popup in the DOM — that popup has its own 'Save' button.)
+  ALL 14 FIELD TYPES (verified live 2026-07-22). After clicking ANY type tile, the (renamed) config
+  dialog ALWAYS has: 'Display Name' * (fill safe_sequential_fill(page,'Display Name',name) — NO asterisk),
+  'Name (Slug)' * (AUTO-fills from Display Name — never fill it), 'Description' (optional), and usually a
+  'Make this field required' toggle. MOST types need nothing else. SIX types have EXTRA required config you
+  MUST set BEFORE the dialog 'Save' (else Save never enables and the click times out):
+    • Numbers       -> 'Type' * (select: integer/float/decimal)
+    • Date And Time -> 'Type' * (select) AND 'Date Format' * (select) — set BOTH
+    • List          -> 'Select Type' * (select) + 'List Choices' * (textarea, comma-separated e.g. 'a, b, c')
+    • Relation      -> 'Content Type' * (select; per-publisher target) [+ One/Many Reference radio]
+    • Dynamic List  -> 'Related Model' * (select; per-publisher) [no 'required' toggle, no Placeholder]
+    • Component     -> 'Select Component' * (select; an EXISTING component) [+ Single/Repeatable radio]
+  The other EIGHT need ONLY Display Name: Text, Media, Email, Rich Text, Boolean, JSON, Embed, Links.
+  For every required '*' select use the virtualized-combobox pattern — click it, then
+  page.get_by_role('dialog').locator('.ant-select-item-option').first.click(). NEVER hardcode option text
+  for the per-publisher selects (Relation 'Content Type', Dynamic List 'Related Model', Component 'Select
+  Component'); pick the first live option. Relation/Dynamic List/Component need a target that already
+  exists for this publisher — if none exists, that field type cannot be completed (pick a simpler type).
 - LIST page (verified live 2026-07-17):
   Table columns: Name, Fields, Updated By, Created At, Updated At, Actions.
   FILTERS — there is ONE filter input: textbox "Search" (filters by component name only).
