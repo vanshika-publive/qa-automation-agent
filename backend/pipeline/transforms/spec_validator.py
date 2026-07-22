@@ -460,6 +460,36 @@ def validate_spec_semantics(code: str) -> Optional[str]:
                 "(Scoping to #page-header is REQUIRED — an unscoped page.get_by_role('button', name='Save') "
                 "fails in strict mode when a Date And Time field leaves its date-picker popup open with its own Save button.)"
             )
+        # CTB: the field-config dialog RENAMES after a field type is picked — its accessible name
+        # changes from "Add a field in your Content Type" (the tile picker) to e.g. "Text ... Basic
+        # Settings ..." (verified live 2026-07-22). Scoping the field's Save to that ORIGINAL named
+        # dialog therefore matches nothing and times out at runtime. The Save MUST be scoped to the
+        # UNNAMED dialog. Catch both the inline chain and the common variable-binding form.
+        named_dialog_save = bool(re.search(
+            r"get_by_role\(\s*['\"]dialog['\"]\s*,\s*name\s*=[^)]*\)\s*\.\s*"
+            r"get_by_role\(\s*['\"]button['\"]\s*,\s*name\s*=\s*['\"](?:Save|Add Another Field)['\"]",
+            code,
+        ))
+        if not named_dialog_save:
+            for m in re.finditer(
+                r"(\w+)\s*=\s*[^\n]*get_by_role\(\s*['\"]dialog['\"]\s*,\s*name\s*=", code
+            ):
+                var = re.escape(m.group(1))
+                if re.search(
+                    rf"\b{var}\s*\.\s*get_by_role\(\s*['\"]button['\"]\s*,\s*name\s*=\s*"
+                    r"['\"](?:Save|Add Another Field)['\"]",
+                    code,
+                ):
+                    named_dialog_save = True
+                    break
+        if named_dialog_save:
+            issues.append(
+                "CTB: the field-config dialog RENAMES after you click a field-type tile (it is no "
+                "longer 'Add a field in your Content Type'), so scoping the field's Save/Add Another "
+                "Field to that named dialog matches nothing and times out. Use the UNNAMED dialog "
+                "scope: page.get_by_role('dialog').get_by_role('button', name='Save').click(). Use the "
+                "named dialog ONLY for the initial .wait_for(), never to click a button inside it."
+            )
         # NOTE: the unscoped main-page Save (page.get_by_role('button', name='Save')) is NOT gated here.
         # gpt-4o reliably writes it unscoped and cannot self-correct from a rejection message, so it is
         # fixed deterministically in spec_sanitizer (scoped to #page-header) instead of blocking the
