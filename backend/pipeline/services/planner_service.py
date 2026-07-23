@@ -941,15 +941,22 @@ class PlannerService:
                 raw = bridge.call_tool('browser_evaluate', {'function': scan_js})
             except Exception:
                 raw = ''
-            # MCP browser_evaluate wraps the JS string result and ESCAPES its newlines as literal
-            # "\n" (confirmed live) — so a plain splitlines() leaves every link mashed into one
-            # unparseable line and the scan always scored 0. Unescape first so each link is its own
-            # line. (Without this the discovery silently fell back every run.)
-            for line in (raw or '').replace('\\n', '\n').splitlines():
+            # Parse ONLY the "### Result" section. The MCP wraps the output and ECHOES the scan CODE in
+            # a "### Ran Playwright code" block — and that code itself contains the "  =>  " separator
+            # AND words like "from" (in "Array.from"), so parsing the whole blob mis-reads the echoed
+            # code as a link and returns a garbage code fragment (confirmed live). Also: the string
+            # result is wrapped in quotes with its newlines escaped as literal "\n" — strip the quotes
+            # and unescape so each link is its own line.
+            m = re.search(r'###\s*Result\s*\n(.*?)(?:\n###\s|\Z)', raw or '', flags=re.DOTALL)
+            result_text = (m.group(1) if m else (raw or '')).strip()
+            if len(result_text) >= 2 and result_text[0] == '"' and result_text[-1] == '"':
+                result_text = result_text[1:-1]
+            for line in result_text.replace('\\n', '\n').splitlines():
                 if '  =>  ' not in line:
                     continue
                 text, href = [x.strip() for x in line.split('  =>  ', 1)]
-                if not href:
+                # href must be a real path/URL — rejects any stray code fragment that slipped through
+                if not (href.startswith('/') or href.startswith('http')):
                     continue
                 score = sum(1 for k in kws if k in text.lower())
                 if score > best_score:
