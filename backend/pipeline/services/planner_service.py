@@ -951,6 +951,7 @@ class PlannerService:
             result_text = (m.group(1) if m else (raw or '')).strip()
             if len(result_text) >= 2 and result_text[0] == '"' and result_text[-1] == '"':
                 result_text = result_text[1:-1]
+            _nlinks = 0
             for line in result_text.replace('\\n', '\n').splitlines():
                 if '  =>  ' not in line:
                     continue
@@ -958,9 +959,14 @@ class PlannerService:
                 # href must be a real path/URL — rejects any stray code fragment that slipped through
                 if not (href.startswith('/') or href.startswith('http')):
                     continue
+                _nlinks += 1
                 score = sum(1 for k in kws if k in text.lower())
                 if score > best_score:
                     best, best_score = href, score
+            # DIAGNOSTIC: why does discovery fall back on prod but not locally? Log what the scan saw.
+            print(f'[planner:discovery] kws={kws} attempt={_attempt + 1} raw_len={len(raw or "")} '
+                  f'result_section={"Y" if m else "N"} links_parsed={_nlinks} best={best!r} score={best_score} '
+                  f'sample={result_text[:160]!r}')
             if best_score > 0:
                 break
             _time.sleep(1.0)
