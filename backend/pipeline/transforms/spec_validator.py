@@ -398,6 +398,43 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             "cb.fill('<name>') to filter first, then click the first .ant-select-item-option match."
         )
 
+    # Settings/config Ant Selects (the /configurations hub pages reached via click_nav -- e.g.
+    # "Choose Language *", "Site Timezone *") render their role=combobox as a READONLY search input
+    # whose real click target is the .ant-select-selector wrapper. A plain
+    # get_by_role('combobox', name=...).click() is intercepted / lands on the un-clickable input and
+    # times out (confirmed live: the "Choose Language *" run resolved the locator but the click hit a
+    # 15s timeout). These selects MUST be driven through select_ant_option(), which force-clicks to
+    # open, scrolls the virtualized option list, and clicks the sanctioned .ant-select-item-option --
+    # exactly the pattern the SAME spec already used correctly in its restore/finally block.
+    #
+    # Create-form comboboxes (Primary Category, Content Type) are EXEMPT: a plain click works there
+    # and the entire create suite depends on it. So gate only on a settings-page flow, signalled by
+    # use of click_nav / the settings-select helpers -- create-form specs never import those.
+    is_settings_select_flow = bool(re.search(
+        r"\b(?:click_nav|save_setting|select_ant_option|open_ant_select|"
+        r"current_ant_select_value|expect_ant_select_value)\s*\(",
+        code,
+    ))
+    if is_settings_select_flow:
+        raw_settings_combobox_clicks = re.findall(
+            r"get_by_role\(\s*['\"]combobox['\"]\s*,\s*name\s*=\s*['\"]([^'\"]+)['\"]\s*\)\s*\.click\(\s*\)",
+            code,
+        )
+        if raw_settings_combobox_clicks:
+            quoted = ', '.join(f'"{n}"' for n in dict.fromkeys(raw_settings_combobox_clicks))
+            issues.append(
+                f'spec drives a settings/config Ant Select with a raw get_by_role(\'combobox\', '
+                f'name=...).click(): {quoted}. On the /configurations hub pages the role=combobox is a '
+                'READONLY search input whose real click target is the .ant-select-selector wrapper, so a '
+                'plain .click() is intercepted and times out (this is exactly how the "Choose Language *" '
+                'run failed). Do NOT open the select and click get_by_text(option) yourself. Replace the '
+                "open-and-select with a single helper call: select_ant_option(page, '<combobox name>', "
+                "'<option text>') (force-clicks open, scrolls the virtualized list, clicks the sanctioned "
+                '.ant-select-item-option) -- the same helper this spec already uses in its restore step. '
+                "Verify with expect_ant_select_value(page, '<combobox name>', '<option>', reload=True), "
+                'never expect(get_by_role(\'combobox\', ...)).to_have_value().'
+            )
+
     # CTB (Content Type Builder) button-name sanity checks.
     is_ctb_flow = bool(re.search(r"goto\(['\"][^'\"]*configurations/content-type-builder", code))
     if is_ctb_flow:
