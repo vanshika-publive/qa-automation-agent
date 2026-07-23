@@ -3,7 +3,123 @@ import os
 import random
 import re
 
-from playwright.sync_api import Locator
+from playwright.sync_api import Locator, expect
+
+
+def click_nav(page, name, timeout=15000):
+    """Click a sidebar / Configuration-hub navigation link by a SUBSTRING of its accessible name.
+
+    Nav-link names often carry trailing description text (e.g. the Site Timezone link's real name is
+    'Site Timezone Set timezone') and vary, so an EXACT match is fragile and intermittently matches
+    nothing — a substring match + .first is robust. This is an HONEST click (scroll into view +
+    normal click, NO force): if the link genuinely cannot be clicked, it fails loudly with
+    Playwright's own reason, which is the correct signal that the user journey is broken — we never
+    force or fall back to a goto to paper over a real navigation bug."""
+    link = page.get_by_role('link', name=name).first
+    link.scroll_into_view_if_needed(timeout=timeout)
+    link.click(timeout=timeout)
+
+
+def open_ant_select(page, name, exact=False, timeout=15000):
+    """Open an Ant Design <Select> (role=combobox) reliably — including a PRE-FILLED one.
+
+    A pre-filled select renders its chosen value in a `.ant-select-selection-item` span that
+    OVERLAYS the combobox input, so a normal .click() is intercepted ('intercepts pointer events')
+    and times out. A forced click dispatches anyway and bubbles to the selector, opening the
+    dropdown. Harmless on an empty select. Returns the combobox Locator; waits for the panel.
+    (All behaviours here were confirmed live against the Site Timezone select.)
+    """
+    cb = page.get_by_role('combobox', name=name, exact=exact)
+    cb.wait_for(state='visible', timeout=timeout)
+    cb.click(force=True)
+    page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').last.wait_for(
+        state='visible', timeout=timeout
+    )
+    return cb
+
+
+def select_ant_option(page, name, option_text, exact=False, timeout=15000):
+    """Change a (possibly pre-filled) Ant Select to `option_text`. Does NOT type-to-filter: on many
+    of these selects the search input is readonly, so .fill() raises 'element is not editable'.
+    Instead match the option by its visible text; the list is VIRTUALIZED (only ~11 render at once),
+    so if the target is not in the DOM yet, scroll the rc-virtual-list holder until it renders, then
+    click. Uses the sanctioned .ant-select-item-option pattern — no hardcoded get_by_title."""
+    open_ant_select(page, name, exact=exact, timeout=timeout)
+    panel = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').last
+    option = panel.locator('.ant-select-item-option').filter(has_text=option_text)
+    holder = panel.locator('.rc-virtual-list-holder')
+    for _ in range(30):
+        if option.count() > 0:
+            break
+        if holder.count() == 0:
+            break
+        holder.first.evaluate('(el) => el.scrollBy(0, el.clientHeight)')
+        page.wait_for_timeout(120)
+    option.first.wait_for(state='visible', timeout=timeout)
+    option.first.click()
+
+
+def save_setting(page, button_name='Save', timeout=15000):
+    """Click a settings Save button and WAIT for its persist request to finish before returning.
+
+    Critical for /configurations settings: the Save fires an async PATCH (e.g. PATCH /api/publisher/).
+    If the test reloads to verify BEFORE that request completes, the reload CANCELS the in-flight
+    PATCH and the change never commits (confirmed live — this was the real cause of the flaky
+    'value reverted after reload' failure). Waiting for the response makes the save deterministic."""
+    try:
+        with page.expect_response(
+            lambda r: r.request.method in ('PATCH', 'PUT', 'POST')
+            and '/api/' in r.url and 'clarity' not in r.url and 'analytics' not in r.url,
+            timeout=timeout,
+        ):
+            page.get_by_role('button', name=button_name).click()
+    except Exception:
+        # Response not observed (e.g. a client-only save) — the click already fired above; just
+        # give any in-flight request a moment to settle before the caller reloads.
+        page.wait_for_timeout(2000)
+
+
+def current_ant_select_value(page, name, exact=False, timeout=15000):
+    """Return the value an Ant Select currently shows (its `.ant-select-selection-item` title), for
+    capturing a shared setting's original value before a change so it can be restored. '' if unset."""
+    cb = page.get_by_role('combobox', name=name, exact=exact)
+    cb.wait_for(state='visible', timeout=timeout)
+    item = cb.locator(
+        'xpath=ancestor::div[contains(@class,"ant-select-selector")][1]'
+    ).locator('.ant-select-selection-item')
+    if item.count() == 0:
+        return ''
+    return item.first.get_attribute('title') or ''
+
+
+def expect_ant_select_value(page, name, value, exact=False, reload=False, tries=6, timeout=15000):
+    """Assert an Ant Select shows `value`. CRITICAL: the role=combobox is a readonly search input
+    whose `value` attribute stays '' — the shown value lives in a sibling `.ant-select-selection-item`
+    span (its `title`), so expect(get_by_role('combobox', ...)).to_have_value(value) NEVER passes.
+    Assert that span, scoped to THIS select's container.
+
+    reload=True — for verifying a value that was just SAVED. The Save (PATCH) commits reliably, but
+    an immediate page.reload() can GET a STALE cached value (read-after-write staleness — confirmed
+    live: the change had committed yet the first reload still showed the old value). So reload and
+    re-check up to `tries` times until the committed value appears, instead of a single flaky check.
+    """
+    def _read():
+        cb = page.get_by_role('combobox', name=name, exact=exact)
+        cb.wait_for(state='visible', timeout=timeout)
+        item = cb.locator(
+            'xpath=ancestor::div[contains(@class,"ant-select-selector")][1]'
+        ).locator('.ant-select-selection-item')
+        return item, (item.first.get_attribute('title') if item.count() else None)
+
+    if reload:
+        for _ in range(tries):
+            page.reload()
+            _, actual = _read()
+            if actual == value:
+                return
+            page.wait_for_timeout(1500)
+    item, _ = _read()
+    expect(item).to_have_attribute('title', value, timeout=timeout)
 
 
 def random_desktop_png():

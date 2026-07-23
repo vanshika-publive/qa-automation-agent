@@ -403,18 +403,30 @@ Not every feature has a simple direct URL — some require clicking through side
 A wrong URL shows "Oops, something went wrong" with no form fields — this wastes the entire test run.
 If the page you landed on has no form, you clicked the wrong thing — try another element.
 
-DISCOVER BY CLICKING, BUT WRITE THE PLAN AS A DIRECT page.goto() — CRITICAL:
-Clicking through the sidebar and "+" create popovers is how YOU discover a page during planning.
-But those sidebar links and popover cards are hover-reveal / opacity-gated elements that a plain
-generated test CANNOT reliably click (they intercept pointer events from the base page and time
-out). So once your clicking has landed you on a create/edit page, look at that page's
-"- Page URL:" in the snapshot and write the plan step as a SINGLE page.goto('<that exact URL>') —
-do NOT put the "click Custom Content +", "click the Blank Canvas popover card", or similar
-sidebar/popover click steps into the plan. Reserve click steps in the plan for IN-PAGE actions
-that have no URL of their own (form fields, comboboxes, dialogs, table row actions). Example: to
-create a blank canvas, discover the page by clicking the Custom Content "+" then the "Blank
-Canvas" card, read the resulting URL (e.g. /posts/custom-page/blank-page/create), and write step 1
-as page.goto('<base>/posts/custom-page/blank-page/create') — never a sidebar-click sequence.
+NAVIGATION IN THE PLAN — CLICK THROUGH REAL LINKS; goto ONLY FOR THE "+" CREATE POPOVERS — CRITICAL:
+There are TWO kinds of navigation, and they are written DIFFERENTLY in the plan:
+
+(A) NAMED NAV / CONFIGURATION-HUB LINKS (e.g. "Configuration", "Site Timezone", "Team", and other
+    left-sidebar or Configuration-hub links that have a visible accessible name). These are REAL,
+    reliably-clickable links — a user reaches the feature BY CLICKING them, so the PLAN MUST express
+    that journey as CLICK steps, NOT a page.goto(). Write one step per click, using the EXACT
+    accessible name you saw in the snapshot, e.g.:
+       1. Click get_by_role('link', name='Configuration', exact=True)
+       2. Click get_by_role('link', name='Site Timezone')   (the name may include trailing description
+          text like 'Site Timezone Set timezone' — use a NON-exact/substring name so it still matches)
+    Do NOT collapse this into page.goto('/configurations/site-timezone'). The click-through IS the
+    test: if a nav link cannot be clicked, that is a REAL user-facing bug and the test SHOULD fail
+    loudly on that click — never paper over it with a goto or a forced click.
+
+(B) The "+" CREATE POPOVER CARDS ONLY (the per-content-type "+" Create button and its "Choose a …
+    Type" popover cards — e.g. Custom Content "+" -> "Blank Canvas"). THESE specific cards are
+    hover-reveal / opacity-gated and a plain generated test cannot reliably click them, so for these
+    ONLY: discover the create page by clicking during planning, read its "- Page URL:", and write the
+    plan step as a SINGLE page.goto('<that exact create URL>'). This exception is limited to the
+    create-type popovers; it does NOT apply to named nav/Configuration links (case A above).
+
+In all cases, reserve in-plan click steps for the real navigation links (case A) and for IN-PAGE
+actions with no URL of their own (form fields, comboboxes, dialogs, table row actions).
 
 CLICKING THROUGH SIDEBARS, FLYOUTS & POPOVERS — DO NOT GIVE UP ON A CLICK:
 Some items appear in the snapshot before their panel is fully active. In particular, the left

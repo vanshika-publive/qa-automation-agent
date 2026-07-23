@@ -99,13 +99,49 @@ class PlannerService:
             # and can land on a same-named-but-wrong page (e.g. Custom *Page* content vs Custom
             # *Component* config). A single unambiguous match has a confirmed path — go straight to it.
             start_url = test_plan.url
+            discovery_note = ''
             _matched = matched_pages_for_prompt(plan_text)
             if len(_matched) == 1 and _matched[0].path.startswith('/'):
                 start_url = f"{test_plan.url.rstrip('/')}{_matched[0].path}"
+            elif getattr(test_plan, 'needs_discovery', False):
+                # No known URL for this feature: a user reaches it by CLICKING through the sidebar, so
+                # the PLAN must express that real journey as click steps — NOT a guessed/goto URL. We
+                # confirm the feature is reachable (and under which hub) by driving the live UI, then
+                # tell the planner to start at the app root and CLICK its way there.
+                discovered = PlannerService._discover_feature_page(
+                    bridge, test_plan.url, test_plan.title
+                )
+                start_url = test_plan.url  # app root — the sidebar (Configuration link) is present here
+                if discovered:
+                    print(f'[planner:discovery] feature reachable via sidebar; confirmed page: {discovered}')
+                    discovery_note = (
+                        'IGNORE any page.goto() URL in the TestPlan steps — the orchestrator guessed it '
+                        'and it is wrong. This feature has NO fixed URL a user would type; a user reaches '
+                        'it by CLICKING through the sidebar, so the PLAN MUST do the same (see the '
+                        'NAVIGATION rule). Write the navigation as REAL CLICK STEPS:\n'
+                        "  1. Navigate to the dashboard root: page.goto('" + test_plan.url + "')\n"
+                        "  2. Click get_by_role('link', name='Configuration', exact=True)\n"
+                        '  3. Click the feature\'s link — use the EXACT accessible name you observe (match '
+                        'by SUBSTRING if it has trailing description text), then continue with the in-page '
+                        'steps (open the control, change it, Save, verify).\n'
+                        f'(The feature was confirmed reachable at {discovered} — use that only to know you '
+                        'clicked to the right place, NEVER as a page.goto for the feature.) If a required '
+                        'nav link cannot be clicked, let that step FAIL LOUDLY — it is a real user-facing '
+                        'bug; do NOT work around it with a goto or a forced click.\n\n'
+                    )
+                else:
+                    print('[planner:discovery] feature not located under Configuration — planner will explore the sidebar')
+                    discovery_note = (
+                        'IGNORE any page.goto() URL in the TestPlan steps (it is a guess). Reach this '
+                        'feature by CLICKING through the sidebar and write those clicks as the plan steps '
+                        '(see the NAVIGATION rule); never page.goto a guessed feature URL. If a nav link '
+                        'cannot be clicked, let the step FAIL LOUDLY rather than working around it.\n\n'
+                    )
 
             user_content = (
                 f'Here is the TestPlan to implement:\n\n'
                 f'{json.dumps(PlannerService._to_dict(test_plan), indent=2)}\n\n'
+                f'{discovery_note}'
                 f'{PlannerService._correction_directive(correction)}'
                 f'Start immediately by calling planner_setup_page with url: {start_url}'
             )
@@ -856,6 +892,77 @@ class PlannerService:
             f'call browser_snapshot to see the sidebar, find the relevant section, and click through '
             f'to the target page. NEVER guess a sub-URL.'
         )
+
+    @staticmethod
+    def _feature_keywords(title: str) -> list:
+        """Feature words from a settings-change title, used to match a sidebar/hub link.
+        'Change Site Timezone to Nepal Standard Time' -> ['site', 'timezone']: cut off the target
+        VALUE (everything after a connector like ' to '/' as '), then drop leading action verbs and
+        generic words so what remains names the feature, not the action or the new value."""
+        t = (title or '').strip()
+        t = re.split(r'\s+\bto\b\s+|\s+\bas\b\s+|=|:', t, maxsplit=1, flags=re.IGNORECASE)[0]
+        words = re.findall(r'[A-Za-z]{3,}', t.lower())
+        stop = {
+            'change', 'set', 'sets', 'update', 'updates', 'edit', 'enable', 'disable', 'configure',
+            'the', 'make', 'new', 'test', 'verify', 'value', 'setting', 'settings', 'and', 'for',
+        }
+        kws = [w for w in words if w not in stop]
+        return kws or words
+
+    @staticmethod
+    def _discover_feature_page(bridge, base_url: str, title: str) -> str:
+        """Locate the page for a feature with NO known URL by driving the live UI — never a guess.
+
+        Opens the Configuration hub and scans its links, returning the absolute URL of the link whose
+        visible text best matches the feature's keywords (e.g. a 'Site Timezone' link -> its href).
+        The feature URL is DISCOVERED from live link text, not hardcoded. Returns '' if nothing
+        matches (caller falls back to normal planner exploration)."""
+        kws = PlannerService._feature_keywords(title)
+        if not kws:
+            return ''
+        hub = f"{base_url.rstrip('/')}/configurations"
+        scan_js = (
+            '() => Array.from(document.querySelectorAll("a[href]")).map(a => '
+            '((a.getAttribute("title") || a.textContent || "").trim().replace(/\\s+/g, " ").slice(0, 80)) '
+            '+ "  =>  " + (a.getAttribute("href") || "")).join("\\n")'
+        )
+        import time as _time
+        try:
+            bridge.call_tool('browser_navigate', {'url': hub})
+        except Exception:
+            return ''
+        # The Configuration hub renders its links ASYNC — a scan run immediately after navigate finds
+        # nothing (confirmed live: discovery fell back because evaluate ran before the links existed).
+        # Poll a few times, re-snapshotting, until a keyword match appears or the budget is spent.
+        best, best_score = '', 0
+        for _attempt in range(6):
+            try:
+                bridge.call_tool('browser_snapshot', {})
+                raw = bridge.call_tool('browser_evaluate', {'function': scan_js})
+            except Exception:
+                raw = ''
+            # MCP browser_evaluate wraps the JS string result and ESCAPES its newlines as literal
+            # "\n" (confirmed live) — so a plain splitlines() leaves every link mashed into one
+            # unparseable line and the scan always scored 0. Unescape first so each link is its own
+            # line. (Without this the discovery silently fell back every run.)
+            for line in (raw or '').replace('\\n', '\n').splitlines():
+                if '  =>  ' not in line:
+                    continue
+                text, href = [x.strip() for x in line.split('  =>  ', 1)]
+                if not href:
+                    continue
+                score = sum(1 for k in kws if k in text.lower())
+                if score > best_score:
+                    best, best_score = href, score
+            if best_score > 0:
+                break
+            _time.sleep(1.0)
+        if best_score == 0 or not best:
+            return ''
+        if best.startswith('/'):
+            origin = base_url.split('/v2')[0].rstrip('/')
+            best = f'{origin}{best}'
+        return best
 
     @staticmethod
     def _auto_fix_plan(content: str) -> str:

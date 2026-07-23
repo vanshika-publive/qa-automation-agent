@@ -129,6 +129,26 @@ def sanitize_spec(code: str, scenario_name: str) -> str:
         else:
             out = f'{import_line}\n{out}'
 
+    # Navigation link clicks -> click_nav (deterministic robustness). gpt-4o intermittently writes a
+    # sidebar/hub nav-link click with exact=True (e.g. get_by_role('link', name='Site Timezone', exact=True)),
+    # which times out because those link names carry trailing description text ('Site Timezone Set timezone')
+    # and vary. Rewrite any TOP-LEVEL page.get_by_role('link', name=..).click() to click_nav(page, ..),
+    # which matches by substring + .first and clicks honestly (fails loudly if genuinely unclickable).
+    # Only page.get_by_role(...) (not row-scoped ...locator('tr')...get_by_role) is rewritten.
+    out = re.sub(
+        r"page\.get_by_role\(\s*['\"]link['\"]\s*,\s*name\s*=\s*(['\"])([^'\"]+)\1[^)]*\)\.click\(\)",
+        lambda m: f"click_nav(page, {m.group(1)}{m.group(2)}{m.group(1)})",
+        out,
+    )
+    if 'click_nav(' in out:
+        _imp = re.search(r'^from helpers import (.+)$', out, flags=re.MULTILINE)
+        if _imp and 'click_nav' not in _imp.group(1):
+            out = out[:_imp.start()] + f"from helpers import {_imp.group(1).strip()}, click_nav" + out[_imp.end():]
+        elif not _imp:
+            line = 'from helpers import click_nav'
+            out = (re.sub(r"(from playwright[^\n]+\n)", rf"\1{line}\n", out, count=1)
+                   if 'from playwright' in out else f'{line}\n{out}')
+
     # Raw multi-line press_sequentially pattern -> safe_sequential_fill
     def _sequential_to_helper(m: re.Match) -> str:
         label = m.group(3)

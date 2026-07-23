@@ -5,7 +5,7 @@ from typing import List
 
 from pipeline.infrastructure.ai_client import AiClientFactory
 from pipeline.utils.credential_manager import CredentialManager
-from pipeline.knowledge.dashboard_facts import detect_intent, expand_preconditions
+from pipeline.knowledge.dashboard_facts import detect_intent, expand_preconditions, facts_for_prompt
 from pipeline.prompts.orchestrator_prompt import (
     ORCHESTRATOR_SYSTEM_PROMPT,
     build_orchestrator_user_message,
@@ -28,6 +28,11 @@ class TestPlan:
     title: str
     flows: List[TestFlow]
     pages: List[str]
+    # True when the orchestrator had NO dashboard knowledge for this feature (facts_for_prompt
+    # empty). In that case any URL path it emitted is a GUESS (e.g. /settings for a timezone that
+    # actually lives under /configurations), so the planner must DISCOVER the real page by driving
+    # the live sidebar rather than trusting the guessed path. Default False (known-fact flows).
+    needs_discovery: bool = False
 
 
 class OrchestratorService:
@@ -66,6 +71,16 @@ class OrchestratorService:
 
         plan = OrchestratorService._validate_schema(parsed)
         expanded = OrchestratorService._expand_with_preconditions(plan, user_prompt)
+
+        # No dashboard facts for this feature => any path the LLM emitted is a guess. Flag the plan
+        # for live discovery and drop the guessed pages[] so the planner isn't biased toward them
+        # (the guessed path also appears in step prose, which the planner is told to ignore).
+        if not facts_for_prompt(user_prompt):
+            expanded.needs_discovery = True
+            expanded.pages = []
+            print('[orchestrator] no facts for this feature — flagged needs_discovery '
+                  '(planner will locate the page live)')
+
         usage = response.usage
         details = getattr(usage, 'prompt_tokens_details', None)
         cached = getattr(details, 'cached_tokens', 0) or 0

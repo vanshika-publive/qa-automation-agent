@@ -334,6 +334,9 @@ RULE 4 — IMPORTS:
   from helpers import safe_fill, safe_sequential_fill
   For Media Library upload tests specifically, also import the fixture helper:
   from helpers import safe_fill, safe_sequential_fill, random_desktop_png
+  For a dropdown-setting change (RULE 8 Ant Select case), import the ones you use:
+  from helpers import select_ant_option, current_ant_select_value, save_setting, expect_ant_select_value
+  Always import EXACTLY the helper functions the test calls — a call to a helper you did not import is a NameError.
 
 RULE 5 — STRUCTURE:
   import re          # only when a regex is used — see RULE 4
@@ -400,6 +403,28 @@ RULE 8 — EDITING A PERSISTED SETTING (applies to EVERY "change X and confirm i
         expect(field).to_have_value(original_value, timeout=15000)
   This does NOT apply to create flows (article/tag/category/etc.): those make a fresh timestamped entity that
   needs no restore, and their post-create check (row visible in the list, or URL change) already proves the save.
+
+  WHEN THE SETTING IS AN Ant Select / DROPDOWN, NOT A TEXTBOX (e.g. Site Timezone, Theme, Navigation):
+    A dropdown setting behaves NOTHING like a textbox — use the dedicated helpers, never safe_fill/to_have_value:
+      - Change it with select_ant_option(page, '<label>', '<exact option text>'). (A bare
+        get_by_role('combobox').click() is intercepted by the pre-filled value overlay, and the option list is
+        virtualized — select_ant_option force-opens and scrolls to the option.)
+      - Save with save_setting(page) — it clicks Save AND waits for the persist request to finish. A plain
+        Save-click followed by an immediate reload CANCELS the in-flight PATCH, so the change never commits.
+      - Verify with expect_ant_select_value(page, '<label>', '<value>', reload=True). NEVER
+        expect(...).to_have_value(...): the role=combobox is a readonly input whose value stays ''; the shown
+        value lives in a sibling span. reload=True re-reads across reloads to tolerate read-after-write staleness.
+      - Capture the original with current_ant_select_value(page, '<label>') and restore it in finally.
+    Shape (use the EXACT label + option text the planner observed live — do NOT hardcode a page URL or option):
+      original = current_ant_select_value(page, 'Site Timezone *')
+      try:
+          select_ant_option(page, 'Site Timezone *', '(UTC+5:45) Nepal Standard Time')
+          save_setting(page)
+          expect_ant_select_value(page, 'Site Timezone *', '(UTC+5:45) Nepal Standard Time', reload=True)
+      finally:
+          select_ant_option(page, 'Site Timezone *', original)
+          save_setting(page)
+          expect_ant_select_value(page, 'Site Timezone *', original, reload=True)
 ---------------------------------------------------"""
 
 
