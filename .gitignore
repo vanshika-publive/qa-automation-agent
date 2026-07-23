@@ -23,6 +23,11 @@ backend/db.sqlite3
 
 # Data
 data/tests/*/
+# Test-harness files are seeded at startup from the canonical copies in backend/harness/
+# (CoreConfig._seed_test_harness). The data/tests/ copies are runtime artifacts — do not track.
+data/tests/helpers.py
+data/tests/conftest.py
+data/tests/pytest.ini
 data/specs/
 data/reports/
 data/.auth/
