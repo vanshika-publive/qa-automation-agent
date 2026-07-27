@@ -57,7 +57,7 @@ class RunnerService:
             env['DASHBOARD_PUBLISHER'] = credentials.get('dashboard_publisher', '') or ''
 
         # slow_mo: pytest-playwright's --slowmo pauses before each Playwright action so a HEADED
-        # run is watchable live over noVNC. Only when headed (someone's watching) — headless CI
+        # run is watchable live. Only when headed (someone's watching) — headless CI
         # stays full-speed. Tunable via the SLOW_MO_MS env/Railway var without touching code.
         # This lives here (backend/, shipped in the image) rather than in data/tests/conftest.py,
         # which sits on a Railway volume that git deploys don't update.

@@ -42,24 +42,17 @@ class MCPBridge:
             readonly_args = ['--init-script', guard_path]
             print('[MCPBridge] read-only mode ON — mutating HTTP (POST/PUT/PATCH/DELETE) blocked in-browser')
 
-        # @playwright/mcp is HEADED BY DEFAULT and exposes ONLY a --headless flag — there is no
-        # --headed option (`error: unknown option '--headed'`). So HEADED=true must OMIT --headless
-        # (the default is already headed); it renders to the Xvfb display (:99, guaranteed below)
-        # and is watchable over noVNC. Otherwise pass --headless so it needs no display on a
-        # screenless container. --no-sandbox: the container runs as root and Chromium refuses to
-        # launch as root with the sandbox enabled.
+        # Run headless by default so the planner/generator browser needs no X display — this is what
+        # lets it work on a screenless container (Railway/Docker) instead of dying with "Missing X
+        # server or $DISPLAY". @playwright/mcp exposes ONLY a --headless flag (there is no --headed
+        # option), so HEADED=true simply OMITS --headless to watch the browser on your own display
+        # locally. --no-sandbox is required: @playwright/mcp forces chromiumSandbox=true for a plain
+        # 'chromium' browser on Linux, so as root the browser dies with "Running as root without
+        # --no-sandbox" unless we pass this.
         headed = os.environ.get('HEADED', '').strip().lower() in ('true', '1', 'yes')
         launch_args = ['--no-sandbox'] + ([] if headed else ['--headless'])
 
         args = ['--browser', PLAYWRIGHT_BROWSER] + launch_args + session_args + readonly_args
-
-        # A headed browser needs DISPLAY. The child inherits our env, but guarantee it points at
-        # the Xvfb display so the headed browser can't crash with "Missing X server" if DISPLAY got dropped.
-        child_env = dict(os.environ)
-        if headed and not child_env.get('DISPLAY'):
-            child_env['DISPLAY'] = ':99'
-        print(f'[MCPBridge] launching MCP browser: headed={headed} '
-              f'DISPLAY={child_env.get("DISPLAY")!r} launch_args={launch_args}')
 
         self.proc = subprocess.Popen(
             ['node', cli_path] + args,
@@ -69,7 +62,6 @@ class MCPBridge:
             text=True,
             bufsize=1,
             cwd=self._project_root,
-            env=child_env,
         )
 
         self._next_id = 1
