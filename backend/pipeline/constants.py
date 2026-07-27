@@ -1,5 +1,11 @@
 AI_MODEL = 'gpt-4o'
 
+# gpt-4o token pricing, USD per 1M tokens (as of 2026-07). Cached input is billed at
+# half the standard input rate; `cached_tokens` is a subset of `prompt_tokens`.
+AI_PRICE_INPUT_PER_M = 2.50
+AI_PRICE_CACHED_INPUT_PER_M = 1.25
+AI_PRICE_OUTPUT_PER_M = 10.00
+
 MCP_TIMEOUT_MS = 30_000
 MCP_PROTOCOL_VERSION = '2024-11-05'
 PLAYWRIGHT_BROWSER = 'chromium'

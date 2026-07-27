@@ -105,6 +105,12 @@ class ExecutionStep(models.Model):
     log = models.TextField(default='')
     started_at = models.TextField()
     completed_at = models.TextField(null=True, blank=True)
+    # LLM token accounting — populated for orchestrator/planner/generator stages;
+    # null for the runner (no LLM) and skipped stages (e.g. replayed plans).
+    prompt_tokens = models.IntegerField(null=True, blank=True)
+    cached_tokens = models.IntegerField(null=True, blank=True)
+    completion_tokens = models.IntegerField(null=True, blank=True)
+    cost_usd = models.FloatField(null=True, blank=True)
     deleted_at = models.TextField(null=True, blank=True)
 
     objects = SoftDeleteManager()

@@ -5,6 +5,12 @@ import threading
 import time
 from functools import wraps
 
+from pipeline.constants import (
+    AI_PRICE_INPUT_PER_M,
+    AI_PRICE_CACHED_INPUT_PER_M,
+    AI_PRICE_OUTPUT_PER_M,
+)
+
 _thread_api_calls = threading.local()
 
 
@@ -156,6 +162,36 @@ class AgentUtils:
             f'calls={calls}  prompt={prompt:,}{cache_pct}  cached={cached:,}  '
             f'completion={completion:,}  total={prompt + completion:,}'
         )
+
+    @staticmethod
+    def token_cost_usd(prompt: int, cached: int, completion: int) -> float:
+        # cached is a subset of prompt; the uncached remainder bills at the full input rate.
+        uncached = max(prompt - cached, 0)
+        cost = (
+            uncached * AI_PRICE_INPUT_PER_M
+            + cached * AI_PRICE_CACHED_INPUT_PER_M
+            + completion * AI_PRICE_OUTPUT_PER_M
+        ) / 1_000_000
+        return round(cost, 6)
+
+    @staticmethod
+    def get_token_totals() -> dict:
+        prompt = getattr(_thread_api_calls, 'prompt_tokens', 0)
+        cached = getattr(_thread_api_calls, 'cached_tokens', 0)
+        completion = getattr(_thread_api_calls, 'completion_tokens', 0)
+        return {
+            'prompt_tokens': prompt,
+            'cached_tokens': cached,
+            'completion_tokens': completion,
+            'cost_usd': AgentUtils.token_cost_usd(prompt, cached, completion),
+        }
+
+    @staticmethod
+    def record_usage(usage) -> None:
+        # For single-shot callers (e.g. the orchestrator) that don't go through call_with_retry:
+        # count the call and fold its usage into the thread-local totals.
+        _thread_api_calls.count = getattr(_thread_api_calls, 'count', 0) + 1
+        AgentUtils._accumulate_tokens(usage)
 
     @staticmethod
     def call_with_retry(fn, max_retries: int = 3):

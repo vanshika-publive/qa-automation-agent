@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import List
 
 from pipeline.infrastructure.ai_client import AiClientFactory
+from pipeline.utils.agent_utils import AgentUtils
 from pipeline.utils.credential_manager import CredentialManager
 from pipeline.knowledge.dashboard_facts import detect_intent, expand_preconditions, facts_for_prompt
 from pipeline.prompts.orchestrator_prompt import (
@@ -39,6 +40,7 @@ class OrchestratorService:
 
     @staticmethod
     def run(user_prompt: str, url: str) -> TestPlan:
+        AgentUtils.reset_call_counter()
         ai = AiClientFactory.create()
         client = ai['client']
         model = ai['model']
@@ -81,13 +83,8 @@ class OrchestratorService:
             print('[orchestrator] no facts for this feature — flagged needs_discovery '
                   '(planner will locate the page live)')
 
-        usage = response.usage
-        details = getattr(usage, 'prompt_tokens_details', None)
-        cached = getattr(details, 'cached_tokens', 0) or 0
-        print(
-            f'[orchestrator] calls=1  prompt={usage.prompt_tokens:,}  cached={cached:,}  '
-            f'completion={usage.completion_tokens:,}  total={usage.total_tokens:,}'
-        )
+        AgentUtils.record_usage(response.usage)
+        print(f'[orchestrator] {AgentUtils.get_token_summary()}')
         print(f'Orchestrator: Parsed {len(expanded.flows)} flows from prompt')
         return expanded
 

@@ -11,6 +11,7 @@ from django.conf import settings
 from core.models import Test, Environment, Execution, ExecutionStep
 from pipeline.infrastructure.login_helper import SessionManager
 from pipeline.infrastructure.publisher import PublisherDetector
+from pipeline.utils.agent_utils import AgentUtils
 from pipeline.utils.cancellation import CancellationRegistry
 from pipeline.utils.credential_manager import CredentialManager
 from pipeline.utils.log_capture import LogCapture
@@ -214,7 +215,8 @@ class PipelineRunner:
                         'failed' if step_name == 'runner' and (summary or {}).get('failed', 0) > 0
                         else 'passed'
                     )
-                    StepManager.update(step_id, step_status, log, DateTimeUtils.now_iso())
+                    tokens = AgentUtils.get_token_totals() if step_name != 'runner' else None
+                    StepManager.update(step_id, step_status, log, DateTimeUtils.now_iso(), tokens=tokens)
                     on_step({'step_name': step_name, 'status': step_status, 'log': log})
 
                 except Exception as err:
@@ -225,7 +227,8 @@ class PipelineRunner:
                     # Persist any structured diagnosis attached by the stage (e.g. planner's
                     # blocked-flow report) so the "Failure reason" panel has context pre-runner.
                     PipelineRunner._write_step_failure(reports_dir, getattr(err, 'diagnosis', None))
-                    StepManager.update(step_id, 'failed', log, DateTimeUtils.now_iso())
+                    tokens = AgentUtils.get_token_totals() if step_name != 'runner' else None
+                    StepManager.update(step_id, 'failed', log, DateTimeUtils.now_iso(), tokens=tokens)
                     on_step({'step_name': step_name, 'status': 'failed', 'log': log})
                     overall_status = 'failed'
                     break
@@ -514,7 +517,8 @@ class PipelineRunner:
                         'failed' if step_name == 'runner' and (summary or {}).get('failed', 0) > 0
                         else 'passed'
                     )
-                    StepManager.update(step_id, step_status, log, DateTimeUtils.now_iso())
+                    tokens = AgentUtils.get_token_totals() if step_name != 'runner' else None
+                    StepManager.update(step_id, step_status, log, DateTimeUtils.now_iso(), tokens=tokens)
                     on_step({'step_name': step_name, 'status': step_status, 'log': log})
 
                 except Exception as err:
@@ -523,7 +527,8 @@ class PipelineRunner:
                     err_msg = f'{err}\n{traceback.format_exc()}'
                     log = '\n\n'.join(filter(None, [captured_log, err_msg]))
                     PipelineRunner._write_step_failure(reports_dir, getattr(err, 'diagnosis', None))
-                    StepManager.update(step_id, 'failed', log, DateTimeUtils.now_iso())
+                    tokens = AgentUtils.get_token_totals() if step_name != 'runner' else None
+                    StepManager.update(step_id, 'failed', log, DateTimeUtils.now_iso(), tokens=tokens)
                     on_step({'step_name': step_name, 'status': 'failed', 'log': log})
                     overall_status = 'failed'
                     break

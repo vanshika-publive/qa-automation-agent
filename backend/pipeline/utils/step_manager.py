@@ -18,12 +18,21 @@ class StepManager:
         )
 
     @staticmethod
-    def update(step_id: str, step_status: str, log: str, completed_at: str) -> None:
-        ExecutionStep.all_objects.filter(id=step_id).update(
-            status=step_status,
-            log=log,
-            completed_at=completed_at,
-        )
+    def update(step_id: str, step_status: str, log: str, completed_at: str, tokens: dict = None) -> None:
+        fields = {
+            'status': step_status,
+            'log': log,
+            'completed_at': completed_at,
+        }
+        # LLM stages pass their thread-local token totals; runner/skipped stages leave them null.
+        if tokens:
+            fields.update({
+                'prompt_tokens': tokens.get('prompt_tokens'),
+                'cached_tokens': tokens.get('cached_tokens'),
+                'completion_tokens': tokens.get('completion_tokens'),
+                'cost_usd': tokens.get('cost_usd'),
+            })
+        ExecutionStep.all_objects.filter(id=step_id).update(**fields)
 
     @staticmethod
     def finalize_execution(execution_id: str, exec_status: str, start_ms: int, summary: dict) -> None:
