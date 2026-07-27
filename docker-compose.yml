@@ -25,6 +25,11 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+      # WebRTC live-view signaling (WebSocket). Opt-in via LIVE_VIEW_* in backend/.env.
+      - "8001:8001"
+      # NOTE (media): WebRTC media uses ephemeral UDP ports that bridge networking does not
+      # forward. On the EC2 box, layer docker-compose.webrtc.yml (network_mode: host) and open
+      # the UDP range in the security group, OR add a TURN server. See Step 4 of the rollout.
     volumes:
       # Generated specs/tests/reports and the MFA session must survive restarts.
       # capture_session.py needs a headed browser + human OTP entry, so it is run

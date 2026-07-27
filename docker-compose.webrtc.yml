@@ -1,0 +1,34 @@
+# WebRTC live-view overlay — EC2 / single-box only. Layer it ON TOP of docker-compose.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.webrtc.yml up -d --build
+#
+# Why host networking: WebRTC media flows over ephemeral UDP ports chosen by libnice at
+# call time. Docker bridge networking cannot forward that dynamic range, so media never
+# arrives and the <video> stays black even though signaling succeeds. Putting the backend
+# on the host network lets webrtcbin bind those UDP ports directly on the EC2 box; open the
+# range (and 8001/tcp for signaling) in the security group. This overlay is kept SEPARATE
+# so the base compose stays bridge-networked and unchanged for local dev.
+#
+# Prereqs in backend/.env on the box:  LIVE_VIEW_ENABLED=1  and  LIVE_VIEW_TOKEN=<secret>
+services:
+  db:
+    # Host-networked backend can no longer resolve the "db" service name, so expose Postgres
+    # on the host loopback for it to reach.
+    ports:
+      - "5432:5432"
+
+  backend:
+    network_mode: host
+    environment:
+      # Under host networking the "db" hostname is gone — reach Postgres on loopback instead.
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/publive_tester
+    # `ports:` from the base file is ignored under host networking; 8000/8001 + the WebRTC UDP
+    # range bind directly on the host. Nothing else to map here.
+
+  frontend:
+    # The Vite dev proxy targeted http://backend:8000 over the bridge; the backend is now on
+    # the host network, so point the proxy at the host gateway instead.
+    environment:
+      VITE_API_PROXY_TARGET: http://host.docker.internal:8000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
