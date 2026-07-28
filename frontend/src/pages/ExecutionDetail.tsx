@@ -9,9 +9,11 @@ import { relTime, fmtDatetime, fmtMSS } from '../utils/formatters';
 import { StatusPill, TestStatusBadge } from '../components/StatusPill';
 import { PageLoader } from '../components/PageLoader';
 import { Button, IconButton } from '../components/Button';
+import { LiveBrowserModal } from '../components/LiveBrowserModal';
+import { isLiveViewEnabled } from '../services/liveView';
 import {
   Clock, ArrowRight, Code2, FileText, ChevronDown, ArrowLeft, ChevronRight,
-  RotateCcw, Timer, Network, Trash2, ExternalLink, AlertTriangle, Wrench, Send, Info,
+  RotateCcw, Timer, Network, Trash2, ExternalLink, AlertTriangle, Wrench, Send, Info, MonitorPlay,
 } from 'lucide-react';
 
 /** Numbered steps of the plan's first scenario (mirrors the backend's first-scenario target). */
@@ -439,6 +441,8 @@ export default function ExecutionDetail() {
     files, history, isLoading, isError, retryMutation, deleteMutation,
   } = useExecutionDetail(id!);
 
+  const [liveOpen, setLiveOpen] = useState(false);
+
   if (isLoading) {
     return (
       <PageLoader />
@@ -477,16 +481,25 @@ export default function ExecutionDetail() {
             <h1 className="text-xl font-bold text-text-primary">{exec.testName}</h1>
           </div>
         </div>
-        <Button
-          onClick={() => retryMutation.mutate()}
-          disabled={exec.status === 'running' || retryMutation.isPending}
-        >
-          {retryMutation.isPending
-            ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Re-running…</>
-            : <><RotateCcw size={16} />Re-run</>
-          }
-        </Button>
+        <div className="flex items-center gap-2">
+          {isLiveViewEnabled() && (
+            <Button variant="secondary" onClick={() => setLiveOpen(true)}>
+              <MonitorPlay size={16} />Watch live
+            </Button>
+          )}
+          <Button
+            onClick={() => retryMutation.mutate()}
+            disabled={exec.status === 'running' || retryMutation.isPending}
+          >
+            {retryMutation.isPending
+              ? <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Re-running…</>
+              : <><RotateCcw size={16} />Re-run</>
+            }
+          </Button>
+        </div>
       </div>
+
+      {liveOpen && <LiveBrowserModal onClose={() => setLiveOpen(false)} />}
 
       <div className="bg-surface-main rounded-2xl border border-border-subtle p-5 mb-5 flex flex-wrap items-center gap-4">
         <StatusPill status={exec.status} size="md" />
