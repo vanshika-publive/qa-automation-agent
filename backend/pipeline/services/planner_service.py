@@ -111,10 +111,23 @@ class PlannerService:
                 discovered = PlannerService._discover_feature_page(
                     bridge, test_plan.url, test_plan.title
                 )
-                start_url = test_plan.url  # app root — the sidebar (Configuration link) is present here
+                start_url = test_plan.url  # fallback: app root (sidebar Configuration link is here)
                 if discovered:
-                    print(f'[planner:discovery] feature reachable via sidebar; confirmed page: {discovered}')
+                    # Land the planner DIRECTLY on the confirmed feature page so it OBSERVES the real
+                    # UI (correct button/field names) instead of guessing its way there via LLM clicks.
+                    # Root cause of repeated failures: dropped at root, the planner kept landing on the
+                    # WRONG Configuration sub-page (e.g. Push Notification) and then hallucinated locators
+                    # for a page it never saw (e.g. a non-existent "Add Smart Link" button — the real one
+                    # is "Create Smart Link"). The PLAN's navigation is still written as click-through
+                    # steps via discovery_note below; this only controls where OBSERVATION starts.
+                    start_url = discovered
+                    print(f'[planner:discovery] feature reachable via sidebar; confirmed page: {discovered} '
+                          f'— starting observation directly on it')
                     discovery_note = (
+                        f'You have been placed DIRECTLY on this feature\'s page ({discovered}) so you can '
+                        'OBSERVE its real controls — read the current snapshot and use the EXACT button/'
+                        'field names you see there (do not invent conventional names). Click into any '
+                        'create dialog/form to observe its fields before writing them.\n'
                         'IGNORE any page.goto() URL in the TestPlan steps — the orchestrator guessed it '
                         'and it is wrong. This feature has NO fixed URL a user would type; a user reaches '
                         'it by CLICKING through the sidebar, so the PLAN MUST do the same (see the '
