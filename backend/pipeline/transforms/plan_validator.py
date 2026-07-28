@@ -25,17 +25,35 @@ def _extract_goto_paths(content: str) -> List[str]:
     return list(dict.fromkeys(paths))  # unique, preserving order
 
 
+# Ant help/status icons (an <img> whose glyph name is its accessible name) sit INSIDE a field label,
+# so the icon name bleeds into the field's accessible name — the redirect form's textbox is literally
+# "Old URL question-circle *". These glyph names are never meaningful label text. Worse, a hyphenated
+# token like "question-circle" is stripped to "questioncircle" below, but the generated code keeps the
+# hyphen, so `\bquestioncircle\b` can NEVER match → _is_field_referenced became permanently
+# unsatisfiable and the generator was rejected on every iteration ("Add Redirect" produced no spec at
+# all). Dropping these noise tokens fixes the impossibility and lets the field be located by its clean
+# leading substring ("Old URL"), which safe_*_fill (exact=False) matches at runtime.
+_ICON_NOISE_TOKEN = re.compile(r'(?:circle|outlined|filled|twotone)$', re.IGNORECASE)
+
+
+def _is_icon_noise(token: str) -> bool:
+    return bool(_ICON_NOISE_TOKEN.search(token))
+
+
 def _field_distinctive_tokens(field_name: str) -> List[str]:
-    """Length filter (>=3, or >=4 inside parens) skips connector words."""
+    """Length filter (>=3, or >=4 inside parens) skips connector words; Ant icon-glyph names
+    (question-circle, info-circle, …) are dropped as noise."""
     cleaned = field_name.replace('*', '').strip()
     paren_match = re.search(r'\(\s*([^)]+?)\s*\)', cleaned)
     if paren_match:
         before = cleaned[:cleaned.index('(')].strip()
         inside = paren_match.group(1).strip()
         tokens = before.split() + inside.split()
-        return [re.sub(r'[^A-Za-z0-9]', '', w) for w in tokens if len(re.sub(r'[^A-Za-z0-9]', '', w)) >= 4]
+        return [t for w in tokens
+                if len(t := re.sub(r'[^A-Za-z0-9]', '', w)) >= 4 and not _is_icon_noise(t)]
     tokens = cleaned.split()
-    return [re.sub(r'[^A-Za-z0-9]', '', w) for w in tokens if len(re.sub(r'[^A-Za-z0-9]', '', w)) >= 3]
+    return [t for w in tokens
+            if len(t := re.sub(r'[^A-Za-z0-9]', '', w)) >= 3 and not _is_icon_noise(t)]
 
 
 def _is_field_referenced(field_name: str, content: str) -> bool:
@@ -173,6 +191,99 @@ CONTENT_TYPE_FILTER_MAP = {
     'custom page': '/posts/published?page_type=CustomPage&ptype=CustomPage&create=custom-page',
     'article': '/posts/published?page_type=Article&ptype=Article&create=article',
 }
+
+
+# A grounded action step names an EXACT element the planner observed live (e.g.
+# "Click get_by_role('button', name='Export Logs')"). A hallucinated step instead HEDGES — it
+# describes a generic, unobserved control ("select the desired format (e.g. CSV, Excel)", "click
+# the confirm button"). This is how the "Export Activity Logs" test failed twice: the real export
+# is a single click on "Export Logs" (emailed asynchronously, confirmed by a toast) with NO format
+# picker and NO confirm dialog, yet the planner fabricated a "pick CSV -> confirm" tail from generic
+# priors, and the generator compiled it into get_by_title('CSV')/button 'Confirm' locators that match
+# nothing. These markers detect that hedge language. They are deliberately narrow — "the confirmation
+# dialog" (a real delete-flow pattern) is NOT matched; only "the confirm BUTTON" is. Verified by a
+# dry run over every plan.md on disk: flags only genuinely fabricated steps, zero false positives.
+_SPECULATIVE_STEP_MARKERS = re.compile(
+    r'\be\.g\.'                                                            # enumerated guesses: "e.g., CSV, Excel"
+    r'|\bthe desired\b'                                                    # "the desired format"
+    r'|\bthe appropriate\b'                                                # "the appropriate option"
+    r'|\bthe relevant (?:option|button|link|item|format)\b'
+    r'|\bthe correct (?:option|button|link|item|format)\b'
+    r'|\bthe (?:confirm|ok|submit|continue|proceed|export|save) button\b'  # generic UNNAMED button
+    r'|\bif applicable\b'
+    r'|\bas needed\b'
+    r'|\bassuming\b'
+    r'|\bor similar\b',
+    re.IGNORECASE,
+)
+_ACTION_VERB = re.compile(r'\b(click|select|choose|confirm|pick|toggle|press)\b', re.IGNORECASE)
+_QUOTED_TOKEN = re.compile(r"""['"]([^'"]{2,})['"]""")
+
+
+def _speculative_action_steps(content: str, verified_text: str) -> List[str]:
+    """Return numbered STEP lines that describe clicking/selecting a control the planner never
+    observed — i.e. an action verb + hedge marker, where the step cites no quoted element name that
+    actually appears in a captured snapshot / KNOWN FACTS. A step that names an observed element is
+    trusted (other checks, e.g. unverified_titles, validate its exact name)."""
+    flagged: List[str] = []
+    for line in content.splitlines():
+        if not re.match(r'\s*\d+\.\s', line):          # numbered step lines only (not Expected bullets)
+            continue
+        if not _ACTION_VERB.search(line):              # must be an action step
+            continue
+        if not _SPECULATIVE_STEP_MARKERS.search(line):  # must hedge
+            continue
+        quoted = _QUOTED_TOKEN.findall(line)
+        if any(tok in verified_text for tok in quoted):  # cites an observed element -> trust it
+            continue
+        flagged.append(line.strip())
+    return flagged
+
+
+# "Add tab in Navigation" false-negative: a new tab was created + saved, but the plan asserted it was
+# visible on the DEFAULT page of a paginated list — and the Navbar tab list appends new rows to the
+# END, so the tab landed on page 2 and the page-1 assertion timed out on an item that really exists.
+# The reliable, false-positive-free signal for "new item lands on the LAST page" is a list that is
+# BOTH paginated AND manually ordered (per-row "Move up"/"Move Down" controls). Newest-first lists
+# (published posts, categories) surface a new item on page 1, so they are deliberately NOT matched —
+# verified by a dry run over every plan.md (0 current plans flagged; catches the old add-tab plan).
+_PAGINATION_CONTROL = re.compile(
+    r'listitem "Next Page"|listitem "Previous Page"|ant-pagination|rc-pagination', re.IGNORECASE)
+_MANUAL_REORDER = re.compile(
+    r'Move this .* up by|"Move Down"|"Move Up"|Move .* position', re.IGNORECASE)
+_CREATE_ACTION = re.compile(
+    r'\b(?:safe_(?:sequential_)?fill|Create New|Add tab|Add New)\b|click[^\n]*Save', re.IGNORECASE)
+_VERIFY_IN_LIST = re.compile(
+    r'(?:appears?|present|visible|listed)[^\n]{0,40}(?:list|navigation|table|tab)|to_be_visible',
+    re.IGNORECASE)
+_PAGES_OR_SEARCHES = re.compile(
+    r'Next Page|Previous Page|pagination|last page|Search|filter', re.IGNORECASE)
+
+
+def _verifies_appended_item_without_paging(content: str, snapshots_text: str) -> bool:
+    return bool(
+        _PAGINATION_CONTROL.search(snapshots_text)
+        and _MANUAL_REORDER.search(snapshots_text)
+        and _CREATE_ACTION.search(content)
+        and _VERIFY_IN_LIST.search(content)
+        and not _PAGES_OR_SEARCHES.search(content)
+    )
+
+
+# Non-semantic "list loaded" assertion. Plans that prove a list/table rendered with a raw CSS container
+# or row locator — expect(page.locator('table')).to_be_visible() or a BARE expect(page.locator('tr'))
+# .to_be_visible() — are wrong two ways: 'table'/'tbody'/'thead' are non-semantic (locators are
+# semantic-only on this dashboard), and a bare 'tr' matches EVERY row, so to_be_visible() is a
+# strict-mode "multiple elements" failure at runtime (observed: Verify Categories List Visibility,
+# 2026-07-28). The sanctioned single-row idioms — page.locator('tr').filter(...)/.first/.last/.nth —
+# are deliberately NOT matched (the negative lookahead skips them), and class/id selectors like
+# '.pl-search-bar button' / '.media-listing-card' / '#page-header' never contain a bare table/tr tag.
+_NONSEMANTIC_LIST_ASSERT = re.compile(
+    r"expect\(\s*page\.locator\(\s*['\"](?:table|tbody|thead)['\"]\s*\)\s*\)\s*\.\s*to_be_visible"
+    r"|expect\(\s*page\.locator\(\s*['\"]tr['\"]\s*\)(?!\s*\.(?:filter|first|last|nth|count|all)\b)"
+    r"\s*\)\s*\.\s*to_be_visible",
+    re.IGNORECASE,
+)
 
 
 def validate_plan_content(
@@ -566,6 +677,20 @@ def validate_plan_content(
         re.search(r"(?:filter|safe_sequential_fill|textbox|search)", content, re.IGNORECASE)
     )
 
+    # Reject action steps that click/select a control the planner never observed (hedge language,
+    # no observed element named). all_verified_text = system prompt (KNOWN FACTS) + every captured
+    # snapshot, so a step naming a real element is trusted.
+    speculative_action_steps = _speculative_action_steps(content, all_verified_text)
+
+    # Reject a create-then-verify plan that asserts the new item on the default page of a paginated,
+    # manually-ordered (append-to-end) list — the item lands on the LAST page (see add-tab in nav).
+    verifies_appended_without_paging = _verifies_appended_item_without_paging(content, snapshots_text)
+
+    # Reject "list loaded" proofs that assert a bare CSS table/row locator (non-semantic + bare 'tr'
+    # is a strict-mode multi-match). The spec sanitizer also narrows a bare 'tr' to .first as a
+    # runtime safety net; this steers the planner to a semantic, singular assertion up front.
+    nonsemantic_list_assert = bool(_NONSEMANTIC_LIST_ASSERT.search(content))
+
     if (
         not has_flow or not has_scenario or not has_steps or has_errors or
         missing_permalink or len(unvalidated_paths) > 0 or len(error_page_goto_paths) > 0 or
@@ -574,7 +699,9 @@ def validate_plan_content(
         len(forbidden_goto_matches) > 0 or wrong_save_button or len(unknown_fill_labels) > 0 or
         len(missing_enabled_wait) > 0 or len(hardcoded_virtualized_titles) > 0 or
         content_type_bleed or len(wrong_fill_react_in_plan) > 0 or emptiness_without_existence or
-        len(prefilled_combobox_interactions) > 0 or ctb_created_by_filter
+        len(prefilled_combobox_interactions) > 0 or ctb_created_by_filter or
+        len(speculative_action_steps) > 0 or verifies_appended_without_paging or
+        nonsemantic_list_assert
     ):
         issues: List[str] = []
         if not has_flow:
@@ -783,6 +910,47 @@ def validate_plan_content(
                 'Rewrite the plan using ONLY these labels. Remove every fill step for any other field -- '
                 'including "Title *", "Meta Description", "Banner Description", "Focus Keyphrase", and '
                 '"English Title ( Permalink )" if you added them (those exist on /posts/article/create only, NOT on entity pages).'
+            )
+        if len(speculative_action_steps) > 0:
+            quoted = '; '.join(f'"{s}"' for s in speculative_action_steps)
+            issues.append(
+                f'plan contains speculative action step(s) that click/select a control you never '
+                f'observed: {quoted}. These hedge ("the desired…", "e.g. …", "the confirm button") '
+                'instead of naming an exact element from a snapshot you captured — the generator then '
+                'invents a locator (get_by_title(\'CSV\'), button \'Confirm\', …) that matches nothing '
+                'and times out. This is exactly how the Export Activity Logs flow failed: it is a '
+                'SINGLE click on "Export Logs" (the export is emailed; a toast "We will email you the '
+                'exported data once done." confirms it) with NO format picker and NO confirm dialog. '
+                'For each flagged step: either name the EXACT element you saw in the live snapshot '
+                "(e.g. Click get_by_role('button', name='<observed name>')), or DELETE the step if the "
+                'flow already ended — then assert the observed result (a toast/URL change/visible text) '
+                'instead of inventing follow-up actions. Never guess a format-selection or confirm step.'
+            )
+        if verifies_appended_without_paging:
+            issues.append(
+                'plan verifies a newly created item is visible in a list that is BOTH paginated (an '
+                'Ant pagination control is in the live snapshot) AND manually ordered (per-row '
+                '"Move up"/"Move Down" buttons), so new rows are APPENDED TO THE END and the item lands '
+                'on the LAST page. Asserting visibility on the default page is a FALSE NEGATIVE — the '
+                '"Add tab in Navigation" test failed exactly this way (tab created on page 2, assertion '
+                'checked page 1). Add a step BEFORE the assertion that advances to the last page: '
+                "next = get_by_role('listitem', name='Next Page'); click its button repeatedly until it "
+                'is disabled (or count()==0), THEN assert get_by_text(<value>, exact=True).to_be_visible(). '
+                'Do NOT add paging for newest-first lists (published posts, categories) where a new item '
+                'appears on page 1 — this rule only applies to manually-ordered append-to-end lists.'
+            )
+        if nonsemantic_list_assert:
+            issues.append(
+                'plan proves a list/table loaded with a NON-SEMANTIC CSS locator — '
+                'expect(page.locator("table")).to_be_visible() or a bare '
+                'expect(page.locator("tr")).to_be_visible(). "table"/"tbody"/"thead" are banned '
+                '(locators are semantic-only on this dashboard), and a bare "tr" matches EVERY row, so '
+                'to_be_visible() is a strict-mode "multiple elements" failure at runtime (this is exactly '
+                'how Verify Categories List Visibility failed). Assert a SPECIFIC visible element instead: '
+                'a known row via rows = page.locator("tr").filter(has_text="<unique cell text>"); '
+                'expect(rows.first).to_be_visible(timeout=15000), or a real cell/header via '
+                'get_by_role("cell"/"columnheader", name="...") / get_by_text("<header>", exact=True). '
+                '(The sanctioned page.locator("tr").filter(...)/.first/.nth idioms are fine.)'
             )
         if ctb_created_by_filter:
             issues.append(

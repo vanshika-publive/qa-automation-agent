@@ -217,6 +217,19 @@ def sanitize_spec(code: str, scenario_name: str) -> str:
 
             out = _save_pat.sub(_scope_save, out)
 
+    # List-membership visibility checks on a SHARED cell value throw strict mode. When verifying a
+    # newly created row, the generator reliably asserts the UNIQUE (ts-stamped) value AND — despite the
+    # heuristic telling it not to — an extra assertion on a shared value (e.g. a redirect destination
+    # '/home' that many rows point to), which resolves to N elements. Narrow every get_by_text() that is
+    # the direct target of a to_be_visible() assertion to .first: a no-op when the value is unique (the
+    # ts path matches one element), and it removes the strict-mode violation when it is shared. Skipped
+    # when already qualified (.first/.last/.nth) — the trailing ')' after get_by_text(...) won't match then.
+    out = re.sub(
+        r"expect\(\s*(page\.get_by_text\([^)]*\))\s*\)\s*\.\s*to_be_visible",
+        lambda m: f'expect({m.group(1)}.first).to_be_visible',
+        out,
+    )
+
     return out
 
 
@@ -298,6 +311,26 @@ def _narrow_single_row_tr_filters(out: str) -> str:
         _assign,
         out,
         flags=re.MULTILINE,
+    )
+
+    # A BARE page.locator('tr') (no .filter/.first/.last/.nth) matches EVERY row, so using it directly
+    # in a single-element op or assertion — e.g. expect(page.locator('tr')).to_be_visible() to check a
+    # list "loaded" — is a strict-mode "multiple elements" failure (observed: Verify Categories List
+    # Visibility, 2026-07-28, where the generator asserted a raw row locator for table visibility).
+    # Narrow INLINE uses to .first: DOM order puts the VISIBLE header <tr> first, so this dodges the
+    # aria-hidden ant-table-measure-row that .nth(1) would hit. The negative lookahead skips the
+    # multiplicity/already-narrowed idioms; a bare tr assigned to a variable is left alone (usually an
+    # intentional multi-row set), mirroring the tr-filter assignment rule's caution above.
+    tr_bare = r"page\.locator\(\s*['\"]tr['\"]\s*\)(?!\s*\.(?:filter|first|last|nth|count|all)\b)"
+    out = re.sub(
+        r"(?P<loc>" + tr_bare + r")(?=\.(?:" + _SINGLE_ELEMENT_OPS + r")\b)",
+        lambda m: m.group('loc') + '.first',
+        out,
+    )
+    out = re.sub(
+        r"expect\(\s*(?P<loc>" + tr_bare + r")\s*\)\.(?:" + _SINGLE_ELEMENT_ASSERTS + r")",
+        _inline_expect,
+        out,
     )
     return out
 
