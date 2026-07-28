@@ -71,7 +71,9 @@ class CollectionSpecsView(APIView):
     @fetch_object(Collection, 'Collection not found')
     def get(self, request, obj=None, pk=None):
         slug = to_collection_slug(obj.name)
-        return Response(TestService.list_spec_files(slug, os.path.join(PROJECT_ROOT, 'tests')))
+        return Response(
+            TestService.list_specs_by_collection(obj.id, slug, os.path.join(PROJECT_ROOT, 'tests'))
+        )
 
 
 class CollectionRunSpecsView(APIView):

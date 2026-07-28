@@ -19,6 +19,7 @@ from core.serializers import (
     ExecutionDetailSerializer,
     ExecutionStepSerializer,
 )
+from core.services.artifact_store import ArtifactStore
 from core.services.execution_service import ExecutionService
 from core.services.test_service import TestService
 from utils.slug import to_collection_slug
@@ -108,21 +109,28 @@ class ExecutionFilesView(APIView):
         slug = to_collection_slug(obj.test.collection.name)
         tests_root = os.path.join(PROJECT_ROOT, 'tests')
         specs_root = os.path.join(PROJECT_ROOT, 'specs')
-        abs_path = TestService.resolve_spec_file(obj.test, slug, tests_root)
         spec_filename = spec_content = None
-        if abs_path:
-            spec_filename = os.path.relpath(abs_path, tests_root).replace('\\', '/')
-            try:
-                spec_content = Path(abs_path).read_text(encoding='utf-8')
-            except Exception:
-                pass
-        plan_path = os.path.join(specs_root, slug, str(obj.test_id), 'plan.md')
-        plan_content = None
-        if os.path.isfile(plan_path):
-            try:
-                plan_content = Path(plan_path).read_text(encoding='utf-8')
-            except Exception:
-                pass
+        # Source of truth is the DB; fall back to disk for un-mirrored/legacy runs.
+        spec_row = ArtifactStore.resolve_spec_for_test(obj.test)
+        if spec_row:
+            spec_filename = f'{slug}/{spec_row.filename}'
+            spec_content = spec_row.content
+        else:
+            abs_path = TestService.resolve_spec_file(obj.test, slug, tests_root)
+            if abs_path:
+                spec_filename = os.path.relpath(abs_path, tests_root).replace('\\', '/')
+                try:
+                    spec_content = Path(abs_path).read_text(encoding='utf-8')
+                except Exception:
+                    pass
+        plan_content = ArtifactStore.get_plan_md(obj.test_id)
+        if plan_content is None:
+            plan_path = os.path.join(specs_root, slug, str(obj.test_id), 'plan.md')
+            if os.path.isfile(plan_path):
+                try:
+                    plan_content = Path(plan_path).read_text(encoding='utf-8')
+                except Exception:
+                    pass
         return Response({'specFilename': spec_filename, 'specContent': spec_content, 'planContent': plan_content})
 
 

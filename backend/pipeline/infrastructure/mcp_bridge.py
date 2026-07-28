@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -189,8 +190,33 @@ class MCPBridge:
                 if c.get('type') == 'text'
             ]
             if text_parts:
-                return '\n'.join(text_parts)
+                return self._inline_snapshot_links('\n'.join(text_parts))
         return json.dumps(result)
+
+    # Some @playwright/mcp builds emit the ARIA snapshot as an out-of-band file referenced by a
+    # markdown link (e.g. "- [Snapshot](.playwright-mcp/page-<ts>.yml)") instead of inline YAML;
+    # others inline it. The planner + generator agents have ONLY the read-only Playwright MCP
+    # toolset (no filesystem access), so an unresolved link leaves the agent BLIND to the page it
+    # just acted on — confirmed twice in prod: the CSV/export flow (run #1) and the paginated
+    # "Add tab in Navigation" list (the planner never saw the pagination control, so it wrote a
+    # page-1-only assertion that false-negatived a tab created on page 2). Mirror @playwright/mcp's
+    # own client parser: read the referenced file (relative to the MCP cwd, where it writes its
+    # .playwright-mcp/ artifacts) and splice the YAML back inline, in the same call that returned
+    # the link — before the MCP's output-budget pruning can delete it. Missing file: leave as-is.
+    _SNAPSHOT_LINK_RE = re.compile(r'\[[^\]]*\]\(([^)]+\.yml)\)')
+
+    def _inline_snapshot_links(self, text: str) -> str:
+        def _resolve(match):
+            rel = match.group(1)
+            candidate = os.path.join(self._project_root, rel)
+            try:
+                with open(candidate, encoding='utf-8') as fh:
+                    content = fh.read().strip()
+            except OSError:
+                return match.group(0)
+            return f'```yaml\n{content}\n```'
+
+        return self._SNAPSHOT_LINK_RE.sub(_resolve, text)
 
     def close(self):
         if self._closed:

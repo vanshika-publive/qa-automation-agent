@@ -73,7 +73,9 @@ with sync_playwright() as p:
     browser.close()
 
 if auth:
-    print(f'\n✅ Saved {SESSION_PATH} — auth cookies captured: {auth}')
+    from core.services.artifact_store import ArtifactStore  # noqa: E402
+    ArtifactStore.save_session_from_disk(SESSION_PATH, env.id)
+    print(f'\n✅ Saved {SESSION_PATH} (and stored in DB) — auth cookies captured: {auth}')
 else:
     raise SystemExit(
         f'\n❌ Saved {SESSION_PATH} but NO auth cookie was captured. '

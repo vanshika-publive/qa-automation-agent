@@ -23,6 +23,7 @@ class SessionManager:
 
         if SessionManager._stored_session_is_valid(session_path):
             print('Existing session is still valid — reusing it (skipping re-login)')
+            SessionManager._mirror_session_to_db(session_path)
             return
 
         with sync_playwright() as p:
@@ -78,9 +79,19 @@ class SessionManager:
                     for c in stored.get('cookies', [])
                 ]
                 Path(session_path).write_text(json.dumps(stored, indent=2), encoding='utf-8')
+                SessionManager._mirror_session_to_db(session_path)
                 print(f'Session saved to {session_path}')
             finally:
                 browser.close()
+
+    @staticmethod
+    def _mirror_session_to_db(session_path: str) -> None:
+        """Persist the freshly-validated session into the DB (source of truth). Best-effort."""
+        try:
+            from core.services.artifact_store import ArtifactStore
+            ArtifactStore.save_session_from_disk(session_path)
+        except Exception as exc:
+            print(f'[session] could not mirror session to DB: {exc}')
 
     @staticmethod
     def ensure_mcp_authenticated(bridge, base_url: str) -> None:

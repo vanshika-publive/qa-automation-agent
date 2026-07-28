@@ -98,16 +98,31 @@ class ExecutionService:
     def parse_results_json(report_dir: str, project_root: str):
         if not report_dir:
             return None
-        results_path = os.path.join(project_root, 'reports', report_dir, 'results.json')
-        if not os.path.isfile(results_path):
+        raw = ExecutionService._read_results_raw(report_dir, project_root)
+        if raw is None:
             return None
         try:
-            report = json.loads(Path(results_path).read_text(encoding='utf-8'))
+            report = json.loads(raw)
         except Exception:
             return None
         results = []
         ExecutionService._collect_pytest_results(report.get('tests', []), results)
         return results
+
+    @staticmethod
+    def _read_results_raw(report_dir: str, project_root: str):
+        """Raw results.json text: DB (source of truth) first, on-disk file as fallback."""
+        from core.services.artifact_store import ArtifactStore
+        raw = ArtifactStore.get_results_json(report_dir)
+        if raw:
+            return raw
+        results_path = os.path.join(project_root, 'reports', report_dir, 'results.json')
+        if not os.path.isfile(results_path):
+            return None
+        try:
+            return Path(results_path).read_text(encoding='utf-8')
+        except Exception:
+            return None
 
     @staticmethod
     def failure_summary(report_dir: str, project_root: str):
@@ -127,14 +142,22 @@ class ExecutionService:
 
     @staticmethod
     def _step_failure_summary(report_dir: str, project_root: str):
-        """{category, summary, locator} from a pre-runner stage's step-failure.json, or None."""
+        """{category, summary, locator} from a pre-runner stage's step-failure diagnosis, or None.
+        DB (source of truth) first, on-disk step-failure.json as fallback."""
         if not report_dir:
             return None
-        path = os.path.join(project_root, 'reports', report_dir, 'step-failure.json')
-        if not os.path.isfile(path):
-            return None
+        from core.services.artifact_store import ArtifactStore
+        raw = ArtifactStore.get_step_failure_json(report_dir)
+        if not raw:
+            path = os.path.join(project_root, 'reports', report_dir, 'step-failure.json')
+            if not os.path.isfile(path):
+                return None
+            try:
+                raw = Path(path).read_text(encoding='utf-8')
+            except Exception:
+                return None
         try:
-            diagnosis = json.loads(Path(path).read_text(encoding='utf-8'))
+            diagnosis = json.loads(raw)
         except Exception:
             return None
         return {
@@ -274,7 +297,11 @@ class ExecutionService:
             raise LookupError('No tests in this collection')
         collection = Collection.objects.get(id=collection_id)
         slug = to_collection_slug(collection.name)
-        specs_dir = os.path.join(settings.PLAYWRIGHT_PROJECT_ROOT, 'tests', slug)
+        tests_root = os.path.join(settings.PLAYWRIGHT_PROJECT_ROOT, 'tests')
+        specs_dir = os.path.join(tests_root, slug)
+        # Specs are canonical in the DB — project the whole collection onto disk before the run.
+        from core.services.artifact_store import ArtifactStore
+        ArtifactStore.materialize_collection_specs(collection_id, tests_root, slug)
         if not os.path.isdir(specs_dir):
             raise FileNotFoundError(f'No spec directory at tests/{slug}')
         execution_id = ExecutionService.create_execution(first_test.id, environment_id)

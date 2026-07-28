@@ -121,3 +121,34 @@ class ExecutionStep(models.Model):
 
     def __str__(self):
         return f'{self.step_name} ({self.status})'
+
+
+class ExecutionResult(models.Model):
+    """Runner outputs for an Execution.
+
+    Replaces the on-disk ``data/reports/<report_dir>/results.json`` (``results_json``,
+    the pytest JSON report) and ``step-failure.json`` (``step_failure_json``, the
+    structured diagnosis written when a pre-runner stage fails). One row per
+    Execution. The self-contained HTML report stays on disk (served at ``/reports/``).
+    """
+    id = models.TextField(primary_key=True, default=uuid.uuid4)
+    execution = models.ForeignKey(
+        Execution,
+        on_delete=models.RESTRICT,
+        db_column='execution_id',
+        related_name='result',
+    )
+    results_json = models.TextField(default='')
+    step_failure_json = models.TextField(null=True, blank=True)
+    created_at = models.TextField()
+    updated_at = models.TextField()
+    deleted_at = models.TextField(null=True, blank=True)
+
+    objects = SoftDeleteManager()
+    all_objects = AllObjectsManager()
+
+    class Meta:
+        db_table = 'execution_results'
+
+    def __str__(self):
+        return f'result for {self.execution_id}'

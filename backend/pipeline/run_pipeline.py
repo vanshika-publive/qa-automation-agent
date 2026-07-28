@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import sys
 import time
 import traceback
@@ -9,6 +10,7 @@ from pathlib import Path
 from django.conf import settings
 
 from core.models import Test, Environment, Execution, ExecutionStep
+from core.services.artifact_store import ArtifactStore
 from pipeline.infrastructure.login_helper import SessionManager
 from pipeline.infrastructure.publisher import PublisherDetector
 from pipeline.utils.agent_utils import AgentUtils
@@ -85,6 +87,11 @@ class PipelineRunner:
                     'Open Environments -> Edit and add your dashboard email and password.'
                 )
 
+            # DB is the source of truth for plan artifacts; disk is scratch pytest/generator read.
+            # Restore this test's snapshots + stored prompt from the DB so the disk-based replay
+            # logic below works on a fresh box (plan.md itself is restored from latest_good_plan).
+            ArtifactStore.materialize_plan(test_id, test_plan_path, include_md=False)
+
             plan_already_exists = os.path.isfile(test_plan_path)
             if plan_already_exists:
                 try:
@@ -158,6 +165,7 @@ class PipelineRunner:
                             memory = PlanningMemoryService.contents_for_test(test_id)
                             PlannerService.run(test_plan, test_plan_path, planning_memory=memory)
                             Path(plan_prompt_path).write_text(test_prompt.strip(), encoding='utf-8')
+                            ArtifactStore.save_plan_from_disk(test_id, test_plan_path, test_prompt.strip())
 
                     elif step_name == 'generator':
                         if not os.path.isfile(test_plan_path):
@@ -188,6 +196,8 @@ class PipelineRunner:
                         Test.all_objects.filter(id=test_id).update(
                             generated_spec_filenames=json.dumps(basenames)
                         )
+                        # Mirror the freshly generated specs into the DB (source of truth).
+                        ArtifactStore.save_specs_from_paths(test_id, generated_specs)
 
                     else:
                         from pipeline.services.runner_service import RunnerService
@@ -226,7 +236,7 @@ class PipelineRunner:
                     log = '\n\n'.join(filter(None, [captured_log, err_msg]))
                     # Persist any structured diagnosis attached by the stage (e.g. planner's
                     # blocked-flow report) so the "Failure reason" panel has context pre-runner.
-                    PipelineRunner._write_step_failure(reports_dir, getattr(err, 'diagnosis', None))
+                    PipelineRunner._write_step_failure(reports_dir, getattr(err, 'diagnosis', None), execution_id)
                     tokens = AgentUtils.get_token_totals() if step_name != 'runner' else None
                     StepManager.update(step_id, 'failed', log, DateTimeUtils.now_iso(), tokens=tokens)
                     on_step({'step_name': step_name, 'status': 'failed', 'log': log})
@@ -241,6 +251,8 @@ class PipelineRunner:
                     Test.all_objects.filter(id=test_id).update(
                         latest_good_plan=good_plan, failed_at_step=None
                     )
+                    # Keep the current-plan row aligned with the plan that just passed.
+                    ArtifactStore.save_plan_from_disk(test_id, test_plan_path, test_prompt.strip())
                 except Exception as save_err:
                     print(f'[pipeline] could not persist latest_good_plan: {save_err}', file=sys.stderr)
 
@@ -274,6 +286,10 @@ class PipelineRunner:
 
         finally:
             CredentialManager.clear()
+            PipelineRunner._cleanup_mcp_artifacts()
+            PipelineRunner._cleanup_plan_snapshots(
+                os.path.join(PROJECT_ROOT, 'specs', collection_slug, test_id)
+            )
             CancellationRegistry.discard(execution_id)
             StepManager.finalize_execution(execution_id, overall_status, start_ms, summary)
 
@@ -305,6 +321,10 @@ class PipelineRunner:
                     'Environment has no login credentials. '
                     'Open Environments -> Edit and add your dashboard email and password.'
                 )
+
+            # Specs live in the DB; project this test's specs back onto disk so pytest can read them
+            # (a whole-collection run is pre-materialized in ExecutionService.launch_all_specs).
+            ArtifactStore.materialize_specs(test_id, os.path.join(PROJECT_ROOT, 'tests', collection_slug))
 
             PipelineRunner._prepare_environment(env_row, environment_id)
 
@@ -364,6 +384,10 @@ class PipelineRunner:
 
         finally:
             CredentialManager.clear()
+            PipelineRunner._cleanup_mcp_artifacts()
+            PipelineRunner._cleanup_plan_snapshots(
+                os.path.join(PROJECT_ROOT, 'specs', collection_slug, test_id)
+            )
             CancellationRegistry.discard(execution_id)
             StepManager.finalize_execution(execution_id, overall_status, start_ms, summary)
 
@@ -426,6 +450,10 @@ class PipelineRunner:
                     'plan to keep the working prefix from.'
                 )
 
+            # Restore snapshots + stored prompt from the DB for the corrective replan (plan.md
+            # itself comes from latest_good_plan / disk via source_md above).
+            ArtifactStore.materialize_plan(test_id, test_plan_path, include_md=False)
+
             from pipeline.transforms.plan_parser import parse_plan_md, preserve_prefix_steps
             scenarios = parse_plan_md(source_md)
             if not scenarios:
@@ -474,6 +502,7 @@ class PipelineRunner:
                         )
                         Path(test_plan_path).write_text(stitched, encoding='utf-8')
                         Path(plan_prompt_path).write_text(test_prompt.strip(), encoding='utf-8')
+                        ArtifactStore.save_plan_from_disk(test_id, test_plan_path, test_prompt.strip())
 
                     elif step_name == 'generator':
                         if not os.path.isfile(test_plan_path):
@@ -496,6 +525,8 @@ class PipelineRunner:
                         Test.all_objects.filter(id=test_id).update(
                             generated_spec_filenames=json.dumps(basenames)
                         )
+                        # Mirror the freshly generated specs into the DB (source of truth).
+                        ArtifactStore.save_specs_from_paths(test_id, generated_specs)
 
                     else:
                         from pipeline.services.runner_service import RunnerService
@@ -526,7 +557,7 @@ class PipelineRunner:
                     capture.stop()
                     err_msg = f'{err}\n{traceback.format_exc()}'
                     log = '\n\n'.join(filter(None, [captured_log, err_msg]))
-                    PipelineRunner._write_step_failure(reports_dir, getattr(err, 'diagnosis', None))
+                    PipelineRunner._write_step_failure(reports_dir, getattr(err, 'diagnosis', None), execution_id)
                     tokens = AgentUtils.get_token_totals() if step_name != 'runner' else None
                     StepManager.update(step_id, 'failed', log, DateTimeUtils.now_iso(), tokens=tokens)
                     on_step({'step_name': step_name, 'status': 'failed', 'log': log})
@@ -560,6 +591,7 @@ class PipelineRunner:
                     Test.all_objects.filter(id=test_id).update(
                         latest_good_plan=good_plan, failed_at_step=None
                     )
+                    ArtifactStore.save_plan_from_disk(test_id, test_plan_path, test_prompt.strip())
                 except Exception as save_err:
                     print(f'[correction] could not persist latest_good_plan: {save_err}', file=sys.stderr)
                 try:
@@ -577,23 +609,72 @@ class PipelineRunner:
                 marker = f'step {failed_at_step}: correction did not pass — {(correction or "")[:160]}'
                 Test.all_objects.filter(id=test_id).update(failed_at_step=marker)
             CredentialManager.clear()
+            PipelineRunner._cleanup_mcp_artifacts()
+            PipelineRunner._cleanup_plan_snapshots(
+                os.path.join(PROJECT_ROOT, 'specs', collection_slug, test_id)
+            )
             CancellationRegistry.discard(execution_id)
             StepManager.finalize_execution(execution_id, overall_status, start_ms, summary)
 
     @staticmethod
-    def _write_step_failure(reports_dir: str, diagnosis) -> None:
-        """Persist a stage's structured failure diagnosis to reports_dir/step-failure.json.
+    def _cleanup_mcp_artifacts() -> None:
+        """Remove the @playwright/mcp scratch dir (data/.playwright-mcp/) on run teardown.
+
+        The Node MCP process writes console logs and transient snapshot .yml files there. The
+        pipeline reads those .yml files INLINE within the same tool call (mcp_bridge
+        _inline_snapshot_links) and never again — across runs the directory is pure cruft that
+        grows unbounded (thousands of files). Nothing reads it after a run, so wiping it on
+        teardown is safe; the MCP process recreates it on the next run. Best-effort: cleanup
+        failure must never affect a run's outcome.
+
+        Concurrency note: if two runs overlap, this can delete a .yml the other run has not yet
+        inlined. That path already degrades gracefully — _inline_snapshot_links leaves the link
+        as-is on a missing file — so the worst case is one un-inlined snapshot, not a crash.
+        """
+        artifacts_dir = os.path.join(PROJECT_ROOT, '.playwright-mcp')
+        try:
+            shutil.rmtree(artifacts_dir, ignore_errors=True)
+        except Exception as err:
+            print(f'[cleanup] could not remove {artifacts_dir}: {err}', file=sys.stderr)
+
+    @staticmethod
+    def _cleanup_plan_snapshots(plan_dir: str) -> None:
+        """Delete the on-disk plan-snapshots.json for a test on run teardown.
+
+        The disk file is only a cache of the canonical DB copy (TestPlan.plan_snapshots) and is
+        UNCONDITIONALLY re-materialized from the DB at the start of every run
+        (ArtifactStore.materialize_plan, invoked before any stage runs), so wiping the disk copy
+        loses nothing — the next run rebuilds it before the generator reads it. Best-effort:
+        cleanup failure must never affect a run's outcome.
+        """
+        if not plan_dir:
+            return
+        try:
+            Path(os.path.join(plan_dir, 'plan-snapshots.json')).unlink(missing_ok=True)
+        except Exception as err:
+            print(f'[cleanup] could not remove plan-snapshots.json in {plan_dir}: {err}', file=sys.stderr)
+
+    @staticmethod
+    def _write_step_failure(reports_dir: str, diagnosis, execution_id: str = None) -> None:
+        """Persist a stage's structured failure diagnosis to reports_dir/step-failure.json and,
+        as the source of truth, to the ExecutionResult row.
         No-op unless diagnosis is a dict. Best-effort — write failure must never mask the stage error.
         """
         if not isinstance(diagnosis, dict):
             return
+        payload = json.dumps(diagnosis, indent=2)
         try:
             os.makedirs(reports_dir, exist_ok=True)
             Path(os.path.join(reports_dir, 'step-failure.json')).write_text(
-                json.dumps(diagnosis, indent=2), encoding='utf-8'
+                payload, encoding='utf-8'
             )
         except Exception as exc:
             print(f'[pipeline] could not write step-failure.json: {exc}', file=sys.stderr)
+        if execution_id:
+            try:
+                ArtifactStore.save_step_failure(execution_id, payload)
+            except Exception as exc:
+                print(f'[pipeline] could not persist step-failure to DB: {exc}', file=sys.stderr)
 
     @staticmethod
     def _fetch_run_context(test_id: str, environment_id: str, include_prompt: bool = True) -> dict:
@@ -623,6 +704,10 @@ class PipelineRunner:
             'dashboard_publisher': env_row.get('publisher', ''),
         })
 
+        # Project the stored session onto disk so SessionManager can reuse it (and the MFA-cleared
+        # cookies) instead of attempting an un-scriptable re-login on a box with an empty data/ dir.
+        if ArtifactStore.materialize_session(PROJECT_ROOT):
+            print('Restored stored session from DB')
         print('Refreshing browser session...')
         SessionManager.refresh(PROJECT_ROOT)
         print('Session refreshed')

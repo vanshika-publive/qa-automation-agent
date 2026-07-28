@@ -1,11 +1,14 @@
+import os
 import uuid
-from pathlib import Path
+
+from django.conf import settings
 
 from core.models import Environment
 from utils.datetime_utils import DateTimeUtils
 
-# Resolved once relative to backend/ — avoids __file__ tricks scattered across views.
-_SESSION_PATH = str(Path(__file__).resolve().parents[2] / '.auth' / 'session.json')
+# The stored session lives under the runtime data dir (PLAYWRIGHT_PROJECT_ROOT), same as every
+# pipeline consumer — not under backend/. Kept in one place to avoid scattered __file__ tricks.
+_SESSION_PATH = os.path.join(str(settings.PLAYWRIGHT_PROJECT_ROOT), '.auth', 'session.json')
 
 
 class EnvironmentService:
@@ -66,6 +69,9 @@ class EnvironmentService:
     @staticmethod
     def detect_publisher(base_url: str, environment_id: str = None) -> dict:
         from pipeline.infrastructure.publisher import PublisherDetector
+        from core.services.artifact_store import ArtifactStore
+        # Publisher detection reads the session file; project it from the DB if disk is empty.
+        ArtifactStore.materialize_session(str(settings.PLAYWRIGHT_PROJECT_ROOT))
         pub = PublisherDetector.detect(base_url, _SESSION_PATH)
         if pub and environment_id:
             Environment.objects.filter(id=environment_id).update(publisher=pub['name'])

@@ -124,6 +124,17 @@ class RunnerService:
 
         summary = RunnerService._parse_results(reports_dir)
 
+        # Mirror pytest's raw results.json into the DB (source of truth for the API).
+        if execution_id:
+            try:
+                from core.services.artifact_store import ArtifactStore
+                if os.path.isfile(results_file):
+                    ArtifactStore.save_results(
+                        execution_id, Path(results_file).read_text(encoding='utf-8')
+                    )
+            except Exception as exc:
+                print(f'[runner] could not persist results.json to DB: {exc}', file=sys.stderr)
+
         if summary['total'] == 0:
             return_code = proc.returncode or 0
             if return_code != 0:

@@ -5,7 +5,7 @@ import uuid
 from datetime import timezone
 from pathlib import Path
 
-from core.models import Collection, Test
+from core.models import Collection, Test, TestSpec
 from pipeline.constants import EXCLUDED_SPEC_FILES, MIN_SLUG_WORD_LENGTH
 from utils.datetime_utils import DateTimeUtils
 from utils.json_utils import safe_json_parse
@@ -23,17 +23,28 @@ class TestService:
         tests_root = os.path.join(project_root, 'tests')
         specs_root = os.path.join(project_root, 'specs')
 
+        from core.services.artifact_store import ArtifactStore
         result = []
         for test in tests:
             data = dict(TestSerializer(test).data)
-            spec_path = TestService.resolve_spec_file(test, slug, tests_root)
-            if spec_path:
-                basename = os.path.basename(spec_path)
-                data['specFile'] = {'basename': basename, 'filename': f'{slug}/{basename}'}
+            spec_row = ArtifactStore.resolve_spec_for_test(test)
+            if spec_row:
+                data['specFile'] = {
+                    'basename': spec_row.filename,
+                    'filename': f'{slug}/{spec_row.filename}',
+                }
             else:
-                data['specFile'] = None
-            plan_path = os.path.join(specs_root, slug, str(test.id), 'plan.md')
-            data['planFile'] = 'plan.md' if os.path.isfile(plan_path) else None
+                spec_path = TestService.resolve_spec_file(test, slug, tests_root)
+                if spec_path:
+                    basename = os.path.basename(spec_path)
+                    data['specFile'] = {'basename': basename, 'filename': f'{slug}/{basename}'}
+                else:
+                    data['specFile'] = None
+            if ArtifactStore.get_plan_md(test.id) is not None:
+                data['planFile'] = 'plan.md'
+            else:
+                plan_path = os.path.join(specs_root, slug, str(test.id), 'plan.md')
+                data['planFile'] = 'plan.md' if os.path.isfile(plan_path) else None
             result.append(data)
         return result
 
@@ -126,6 +137,34 @@ class TestService:
                     return f
 
         return _most_recent(_list(collection_dir)) or _most_recent(_list(tests_root))
+
+    @staticmethod
+    def collection_id_for_slug(slug: str):
+        """Reverse the on-the-fly collection slug back to a collection id (path-addressed
+        spec endpoints only carry `<slug>/<basename>`, never an id)."""
+        for c in Collection.objects.all():
+            if to_collection_slug(c.name) == slug:
+                return c.id
+        return None
+
+    @staticmethod
+    def list_specs_by_collection(collection_id: str, collection_slug: str, tests_root: str) -> list:
+        """Spec listing served from the DB (source of truth), deduped by basename to match the
+        single shared on-disk directory; falls back to the on-disk listing when the DB has none."""
+        rows = TestSpec.objects.filter(test__collection_id=collection_id).order_by('-updated_at')
+        by_name = {}
+        for r in rows:
+            if r.filename in by_name:
+                continue  # keep the most recent (queryset already ordered newest-first)
+            by_name[r.filename] = {
+                'filename': f'{collection_slug}/{r.filename}',
+                'basename': r.filename,
+                'lastModified': r.updated_at,
+                'sizeBytes': len(r.content.encode('utf-8')),
+            }
+        if by_name:
+            return sorted(by_name.values(), key=lambda x: x['lastModified'], reverse=True)
+        return TestService.list_spec_files(collection_slug, tests_root)
 
     @staticmethod
     def list_spec_files(collection_slug: str, tests_root: str) -> list:

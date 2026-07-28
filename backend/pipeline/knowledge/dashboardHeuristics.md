@@ -535,3 +535,54 @@ finally:
 ```
 
 This does **not** apply to create flows (article/tag/category/etc.) — those make fresh timestamped entities that need no restore, and their post-create URL-change check already proves the save.
+
+---
+
+## Verifying an item's presence in a list is pagination-sensitive
+
+Lists render **only the current page** (Ant tables/pagination — off-page rows are not in the DOM), so `expect(get_by_text(value)).to_be_visible()` only inspects the visible page.
+
+- **Newest-first lists** (published posts, categories, tags): a newly created item appears at the **TOP → page 1**. Assert directly; no paging needed.
+- **Manually-ordered append-to-end lists** — those with per-row **"Move up"/"Move Down"** controls (e.g. the Navigation Navbar/Footer tab tables): a new item is appended to the **END → LAST page**. You MUST page to the last page before asserting, or it is a **false negative** on an item that really was created. Confirmed failure: "Add tab in Navigation" — tab created on page 2, assertion checked page 1.
+
+Reach the last page (safe whether or not the list actually paginates), then assert:
+```python
+next_page = page.get_by_role('listitem', name='Next Page')
+for _ in range(20):
+    if next_page.count() == 0:
+        break
+    btn = next_page.get_by_role('button')
+    if btn.count() == 0 or btn.is_disabled():
+        break
+    btn.click()
+    page.wait_for_timeout(300)
+expect(page.get_by_text(f'QA Tab {ts}', exact=True)).to_be_visible(timeout=15000)
+```
+If the list has a search box, prefer searching/filtering for the item instead.
+
+---
+
+## Redirects form (Configuration → Redirects → "Add Redirect") — URL rules + pre-filled type
+
+Verified live on the Add Redirect dialog:
+
+- **Old URL / New URL must be FULL URLs on the publication's OWN site domain.** A bare path (e.g. `/foo`) is rejected inline with "Incorrect Domain"; an external New URL raises an external-URL warning. The button may look enabled either way, but Save does not persist while an error is showing. Derive the domain from the sidebar **"View Website"** link — never hardcode it (it is per-publisher). The form domain-trims the value, so the saved row shows just the path.
+  ```python
+  site = page.get_by_role('link', name='View Website').get_attribute('href').rstrip('/')
+  safe_sequential_fill(page, 'Old URL', f'{site}/test-redirect-{ts}', delay=50)
+  safe_sequential_fill(page, 'New URL', f'{site}/home', delay=50)
+  ```
+- **"Select Redirect Type *" is a PRE-FILLED combobox** (defaults to "Permanently Redirect"). Do NOT click or select it — its `.ant-select-selection-item` overlays the input and intercepts the click (hangs the run). Leave it at its default.
+- The URL field labels carry a help-icon glyph ("Old URL question-circle *"); locate by the clean **leading substring** ('Old URL' / 'New URL') — `safe_sequential_fill` uses `exact=False`.
+- Verify by the domain-trimmed path in the **newest-first** list, using ONLY the **unique** Old URL path: `expect(page.get_by_text(f'/test-redirect-{ts}', exact=True)).to_be_visible(timeout=15000)`. Do NOT also assert the destination (e.g. `/home`) — shared destinations match many rows and raise a strict-mode violation. The unique source path alone proves the redirect was created.
+- **Deleting a redirect:** the per-row Actions buttons are UNNAMED lucide icon buttons (`aria-hidden` SVGs, class `action-button`) — pencil = Edit, trash = Delete — so `get_by_role('button', name='Delete')` matches NOTHING. Delete is the **last** action button in the row. Search first (the Search box needs an explicit `Enter`), then per matching row: `row.get_by_role('button').last.click()` (the Actions column is off-screen right, but Playwright auto-scrolls on click), then confirm in the dialog which DOES have a named button: `page.get_by_role('dialog').get_by_role('button', name='Delete').click()`.
+  ```python
+  rows = page.locator('tr').filter(has_text=f'/test-redirect-{prefix}')
+  rows.first.wait_for(state='visible', timeout=15000)   # prove rows rendered (avoid vacuous count=0)
+  remaining = rows.count()
+  while remaining > 0:
+      rows.first.get_by_role('button').last.click()
+      page.get_by_role('dialog').get_by_role('button', name='Delete').click()
+      remaining -= 1
+      expect(rows).to_have_count(remaining, timeout=15000)
+  ```
