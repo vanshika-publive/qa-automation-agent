@@ -30,5 +30,11 @@ services:
     # the host network, so point the proxy at the host gateway instead.
     environment:
       VITE_API_PROXY_TARGET: http://host.docker.internal:8000
+      # Surface the live-view control + signaling config to the client bundle. The token is
+      # interpolated from the shell / root .env at `compose up` time (NOT hardcoded here) and
+      # must match backend LIVE_VIEW_TOKEN.
+      VITE_LIVE_VIEW_ENABLED: "1"
+      VITE_LIVE_VIEW_PORT: "8001"
+      VITE_LIVE_VIEW_TOKEN: "${LIVE_VIEW_TOKEN:-}"
     extra_hosts:
       - "host.docker.internal:host-gateway"
