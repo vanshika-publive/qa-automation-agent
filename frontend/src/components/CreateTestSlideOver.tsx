@@ -6,6 +6,8 @@ import { Collection, StepName, StepStatus } from '../types';
 import { collectionsService } from '../services/collections';
 import { executionsService } from '../services/executions';
 import { useActiveEnvironments } from '../hooks/useActiveEnvironments';
+import { isLiveViewEnabled } from '../services/liveView';
+import { LiveBrowserPanel } from './LiveBrowserPanel';
 import { EDITOR_BG, sseStreamUrl } from '../constants';
 
 interface StepState {
@@ -277,6 +279,12 @@ export default function CreateTestSlideOver({
     }
   }
 
+  // The pipeline runs inline in this slide-over (it never navigates to ExecutionDetail),
+  // so the live stream is embedded here rather than opened via router state. It mounts as
+  // soon as the run starts and unmounts when the pipeline finishes, which tears down the
+  // WebRTC connection.
+  const showLive = isLiveViewEnabled() && phase === 'running';
+
   const overallStatus = steps.every((s) => s.status === 'passed')
     ? 'passed'
     : steps.some((s) => s.status === 'failed')
@@ -293,7 +301,7 @@ export default function CreateTestSlideOver({
       <div
         className={`fixed top-0 right-0 h-full bg-white shadow-2xl z-50 flex flex-col transition-[transform,width] duration-300 ease-out ${
           visible ? 'translate-x-0' : 'translate-x-full'
-        } ${phase !== 'form' ? 'w-[900px]' : 'w-[680px]'}`}
+        } ${phase === 'form' ? 'w-[680px]' : showLive ? 'w-[1120px] max-w-[96vw]' : 'w-[900px]'}`}
       >
         <div className="flex items-center justify-between px-6 py-5 border-b border-border-subtle flex-shrink-0">
           <div className="flex items-center gap-3">
@@ -470,6 +478,10 @@ export default function CreateTestSlideOver({
                   to   { opacity: 1; transform: translateY(0); }
                 }
               `}</style>
+
+              {showLive && (
+                <LiveBrowserPanel className="rounded-xl border border-border-subtle overflow-hidden" />
+              )}
 
               <div className="flex items-center gap-3">
                 <div className="h-px flex-1 bg-border-subtle" />
