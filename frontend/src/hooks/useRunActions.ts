@@ -16,7 +16,14 @@ export function useRunTest(testId: string) {
   const navigate = useNavigate();
   return useMutation({
     mutationFn: (environmentId: string) => executionsService.retry({ testId, environmentId }),
-    onSuccess: () => navigate('/executions'),
+    onSuccess: (res) => {
+      // Jump straight to the run's detail page and flag it to auto-open the live
+      // stream (honored there only when live-view is enabled). Fall back to the
+      // list if the backend didn't return an id.
+      const executionId = res.data?.executionId;
+      if (executionId) navigate(`/executions/${executionId}`, { state: { autoLive: true } });
+      else navigate('/executions');
+    },
   });
 }
 

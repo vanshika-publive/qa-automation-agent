@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useExecutionDetail } from '../hooks/useExecutionDetail';
 import { usePlanningMemory } from '../hooks/usePlanningMemory';
 import {
@@ -435,6 +435,7 @@ function CorrectiveReplanPanel({ exec, planContent }: { exec: ExecutionDetailDat
 export default function ExecutionDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const {
     exec, steps, testResults, testResultsPending,
@@ -442,6 +443,18 @@ export default function ExecutionDetail() {
   } = useExecutionDetail(id!);
 
   const [liveOpen, setLiveOpen] = useState(false);
+
+  // Auto-open the live stream when we arrived here by clicking Run/Re-run (the run
+  // hooks pass `state.autoLive`). Gated on live-view being enabled; keyed on `id` so a
+  // Re-run that swaps to a new execution re-triggers it. One-shot: we clear the flag so
+  // a refresh or back-navigation doesn't reopen the modal.
+  const autoLive =
+    isLiveViewEnabled() && (location.state as { autoLive?: boolean } | null)?.autoLive === true;
+  useEffect(() => {
+    if (!autoLive) return;
+    setLiveOpen(true);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [id, autoLive, location.pathname, navigate]);
 
   if (isLoading) {
     return (

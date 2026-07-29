@@ -42,7 +42,9 @@ export function useExecutionDetail(id: string) {
     onSuccess: (res) => {
       const executionId = res.data?.executionId;
       qc.invalidateQueries({ queryKey: ['executions'] });
-      if (executionId) navigate(`/executions/${executionId}`);
+      // `autoLive` tells ExecutionDetail to auto-open the live stream (gated there
+      // on live-view being enabled), matching the fresh-run behavior.
+      if (executionId) navigate(`/executions/${executionId}`, { state: { autoLive: true } });
     },
   });
 
