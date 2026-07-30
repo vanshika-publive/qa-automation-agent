@@ -176,6 +176,30 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             "for them times out."
         )
 
+    # Smart Links' dialog submit button ("Create Smart Link") shares its exact accessible name with
+    # the LAUNCHER button that opened the dialog (both stay mounted -- Ant modals don't unmount the
+    # trigger). An unscoped get_by_role('button', name='Create Smart Link') therefore always resolves
+    # to 2 elements and to_be_enabled()/.click() throws a strict-mode violation. Verified live
+    # 2026-07-30 (first real run after the Keyphrase fix landed): "resolved to 2 elements: 1) ...
+    # aka locator('#root').get_by_role(...) 2) ... aka get_by_label('Add Smart Link').get_by_role(...)".
+    references_smart_link_submit = bool(
+        re.search(r"get_by_role\(\s*['\"]button['\"]\s*,\s*name\s*=\s*['\"]Create Smart Link['\"]", code)
+    )
+    is_dialog_scoped_smart_link_submit = bool(
+        re.search(
+            r"get_by_role\(\s*['\"]dialog['\"]\s*\)\s*\.get_by_role\(\s*['\"]button['\"]\s*,\s*name\s*=\s*['\"]Create Smart Link['\"]",
+            code
+        )
+    )
+    if references_smart_link_submit and not is_dialog_scoped_smart_link_submit:
+        issues.append(
+            "spec clicks/asserts the Smart Link dialog's 'Create Smart Link' submit button via a bare "
+            "page.get_by_role('button', name='Create Smart Link'). That name is SHARED with the launcher "
+            "button that opened the dialog (it stays mounted underneath), so this always resolves to 2 "
+            "elements and to_be_enabled()/.click() throws a strict-mode violation. Scope it to the dialog: "
+            "page.get_by_role('dialog').get_by_role('button', name='Create Smart Link')."
+        )
+
     # [^)]* ensures name= is inside the get_by_role() parens, not in a chained method call
     if re.search(r"get_by_role\(['\"]row['\"][^)]*\bname\s*=", code):
         issues.append(
