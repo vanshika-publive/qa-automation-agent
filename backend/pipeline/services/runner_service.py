@@ -22,6 +22,12 @@ class RunnerService:
         html_dir = os.path.join(reports_dir, 'html')
         os.makedirs(html_dir, exist_ok=True)
         html_report = os.path.join(html_dir, 'index.html')
+        # Playwright artifacts (failure screenshots) land under the SAME per-execution
+        # reports_dir that already gets served at /reports/<report_dir>/ — no new static
+        # route needed. Isolating --output per execution (rather than the pytest-playwright
+        # default of a shared ./test-results relative to cwd) also avoids concurrent runs
+        # clobbering each other's screenshots.
+        test_results_dir = os.path.join(reports_dir, 'test-results')
 
         args = [
             sys.executable, '-m', 'pytest',
@@ -30,6 +36,8 @@ class RunnerService:
             f'--html={html_report}',
             '--self-contained-html',
             '-v',
+            '--screenshot=only-on-failure',
+            f'--output={test_results_dir}',
         ]
 
         if test_target:

@@ -292,6 +292,7 @@ class PipelineRunner:
             )
             CancellationRegistry.discard(execution_id)
             StepManager.finalize_execution(execution_id, overall_status, start_ms, summary)
+            PipelineRunner._enforce_retention(test_id)
 
     @staticmethod
     def run_spec(execution_id: str, test_id: str, spec_filename: str, environment_id: str, on_step=None) -> None:
@@ -390,6 +391,7 @@ class PipelineRunner:
             )
             CancellationRegistry.discard(execution_id)
             StepManager.finalize_execution(execution_id, overall_status, start_ms, summary)
+            PipelineRunner._enforce_retention(test_id)
 
     @staticmethod
     def run_correction(execution_id: str, test_id: str, environment_id: str,
@@ -615,6 +617,7 @@ class PipelineRunner:
             )
             CancellationRegistry.discard(execution_id)
             StepManager.finalize_execution(execution_id, overall_status, start_ms, summary)
+            PipelineRunner._enforce_retention(test_id)
 
     @staticmethod
     def _cleanup_mcp_artifacts() -> None:
@@ -653,6 +656,18 @@ class PipelineRunner:
             Path(os.path.join(plan_dir, 'plan-snapshots.json')).unlink(missing_ok=True)
         except Exception as err:
             print(f'[cleanup] could not remove plan-snapshots.json in {plan_dir}: {err}', file=sys.stderr)
+
+    @staticmethod
+    def _enforce_retention(test_id: str) -> None:
+        """Bounded artifact growth (core/services/retention_service.py): cap this test's
+        execution history and prune stale screenshots. Same teardown spot as the MCP-artifact
+        / plan-snapshot cleanup above. Best-effort — never affects the run's outcome."""
+        try:
+            from core.services.retention_service import RetentionService
+            RetentionService.enforce_execution_retention(test_id, PROJECT_ROOT)
+            RetentionService.prune_old_screenshots(PROJECT_ROOT)
+        except Exception as err:
+            print(f'[cleanup] retention enforcement failed: {err}', file=sys.stderr)
 
     @staticmethod
     def _write_step_failure(reports_dir: str, diagnosis, execution_id: str = None) -> None:

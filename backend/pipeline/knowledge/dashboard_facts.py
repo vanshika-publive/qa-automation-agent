@@ -637,6 +637,43 @@ CUSTOM_COMPONENT_LIST = PageFacts(
 )
 PAGE_FACTS['/configurations/content-type-builder/custom-component'] = CUSTOM_COMPONENT_LIST
 
+SMART_LINKS_LIST = PageFacts(
+    path='/configurations/smart-links',
+    title='Smart Links',
+    save_button='Create Smart Link',
+    launch_button='Create Smart Link',
+    note=(
+        'URL confirmed live 2026-07-30. Verified live via a fresh empty-state account (0 smart links) — '
+        'the launcher button only reads "Create Smart Link" in that empty state; a populated list may show '
+        'it in a page-header/toolbar position instead, but the accessible name is the same.\n'
+        'CREATE FLOW dialog "Add Smart Link" has EXACTLY 3 fields, but 2 of them are HIDDEN until a search '
+        'is explicitly run — this is the SEARCH BOXES general rule (see _shared.py) applying to a field that '
+        'is NOT named "Search"/"Filter", so the generic fills_search_box validator regex does not catch it:\n'
+        '  1. "Keyphrase *" — textbox accessible name "Enter Phrase you want to link". Typing alone does '
+        'NOTHING: it is a live search-as-you-type box against existing posts, and like every search box on '
+        'this dashboard it does not auto-apply on fill. You MUST explicitly trigger it — '
+        'safe_sequential_fill(page, "Enter Phrase you want to link", keyword) then '
+        'page.get_by_role("textbox", name="Enter Phrase you want to link").press("Enter") (or click the '
+        'adjacent icon-only button right of the field). Skipping the trigger leaves the dialog stuck on '
+        '"Begin your search by typing a keyword" and "Target Link"/"Link Label" never render — any locator '
+        'for them (or their scroll_into_view_if_needed) times out at 15s, which is EXACTLY the historical '
+        'failure signature for this test (Locator.scroll_into_view_if_needed: Timeout 15000ms exceeded).\n'
+        '  After the trigger, a result summary appears ("Good" / "Approx <N> posts found With the phrase '
+        '\'<keyword>\'") and TWO more required fields render:\n'
+        '  2. "Target Link *" — textbox, placeholder "Enter Target Link". Use safe_sequential_fill (treat as '
+        'React-controlled like every other create-form text field on this dashboard; plain .fill() is not '
+        'verified to update state here).\n'
+        '  3. "Link Label *" — textbox, placeholder is ALSO "Enter Target Link" (a copy-paste label bug in '
+        'the app itself, not a locator mistake) — disambiguate by DOM order / the "Link Label *" field-group '
+        'text, never by placeholder. Use safe_sequential_fill.\n'
+        'Submit: button "Create Smart Link" inside the dialog (same accessible name as the launcher button — '
+        'scope to page.get_by_role("dialog") to avoid matching the launcher underneath).\n'
+        'Empty state (0 smart links) shows paragraph "It seems you haven\'t created any smart links yet." '
+        'with the launch button — do not treat this paragraph as an error.'
+    ),
+)
+PAGE_FACTS['/configurations/smart-links'] = SMART_LINKS_LIST
+
 # Aria names of comboboxes marked virtualized=True anywhere in PAGE_FACTS. A get_by_title() value
 # for one of these is unsafe even when it was genuinely observed live -- the option must instead be
 # picked via the dynamic '.ant-select-item-option' pattern. Used by plan_validator/spec_validator to
@@ -677,6 +714,8 @@ def detect_intent(prompt):
         page = CATEGORY_CREATE
     elif re.search(r'geograph', lower):
         page = GEOGRAPHY_CREATE
+    elif re.search(r'smart\s*link', lower):
+        page = SMART_LINKS_LIST
 
     if not page:
         return None

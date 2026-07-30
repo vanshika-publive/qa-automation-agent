@@ -158,6 +158,24 @@ def validate_spec_semantics(code: str) -> Optional[str]:
             "page.locator('.pl-search-bar button').click()."
         )
 
+    # Smart Links' "Keyphrase" field (accessible name "Enter Phrase you want to link") IS a search
+    # box -- typing runs a live search against existing posts -- but its name contains neither
+    # "search" nor "filter", so the generic fills_search_box regex above never flags it. Without an
+    # explicit trigger, the dialog never reveals "Target Link"/"Link Label", and any locator for them
+    # (or scroll_into_view_if_needed) times out at 15s -- the historical failure signature for this test.
+    fills_keyphrase_box = bool(
+        re.search(r"['\"]Enter Phrase you want to link['\"]", code)
+    )
+    if fills_keyphrase_box and not has_search_trigger:
+        issues.append(
+            "spec fills the Smart Link 'Keyphrase' field but never RUNS the search. Despite its name not "
+            "containing 'search', it IS a live search-as-you-type box -- typing alone does nothing. Add a "
+            "trigger right after the fill: page.get_by_role('textbox', name='Enter Phrase you want to "
+            "link').press('Enter'). Skipping this leaves the dialog stuck showing 'Begin your search by "
+            "typing a keyword' and the 'Target Link'/'Link Label' fields never render, so any later locator "
+            "for them times out."
+        )
+
     # [^)]* ensures name= is inside the get_by_role() parens, not in a chained method call
     if re.search(r"get_by_role\(['\"]row['\"][^)]*\bname\s*=", code):
         issues.append(

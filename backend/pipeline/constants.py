@@ -27,3 +27,8 @@ ERROR_TRUNCATE_LENGTH = 400
 SESSION_EXPIRY_SECONDS = 60 * 60 * 24
 LOGIN_TIMEOUT_MS = 30_000
 LOGIN_PATH = '/login'
+
+# Retention — bounded growth of per-run artifacts (core/services/retention_service.py),
+# enforced on every pipeline-run teardown alongside the MCP-artifact/plan-snapshot cleanup.
+EXECUTION_RETENTION_PER_TEST = 20
+SCREENSHOT_RETENTION_DAYS = 30
