@@ -18,6 +18,7 @@ BACKEND_ROOT = os.environ.get(
 )
 SESSION_PATH = os.path.join(PROJECT_ROOT, '.auth', 'session.json')
 SESSION_EXPIRY_SECONDS = 60 * 60 * 24
+DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'https://betadashboard.thepublive.com/v2')
 
 # Only these cookies actually carry the dashboard login. Transient cookies — Cloudflare's
 # __cf_bm (~30 min TTL, regenerated on every request) and analytics (posthog) — must NOT
@@ -51,7 +52,54 @@ def browser_type_launch_args(browser_type_launch_args):
 
 
 @pytest.fixture(scope='session', autouse=True)
-def _report_active_publisher():
+def _require_live_session():
+    """Abort the whole run up front unless the dashboard still accepts the stored session.
+
+    `_session_is_valid` can only see cookie presence + local expiry, and the dashboard revokes
+    sessions server-side long before that expiry. Without this gate a dead session runs all the way
+    through: every page is /login, so tests fail on sidebar nav links with `Element not found` and
+    look like per-test locator bugs. Failing here instead names the real cause once.
+
+    A liveness check that cannot reach the dashboard (offline, 5xx) is inconclusive, NOT a failure —
+    those runs proceed exactly as before.
+    """
+    if not _session_is_valid():
+        pytest.fail(
+            'No usable stored session at '
+            f'{SESSION_PATH} — its auth cookies are missing or expired, so every page would be the '
+            'login page. Re-run `python capture_session.py <EnvName>` from backend/ to refresh it '
+            '(a human must clear the email OTP).',
+            pytrace=False,
+        )
+
+    try:
+        import sys
+        if BACKEND_ROOT not in sys.path:
+            sys.path.insert(0, BACKEND_ROOT)
+        from utils.session_liveness import REVOKED, UNKNOWN, check_session
+    except Exception as exc:
+        print(f'[conftest] session liveness check unavailable ({exc}) — proceeding unverified')
+        return
+
+    state, detail = check_session(SESSION_PATH, DASHBOARD_URL)
+    if state == REVOKED:
+        pytest.fail(
+            f'The dashboard has revoked the stored session ({detail}). Its cookies still look '
+            'unexpired, which is why nothing upstream caught it — but every page in this run would '
+            'be the login page. Re-run `python capture_session.py <EnvName>` from backend/ to '
+            'refresh data/.auth/session.json, and on a deployed box scp the refreshed file up. '
+            'Capturing a new session invalidates the previous one, so only one machine can hold a '
+            'live session at a time.',
+            pytrace=False,
+        )
+    if state == UNKNOWN:
+        print(f'[conftest] could not confirm session liveness ({detail}) — proceeding anyway')
+    else:
+        print(f'[conftest] {detail}')
+
+
+@pytest.fixture(scope='session', autouse=True)
+def _report_active_publisher(_require_live_session):
     """Report which publisher the stored session is logged into — NEVER switch it.
 
     The dashboard is multi-publisher and the active org is decided by the session
@@ -61,15 +109,12 @@ def _report_active_publisher():
     Tests run against whatever publisher the session is on; to target a different one,
     log in with / supply a session for that publisher — the agent does not switch orgs.
     """
-    if not _session_is_valid():
-        print('[conftest] no valid stored session — tests will hit the login page')
-        return
-    base_url = os.environ.get('DASHBOARD_URL', 'https://betadashboard.thepublive.com/v2')
+    # _require_live_session has already proven the session is usable, so no re-check here.
     try:
         import sys
         sys.path.insert(0, BACKEND_ROOT)
         from pipeline.infrastructure.publisher import PublisherDetector
-        pub = PublisherDetector.detect(base_url, SESSION_PATH)
+        pub = PublisherDetector.detect(DASHBOARD_URL, SESSION_PATH)
     except Exception:
         pub = None
     if pub and pub.get('name'):
@@ -85,10 +130,9 @@ def _report_active_publisher():
 
 
 @pytest.fixture(scope='session')
-def browser_context_args(browser_context_args):
+def browser_context_args(browser_context_args, _require_live_session):
     args = dict(browser_context_args)
-    base_url = os.environ.get('DASHBOARD_URL', 'https://betadashboard.thepublive.com/v2')
-    args['base_url'] = base_url
+    args['base_url'] = DASHBOARD_URL
 
     if _session_is_valid():
         args['storage_state'] = SESSION_PATH

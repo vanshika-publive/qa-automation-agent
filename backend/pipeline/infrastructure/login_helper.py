@@ -7,6 +7,7 @@ from pathlib import Path
 
 from pipeline.constants import SESSION_EXPIRY_SECONDS, LOGIN_TIMEOUT_MS, LOGIN_PATH
 from pipeline.utils.credential_manager import CredentialManager
+from utils.session_liveness import REVOKED, UNKNOWN, check_session
 
 
 class SessionManager:
@@ -22,7 +23,24 @@ class SessionManager:
         os.makedirs(os.path.dirname(session_path), exist_ok=True)
 
         if SessionManager._stored_session_is_valid(session_path):
-            print('Existing session is still valid — reusing it (skipping re-login)')
+            # The cookies are present and unexpired, but only the dashboard can say whether it still
+            # accepts them — it revokes sessions server-side long before their `expires`. Without this
+            # check a revoked session is happily reused and all four stages run logged out.
+            state, detail = check_session(session_path, creds['dashboard_url'])
+            if state == REVOKED:
+                raise RuntimeError(
+                    f'The stored session has been revoked by the dashboard ({detail}). '
+                    'Its cookies still look unexpired, so nothing else will catch this — every stage '
+                    'would silently run logged out and fail on the login page. Re-run '
+                    '`python capture_session.py <EnvName>` from backend/ to refresh '
+                    'data/.auth/session.json (a human must clear the email OTP), and on a deployed '
+                    'box scp the refreshed file up. NOTE: capturing a new session invalidates the '
+                    'previous one, so only one machine can hold a live session at a time.'
+                )
+            if state == UNKNOWN:
+                print(f'[session] could not confirm session liveness ({detail}) — reusing it anyway')
+            else:
+                print(f'Existing session is still valid — reusing it (skipping re-login): {detail}')
             SessionManager._mirror_session_to_db(session_path)
             return
 
