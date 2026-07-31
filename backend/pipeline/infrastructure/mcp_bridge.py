@@ -47,9 +47,12 @@ class MCPBridge:
         # lets it work on a screenless container (Railway/Docker) instead of dying with "Missing X
         # server or $DISPLAY". @playwright/mcp exposes ONLY a --headless flag (there is no --headed
         # option), so HEADED=true simply OMITS --headless to watch the browser on your own display
-        # locally. --no-sandbox is required: @playwright/mcp forces chromiumSandbox=true for a plain
-        # 'chromium' browser on Linux, so as root the browser dies with "Running as root without
-        # --no-sandbox" unless we pass this.
+        # locally. --no-sandbox is required: unlike the pytest runner (where playwright-core disables
+        # the sandbox by default), @playwright/mcp forces chromiumSandbox=true for a plain 'chromium'
+        # browser on Linux, so as root the browser dies with "Running as root without --no-sandbox"
+        # unless we pass this. (--disable-dev-shm-usage is already in Playwright's default chromium
+        # switches, so it's handled automatically and must NOT be passed as an MCP CLI flag — the
+        # CLI would reject the unknown option and fail to launch.)
         headed = os.environ.get('HEADED', '').strip().lower() in ('true', '1', 'yes')
         launch_args = ['--no-sandbox'] + ([] if headed else ['--headless'])
 
