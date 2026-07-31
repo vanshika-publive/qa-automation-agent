@@ -306,7 +306,7 @@ function RunHistory({ history, currentId, retryMutation, deleteMutation }: {
   );
 }
 
-function FailureBanner({ exec }: { exec: ExecutionDetailData }) {
+function FailureBanner({ exec, screenshots }: { exec: ExecutionDetailData; screenshots: string[] }) {
   if (exec.status !== 'failed' || !exec.failureReason) return null;
   return (
     <section className="bg-error/5 border border-error/20 rounded-2xl p-5 mb-5">
@@ -328,6 +328,28 @@ function FailureBanner({ exec }: { exec: ExecutionDetailData }) {
             <pre className="mt-2 text-xs text-error bg-error/5 border border-error/15 rounded-lg px-3 py-2 whitespace-pre-wrap font-mono overflow-x-auto">
               {exec.failureLocator}
             </pre>
+          )}
+          {screenshots.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {screenshots.map((path) => {
+                const url = `/reports/${exec.reportDir}/${path}`;
+                return (
+                  <a
+                    key={path}
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Open failure screenshot"
+                  >
+                    <img
+                      src={url}
+                      alt="Failure screenshot"
+                      className="h-28 w-auto rounded-lg border border-error/20 hover:opacity-80 transition-opacity"
+                    />
+                  </a>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
@@ -547,7 +569,7 @@ export default function ExecutionDetail() {
         </div>
       </div>
 
-      <FailureBanner exec={exec} />
+      <FailureBanner exec={exec} screenshots={files?.screenshots ?? []} />
       {exec.status === 'failed' && files?.planContent && (
         <CorrectiveReplanPanel exec={exec} planContent={files.planContent} />
       )}

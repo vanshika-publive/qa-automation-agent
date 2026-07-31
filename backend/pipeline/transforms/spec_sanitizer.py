@@ -66,6 +66,21 @@ def sanitize_spec(code: str, scenario_name: str) -> str:
         out,
     )
 
+    # The dashboard top bar carries a "Quick Create" button, and name= is a SUBSTRING match, so
+    # get_by_role('button', name='Create') resolves to 2 elements -- the page's own Create button plus
+    # Quick Create -- and dies on a strict-mode violation before any work happens (confirmed live
+    # 2026-07-30 on Configuration -> Reader: 'resolved to 2 elements: <button aria-label="Create"
+    # class="... create-redirect popover"> / <button title="Quick Create">').
+    # No page's real create button is named exactly "Create" AND meant to be substring-matched, so add
+    # exact=True unconditionally. The pattern requires the closing ')' right after the name string, so
+    # a call that already passes exact= (or any other kwarg) does not match and is left untouched.
+    out = re.sub(
+        r"get_by_role\(\s*(['\"])button\1\s*,\s*name\s*=\s*(['\"])Create\2\s*\)",
+        lambda m: f"get_by_role({m.group(1)}button{m.group(1)}, "
+                  f"name={m.group(2)}Create{m.group(2)}, exact=True)",
+        out,
+    )
+
     # Fixed/sticky-column lists (e.g. LiveBlog) render each action cell twice, so
     # .locator('.published-action-dropdown') resolves to two buttons and fails strict mode.
     # Append .first. Skipped when already qualified with .first/.last/.nth.

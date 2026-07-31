@@ -127,6 +127,12 @@ PUBLISHED LIST (/posts/published — articles: /posts/published?page_type=Articl
   asserting the row's badge: expect(row.get_by_title('Featured Post')).to_be_visible(timeout=15000)
   (the title is 'Featured Post', NOT 'Featured').
   Always use page.locator('tr').filter(has_text=title) to locate a row.
+- TO CREATE (a page's own "Create" button): exact=True is MANDATORY.
+    page.get_by_role('button', name='Create', exact=True).click()
+  The dashboard top bar has a global <button title="Quick Create">, and name= is a SUBSTRING match, so a
+  bare name='Create' resolves to 2 elements and raises a strict-mode violation on the first click, before
+  anything is created (confirmed failure 2026-07-30, Configuration -> Reader). Never omit exact=True here,
+  even if the plan step writes name='Create' without it.
 - TO EDIT (pencil icon — navigates to the edit form at /posts/<type>/edit/<id>):
   "Edit" is a DIRECT icon in the row, NOT a kebab menu item. Always scope to the row and use exact=True:
     row = page.locator('tr').filter(has_text=title)

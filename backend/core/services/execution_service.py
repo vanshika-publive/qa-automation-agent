@@ -167,6 +167,26 @@ class ExecutionService:
         }
 
     @staticmethod
+    def list_screenshots(report_dir: str, project_root: str) -> list:
+        """Paths (relative to `reports/<report_dir>/`) of failure screenshots pytest-playwright
+        wrote under `test-results/` (`--screenshot=only-on-failure`, see runner_service.py).
+        Disk-only, like the HTML report — not mirrored into ArtifactStore/Postgres. Sorted for
+        stable ordering across requests."""
+        if not report_dir:
+            return []
+        test_results_dir = os.path.join(project_root, 'reports', report_dir, 'test-results')
+        if not os.path.isdir(test_results_dir):
+            return []
+        report_root = os.path.join(project_root, 'reports', report_dir)
+        screenshots = []
+        for root, _dirs, files in os.walk(test_results_dir):
+            for fname in files:
+                if fname.lower().endswith('.png'):
+                    abs_path = os.path.join(root, fname)
+                    screenshots.append(os.path.relpath(abs_path, report_root).replace('\\', '/'))
+        return sorted(screenshots)
+
+    @staticmethod
     def results_as_steps(report_dir: str, project_root: str) -> list:
         """Per-test results reshaped into the snake_case `/steps` endpoint contract."""
         results = ExecutionService.parse_results_json(report_dir, project_root) or []

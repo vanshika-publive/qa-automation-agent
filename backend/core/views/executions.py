@@ -131,7 +131,13 @@ class ExecutionFilesView(APIView):
                     plan_content = Path(plan_path).read_text(encoding='utf-8')
                 except Exception:
                     pass
-        return Response({'specFilename': spec_filename, 'specContent': spec_content, 'planContent': plan_content})
+        screenshots = ExecutionService.list_screenshots(obj.report_dir, PROJECT_ROOT)
+        return Response({
+            'specFilename': spec_filename,
+            'specContent': spec_content,
+            'planContent': plan_content,
+            'screenshots': screenshots,
+        })
 
 
 class ExecutionStreamView(APIView):

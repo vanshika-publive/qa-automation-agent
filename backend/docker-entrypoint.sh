@@ -3,23 +3,26 @@ set -e
 
 # Headed Chromium (HEADED=true) needs an X display, which a Railway container lacks.
 # Start a virtual framebuffer and point DISPLAY at it. The Django server — and every
-# child it spawns, including the pytest runner — inherits this DISPLAY, so headed
-# browser launches render into Xvfb instead of dying with "Missing X server or $DISPLAY".
+# child it spawns (the pytest runner AND the @playwright/mcp planner/generator
+# browsers) — inherits this DISPLAY, so all browsers render into Xvfb on :99 instead
+# of dying with "Missing X server or $DISPLAY".
 Xvfb :99 -screen 0 1280x800x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
 export DISPLAY=:99
 
-# WebRTC live-view (opt-in via LIVE_VIEW_ENABLED). When on: force HEADED so the MCP
-# planner/generator browsers AND the pytest runner render into Xvfb :99 (otherwise they
-# run headless and there is nothing to capture), then start the standalone streamer
-# (live_view/webrtc_server.py) in the background. It exposes WebSocket signaling on
-# :${LIVE_VIEW_PORT:-8001}; the Django server below is unaffected either way.
-case "${LIVE_VIEW_ENABLED:-}" in
-  1|true|TRUE|yes|YES)
-    export HEADED=true
-    echo "[entrypoint] live-view ENABLED — headed browsers + WebRTC streamer on :${LIVE_VIEW_PORT:-8001}"
-    python -m live_view >/tmp/live_view.log 2>&1 &
-    ;;
-esac
+# Live view (opt-in): export the :99 display over HTTP via VNC so the whole pipeline's
+# browsing can be watched in a browser at http://<host>:6080/vnc.html. OFF by default —
+# every browser here is logged into the live dashboard, so require VNC_ENABLED=true AND
+# a VNC_PASSWORD before exposing anything.
+if [ "$VNC_ENABLED" = "true" ] && [ -n "$VNC_PASSWORD" ]; then
+    x11vnc -storepasswd "$VNC_PASSWORD" /tmp/.x11vnc.pass >/dev/null 2>&1\
+    x11vnc -display :99 -rfbauth /tmp/.x11vnc.pass -forever -shared -rfbport 5900 \
+        -noxdamage -bg -o /tmp/x11vnc.log
+    websockify --web=/usr/share/novnc "${NOVNC_PORT:-6080}" localhost:5900 \
+        >/tmp/novnc.log 2>&1 &
+    echo "[entrypoint] noVNC live view ENABLED on :${NOVNC_PORT:-6080} (/vnc.html)"
+else
+    echo "[entrypoint] noVNC live view disabled (set VNC_ENABLED=true + VNC_PASSWORD to enable)"
+fi
 
 python manage.py makemigrations --noinput
 python manage.py migrate --fake-initial --noinput

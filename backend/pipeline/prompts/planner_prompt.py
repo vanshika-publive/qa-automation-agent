@@ -85,6 +85,11 @@ PUBLISHED LIST (/posts/published — for articles: /posts/published?page_type=Ar
   HAS a featured image, so a featuring scenario MUST create its own article WITH a featured image first (see Article
   Create facts: get_by_text('Add Featured Image') -> pick first .ant-card-body -> 'Insert Image'). Success shows a
   title="Featured Post" badge on the row: assert get_by_title('Featured Post'), never get_by_title('Featured').
+- CRITICAL: a page's own "Create" button ALWAYS needs exact=True:
+    page.get_by_role('button', name='Create', exact=True).click()
+  The top bar carries a global <button title="Quick Create">, and name= is a SUBSTRING match, so a bare
+  name='Create' resolves to 2 elements and dies on a strict-mode violation on the very first click
+  (confirmed failure 2026-07-30, Configuration -> Reader). Never write name='Create' without exact=True.
 - CRITICAL: NEVER use get_by_role('row', name=...) — Ant Design <tr> elements have no accessible name, always times out.
   Always use page.locator('tr').filter(has_text=title) to locate a row by content.
 - TO EDIT (pencil icon — navigates to /posts/<type>/edit/<id>):

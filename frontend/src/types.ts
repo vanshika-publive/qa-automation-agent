@@ -90,6 +90,7 @@ export interface ExecutionFiles {
   specFilename: string | null;
   specContent: string | null;
   planContent: string | null;
+  screenshots: string[];
 }
 
 export interface PlanningMemoryEntry {

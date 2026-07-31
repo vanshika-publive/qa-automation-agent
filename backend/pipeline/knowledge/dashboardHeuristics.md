@@ -271,6 +271,12 @@ row = page.locator('tr').filter(has=page.get_by_role('button', name='Edit', exac
 row.get_by_role('button', name='Edit', exact=True).click()
 ```
 
+**A page's own "Create" button ALWAYS needs `exact=True` — the top bar has a global "Quick Create".** Because `name=` is a substring match, `get_by_role('button', name='Create')` matches both the page's Create button (`<button aria-label="Create" class="... create-redirect popover">`) and the top-bar `<button title="Quick Create">` → `strict mode violation: resolved to 2 elements`, which kills the run on the first click before anything is created (confirmed live 2026-07-30, Configuration → Reader). **Always**:
+```python
+page.get_by_role('button', name='Create', exact=True).click()
+```
+**Never** write a bare `name='Create'`. This applies on every list/hub page that has a Create button, and to plan steps as well as generated specs. (`spec_sanitizer.py` adds `exact=True` deterministically as a backstop, but write it correctly in the first place.)
+
 **Categories list specifically has NO kebab menu** — the per-row Delete control is an icon with `title="Delete"`, not a kebab dropdown and not a `<button>` with accessible name "Delete". Click it **scoped to the row** (one match, so `exact`/`.last` are unnecessary):
 ```python
 row.get_by_title('Delete').click()
